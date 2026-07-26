@@ -14,7 +14,7 @@ import {
 } from "react";
 
 import { useAuth } from "../context/AuthContext";
-import UserDrawer from "../components/users/UserDrawer";
+import UserDrawer from "../components/Users/UserDrawer";
 import { profileService } from "../services/profileService";
 import "../styles/Users.css";
 
