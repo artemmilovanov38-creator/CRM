@@ -6,6 +6,7 @@ import {
 } from "react-router-dom";
 
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import MailingContacts from "./pages/MailingContacts";
 import AppLayout from "./components/layout/AppLayout";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import ApplicationDetails from "./pages/ApplicationDetails";
@@ -44,6 +45,10 @@ export default function App() {
             }
           >
             <Route
+  path="/mailings/:mailingId"
+  element={<MailingContacts />}
+/>
+            <Route
               path="/"
               element={
                 <Navigate to="/dashboard" replace />
@@ -70,14 +75,26 @@ export default function App() {
 />
 
             <Route
-              path="/managers"
-              element={<Managers />}
-            />
+  path="/managers"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <Managers />
+    </ProtectedRoute>
+  }
+/>
 
             <Route
-              path="/managers/:managerId"
-              element={<ManagerDetails />}
-            />
+  path="/managers/:managerId"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <ManagerDetails />
+    </ProtectedRoute>
+  }
+/>
 
             <Route
               path="/mailings"
@@ -89,15 +106,27 @@ export default function App() {
               element={<MailingDetails />}
             />
 
-            <Route
-              path="/salaries"
-              element={<Salaries />}
-            />
+           <Route
+  path="/salaries"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <Salaries />
+    </ProtectedRoute>
+  }
+/>
 
             <Route
-              path="/reports"
-              element={<Reports />}
-            />
+  path="/reports"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <Reports />
+    </ProtectedRoute>
+  }
+/>
 
            <Route
   path="/users"
@@ -107,11 +136,16 @@ export default function App() {
     </ProtectedRoute>
   }
 />
-
-            <Route
-              path="/settings"
-              element={<Settings />}
-            />
+<Route
+  path="/settings"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <Settings />
+    </ProtectedRoute>
+  }
+/>
           </Route>
 
           <Route

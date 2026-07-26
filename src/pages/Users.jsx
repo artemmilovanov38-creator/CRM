@@ -14,12 +14,13 @@ import {
 } from "react";
 
 import { useAuth } from "../context/AuthContext";
+import UserDrawer from "../components/users/UserDrawer";
 import { profileService } from "../services/profileService";
 import "../styles/Users.css";
 
 const roleLabels = {
   admin: "Администратор",
-  leader: "Руководитель",
+  head: "Руководитель",
   manager: "Менеджер",
   intern: "Стажёр",
 };
@@ -46,13 +47,186 @@ export default function Users() {
   const [updatingUserId, setUpdatingUserId] =
     useState(null);
 
+    const [isDrawerLoading, setIsDrawerLoading] =
+  useState(false);
+
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] =
     useState("");
 
+    const [selectedUser, setSelectedUser] =
+  useState(null);
+
+const [isUserDrawerOpen, setIsUserDrawerOpen] =
+  useState(false);
+
+function handleOpenCreateUser() {
+  setSelectedUser(null);
+  setError("");
+  setSuccessMessage("");
+  setIsUserDrawerOpen(true);
+}
+
+function handleOpenUser(profile) {
+  setSelectedUser(profile);
+  setError("");
+  setSuccessMessage("");
+  setIsUserDrawerOpen(true);
+}
+
+function handleCloseUserDrawer() {
+  if (updatingUserId || isDrawerLoading) {
+    return;
+  }
+
+  setIsUserDrawerOpen(false);
+  setSelectedUser(null);
+}
+
   useEffect(() => {
     loadUsers();
   }, []);
+
+  async function handleCreateUser(values) {
+  setIsDrawerLoading(true);
+  setError("");
+  setSuccessMessage("");
+
+  const {
+    data,
+    error: createError,
+    warning,
+  } = await profileService.createUser(values);
+
+  if (createError) {
+    console.error(
+      "Ошибка создания пользователя:",
+      createError
+    );
+
+    setError(
+      createError.message ||
+        "Не удалось создать пользователя"
+    );
+
+    setIsDrawerLoading(false);
+    return;
+  }
+
+  if (data) {
+    setUsers((currentUsers) => [
+      data,
+      ...currentUsers,
+    ]);
+  } else {
+    await loadUsers();
+  }
+
+  setIsUserDrawerOpen(false);
+  setSelectedUser(null);
+  setIsDrawerLoading(false);
+
+  setSuccessMessage(
+    warning ||
+      `Сотрудник ${
+        data?.full_name || values.full_name
+      } успешно создан`
+  );
+}
+
+async function handleSaveUser(profile, values) {
+  setIsDrawerLoading(true);
+  setError("");
+  setSuccessMessage("");
+
+  const { data, error } =
+    await profileService.updateProfile(
+      profile.id,
+      values
+    );
+
+  if (error) {
+    console.error(error);
+
+    setError(
+      "Не удалось сохранить изменения"
+    );
+
+    setIsDrawerLoading(false);
+    return;
+  }
+
+  setUsers((currentUsers) =>
+    currentUsers.map((user) =>
+      user.id === profile.id ? data : user
+    )
+  );
+
+  setSelectedUser(data);
+
+  setSuccessMessage(
+    "Изменения успешно сохранены"
+  );
+
+  setIsDrawerLoading(false);
+}
+
+async function handleDeleteUser(profile) {
+  if (!profile?.id) {
+    return;
+  }
+
+  if (profile.id === currentUser?.id) {
+    setError(
+      "Нельзя удалить собственный аккаунт"
+    );
+
+    return;
+  }
+
+  setIsDrawerLoading(true);
+  setError("");
+  setSuccessMessage("");
+
+  const {
+    data,
+    error: deleteError,
+  } = await profileService.deleteUser(
+    profile.id
+  );
+
+  if (deleteError) {
+    console.error(
+      "Ошибка удаления пользователя:",
+      deleteError
+    );
+
+    setError(
+      deleteError.message ||
+        "Не удалось удалить пользователя"
+    );
+
+    setIsDrawerLoading(false);
+    return;
+  }
+
+  setUsers((currentUsers) =>
+    currentUsers.filter(
+      (user) => user.id !== profile.id
+    )
+  );
+
+  setIsUserDrawerOpen(false);
+  setSelectedUser(null);
+  setIsDrawerLoading(false);
+
+  setSuccessMessage(
+    data?.warning ||
+      `Сотрудник ${
+        profile.full_name || profile.email
+      } удалён`
+  );
+}
 
   async function loadUsers() {
     setIsLoading(true);
@@ -264,14 +438,24 @@ export default function Users() {
           </p>
         </div>
 
-        <button
-          className="users-page__refresh"
-          type="button"
-          onClick={loadUsers}
-          disabled={isLoading}
-        >
-          Обновить
-        </button>
+       <div className="users-page__header-actions">
+  <button
+    className="users-page__refresh"
+    type="button"
+    onClick={loadUsers}
+    disabled={isLoading}
+  >
+    Обновить
+  </button>
+
+  <button
+    className="users-page__create"
+    type="button"
+    onClick={handleOpenCreateUser}
+  >
+    + Новый сотрудник
+  </button>
+</div>
       </section>
 
       <section className="users-stats">
@@ -342,17 +526,15 @@ export default function Users() {
               Администраторы
             </option>
 
-            <option value="leader">
-              Руководители
-            </option>
+            <option value="head">
+  Руководители
+</option>
 
             <option value="manager">
               Менеджеры
             </option>
 
-            <option value="intern">
-              Стажёры
-            </option>
+            
           </select>
 
           <select
@@ -422,7 +604,11 @@ export default function Users() {
                   return (
                     <tr key={profile.id}>
                       <td>
-                        <div className="users-table__person">
+                        <button
+  className="users-table__person users-table__person-button"
+  type="button"
+  onClick={() => handleOpenUser(profile)}
+>
                           <div className="users-table__avatar">
                             {getInitials(
                               profile.full_name
@@ -445,7 +631,7 @@ export default function Users() {
                               </small>
                             )}
                           </div>
-                        </div>
+                        </button>
                       </td>
 
                       <td>
@@ -467,17 +653,15 @@ export default function Users() {
                             Администратор
                           </option>
 
-                          <option value="leader">
-                            Руководитель
-                          </option>
+                         <option value="head">
+  Руководитель
+</option>
 
                           <option value="manager">
                             Менеджер
                           </option>
 
-                          <option value="intern">
-                            Стажёр
-                          </option>
+                          
                         </select>
                       </td>
 
@@ -532,7 +716,22 @@ export default function Users() {
           </div>
         )}
       </section>
-    </main>
+
+<UserDrawer
+  isOpen={isUserDrawerOpen}
+  profile={selectedUser}
+  currentUserId={currentUser?.id}
+  actionLoading={
+    Boolean(updatingUserId) ||
+    isDrawerLoading
+  }
+  onClose={handleCloseUserDrawer}
+  onCreate={handleCreateUser}
+  onDelete={handleDeleteUser}
+  onSave={handleSaveUser}
+  onToggleStatus={handleStatusToggle}
+/>
+</main>
   );
 }
 

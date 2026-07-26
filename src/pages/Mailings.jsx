@@ -6,6 +6,7 @@ import {
 } from "react";
 import "../styles/Mailings.css";
 import { useNavigate } from "react-router-dom";
+import ImportContactsModal from "../components/mailings/ImportContactsModal";
 import { mailingService } from "../services/mailingService";
 import { profileService } from "../services/profileService";
 
@@ -95,21 +96,22 @@ function getManagerName(manager) {
   );
 }
 const initialMailingForm = {
-  title: "",
-  channel: "WhatsApp",
-  source: "",
-  manager_id: "",
+  name: "",
+  supplier: "",
+  purchase_cost: "",
+  mailing_method: "Telegram",
   status: "draft",
-  message: "",
-  uploaded: 0,
-  scheduled_at: "",
+  comment: "",
+  started_at: "",
 };
 
 export default function Mailings() {
   const navigate = useNavigate();
+  
   const [mailingsData, setMailingsData] = useState([]);
 const [loading, setLoading] = useState(true);
 const [loadError, setLoadError] = useState("");
+const [importMailing, setImportMailing] = useState(null);
 
   const [searchValue, setSearchValue] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -152,9 +154,7 @@ useEffect(() => {
   loadMailings();
 }, [loadMailings]);
 
-useEffect(() => {
-  console.log("MAILINGS:", mailingsData);
-}, [mailingsData]);
+
 
 const openCreateModal = () => {
   setMailingForm(initialMailingForm);
@@ -181,28 +181,69 @@ const handleMailingFormChange = (event) => {
   }));
 };
 
+const handleOpenImport = (mailing) => {
+  setImportMailing(mailing);
+};
+
+const handleCloseImport = () => {
+  setImportMailing(null);
+};
+
+const handleContactsImported = async () => {
+  await loadMailings();
+};
+
 const handleCreateMailing = async (event) => {
   event.preventDefault();
 
-  if (!mailingForm.title.trim()) {
-    setCreateError("Укажи название рассылки.");
-    return;
-  }
+  if (!mailingForm.name.trim()) {
+  setCreateError("Укажи название партии.");
+  return;
+}
 
-  if (!mailingForm.channel) {
-    setCreateError("Выбери канал рассылки.");
-    return;
-  }
+if (!mailingForm.supplier.trim()) {
+  setCreateError("Укажи поставщика лидов.");
+  return;
+}
+
+if (
+  mailingForm.purchase_cost === "" ||
+  Number(mailingForm.purchase_cost) < 0
+) {
+  setCreateError("Укажи корректную стоимость закупки.");
+  return;
+}
+
+if (!mailingForm.mailing_method) {
+  setCreateError("Выбери метод рассылки.");
+  return;
+}
 
   setIsCreating(true);
   setCreateError("");
 
-  const { data, error } = await mailingService.createMailing({
+  const { data, error } =
+  await mailingService.createMailing({
     ...mailingForm,
-    uploaded: Number(mailingForm.uploaded || 0),
-    scheduled_at: mailingForm.scheduled_at
-      ? new Date(mailingForm.scheduled_at).toISOString()
+
+    purchase_cost: Number(
+      mailingForm.purchase_cost || 0
+    ),
+
+    started_at: mailingForm.started_at
+      ? new Date(
+          mailingForm.started_at
+        ).toISOString()
       : null,
+
+    total_leads: 0,
+    telegram_found_count: 0,
+    telegram_not_found_count: 0,
+    distributed_count: 0,
+    sent_count: 0,
+    responded_count: 0,
+    applications_count: 0,
+    openings_count: 0,
   });
 
   if (error) {
@@ -301,7 +342,13 @@ useEffect(() => {
   new Date(first.created_at).getTime()
 );
     });
-  }, [searchValue, statusFilter, channelFilter, sortValue]);
+  }, [
+  mailingsData,
+  searchValue,
+  statusFilter,
+  channelFilter,
+  sortValue,
+]);
 
   const totals = useMemo(() => {
     return mailingsData.reduce(
@@ -397,8 +444,8 @@ if (loadError) {
   type="button"
   onClick={openCreateModal}
 >
-  <MailPlus size={17} />
-  Создать рассылку
+ <MailPlus size={17} />
+Создать партию
 </button>
 </div>
       </div>
@@ -723,15 +770,37 @@ if (loadError) {
                 </div>
               </div>
 
-              <button
-                className="mailing-open-button"
-                type="button"
-                onClick={() => navigate(`/mailings/${mailing.id}`)}
-              >
-                <BarChart3 size={16} />
-                Открыть аналитику
-                <ArrowUpRight size={16} />
-              </button>
+              <div className="mailing-card-actions">
+  <button
+    className="mailing-import-button"
+    type="button"
+    onClick={() => handleOpenImport(mailing)}
+  >
+    Импорт контактов
+  </button>
+
+  <button
+  type="button"
+  className="mailing-open-button"
+  onClick={() =>
+    navigate(`/mailings/${mailing.id}`)
+  }
+>
+  Открыть контакты
+</button>
+
+  <button
+    className="mailing-open-button"
+    type="button"
+    onClick={() =>
+      navigate(`/mailings/${mailing.id}`)
+    }
+  >
+    <BarChart3 size={16} />
+    Открыть аналитику
+    <ArrowUpRight size={16} />
+  </button>
+</div>
             </article>
           );
         })}
@@ -764,13 +833,13 @@ if (loadError) {
       <div className="mailing-modal-header">
         <div>
           <h2 id="create-mailing-title">
-            Создать рассылку
-          </h2>
+  Создать партию
+</h2>
 
-          <p>
-            Добавь новую кампанию и назначь ответственного
-            менеджера.
-          </p>
+<p>
+  Укажи информацию о закупке лидов. Контакты добавим
+  следующим шагом через импорт файла.
+</p>
         </div>
 
         <button
@@ -782,6 +851,7 @@ if (loadError) {
           ×
         </button>
       </div>
+     
 
       <form
         className="mailing-form"
@@ -789,120 +859,137 @@ if (loadError) {
       >
         <div className="mailing-form-grid">
           <label className="mailing-form-field mailing-form-field--full">
-            <span>Название рассылки *</span>
+  <span>Название партии *</span>
 
-            <input
-              type="text"
-              name="title"
-              value={mailingForm.title}
-              onChange={handleMailingFormChange}
-              placeholder="Например: WhatsApp — холодная база"
-              autoFocus
-            />
-          </label>
+  <input
+    type="text"
+    name="name"
+    value={mailingForm.name}
+    onChange={handleMailingFormChange}
+    placeholder="Например: Партия лидов 25 июля"
+    autoFocus
+  />
+</label>
 
-          <label className="mailing-form-field">
-            <span>Канал *</span>
+<label className="mailing-form-field">
+  <span>Поставщик лидов *</span>
 
-            <select
-              name="channel"
-              value={mailingForm.channel}
-              onChange={handleMailingFormChange}
-            >
-              <option value="WhatsApp">WhatsApp</option>
-              <option value="Telegram">Telegram</option>
-              <option value="ВКонтакте">ВКонтакте</option>
-              <option value="Email">Email</option>
-              <option value="SMS">SMS</option>
-            </select>
-          </label>
+  <input
+    type="text"
+    name="supplier"
+    value={mailingForm.supplier}
+    onChange={handleMailingFormChange}
+    placeholder="Например: Иван Иванов"
+  />
+</label>
 
-          <label className="mailing-form-field">
-            <span>Статус</span>
+<label className="mailing-form-field">
+  <span>Стоимость закупки, ₽ *</span>
 
-            <select
-              name="status"
-              value={mailingForm.status}
-              onChange={handleMailingFormChange}
-            >
-              <option value="draft">Черновик</option>
-              <option value="active">Активная</option>
-              <option value="paused">Приостановлена</option>
-              <option value="completed">Завершена</option>
-            </select>
-          </label>
+  <input
+    type="number"
+    name="purchase_cost"
+    min="0"
+    step="0.01"
+    value={mailingForm.purchase_cost}
+    onChange={handleMailingFormChange}
+    placeholder="50000"
+  />
+</label>
 
-          <label className="mailing-form-field">
-            <span>Источник базы</span>
+<label className="mailing-form-field">
+  <span>Метод рассылки *</span>
 
-            <input
-              type="text"
-              name="source"
-              value={mailingForm.source}
-              onChange={handleMailingFormChange}
-              placeholder="Собственная база"
-            />
-          </label>
+  <select
+    name="mailing_method"
+    value={mailingForm.mailing_method}
+    onChange={handleMailingFormChange}
+  >
+    <option value="Telegram">
+      Telegram
+    </option>
 
-          <label className="mailing-form-field">
-            <span>Ответственный менеджер</span>
+    <option value="WhatsApp">
+      WhatsApp
+    </option>
 
-            <select
-              name="manager_id"
-              value={mailingForm.manager_id}
-              onChange={handleMailingFormChange}
-            >
-              <option value="">Не назначен</option>
+    <option value="Ручная рассылка">
+      Ручная рассылка
+    </option>
 
-              {managers.map((manager) => (
-                <option
-                  key={manager.id}
-                  value={manager.id}
-                >
-                  {manager.full_name ||
-                    manager.name ||
-                    manager.email ||
-                    "Без имени"}
-                </option>
-              ))}
-            </select>
-          </label>
+    <option value="Telegram Bot">
+      Telegram Bot
+    </option>
 
-          <label className="mailing-form-field">
-            <span>Количество контактов</span>
+    <option value="Другое">
+      Другое
+    </option>
+  </select>
+</label>
 
-            <input
-              type="number"
-              name="uploaded"
-              min="0"
-              step="1"
-              value={mailingForm.uploaded}
-              onChange={handleMailingFormChange}
-            />
-          </label>
+<label className="mailing-form-field">
+  <span>Статус партии</span>
 
-          <label className="mailing-form-field">
-            <span>Дата запуска</span>
+  <select
+    name="status"
+    value={mailingForm.status}
+    onChange={handleMailingFormChange}
+  >
+    <option value="draft">
+      Черновик
+    </option>
 
-            <input
-              type="datetime-local"
-              name="scheduled_at"
-              value={mailingForm.scheduled_at}
-              onChange={handleMailingFormChange}
-            />
-          </label>
+    <option value="processing">
+      Обработка базы
+    </option>
 
-          <label className="mailing-form-field mailing-form-field--full">
-            <span>Текст рассылки</span>
+    <option value="ready">
+      Готова к рассылке
+    </option>
 
-            <textarea
-              name="message"
-              value={mailingForm.message}
-              onChange={handleMailingFormChange}
-              rows="6"
-              placeholder="Введите текст сообщения..."
-            />
-          </label>
+    <option value="active">
+      Активная
+    </option>
+
+    <option value="paused">
+      Приостановлена
+    </option>
+
+    <option value="completed">
+      Завершена
+    </option>
+  </select>
+</label>
+
+<label className="mailing-form-field mailing-form-field--full">
+  <span>Дата начала работы</span>
+
+  <input
+    type="datetime-local"
+    name="started_at"
+    value={mailingForm.started_at}
+    onChange={handleMailingFormChange}
+  />
+</label>
+
+<label className="mailing-form-field mailing-form-field--full">
+  <span>Комментарий</span>
+
+  <textarea
+    name="comment"
+    value={mailingForm.comment}
+    onChange={handleMailingFormChange}
+    rows="5"
+    placeholder="Дополнительная информация о партии, условиях закупки или поставщике..."
+  />
+</label>
+
+<div className="mailing-form-field mailing-form-field--full">
+  <div className="settings-info-box">
+    Количество контактов будет рассчитано автоматически
+    после импорта Excel или CSV.
+  </div>
+</div>
         </div>
 
         {createError && (
@@ -928,14 +1015,25 @@ if (loadError) {
           >
             <MailPlus size={17} />
 
-            {isCreating
-              ? "Создание..."
-              : "Создать рассылку"}
+           {isCreating
+  ? "Создание..."
+  : "Создать партию"}
           </button>
         </div>
       </form>
     </section>
   </div>
+)}
+{importMailing && (
+  <ImportContactsModal
+    mailingId={importMailing.id}
+    mailingName={
+      importMailing.name ||
+      importMailing.title
+    }
+    onClose={handleCloseImport}
+    onImported={handleContactsImported}
+  />
 )}
     </main>
   );

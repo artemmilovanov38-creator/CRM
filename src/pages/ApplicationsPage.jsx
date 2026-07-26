@@ -22,10 +22,11 @@ import {
 } from "react";
 
 import "../styles/Applications.css";
-import { useNavigate } from "react-router-dom";
+
 
 import { applicationService } from "../services/applicationService";
 import { profileService } from "../services/profileService";
+import ApplicationDrawer from "../components/applications/ApplicationDrawer";
 
 const statusOptions = [
   {
@@ -75,7 +76,7 @@ const initialForm = {
 export default function Applications() {
   const [applications, setApplications] =
     useState([]);
-    const navigate = useNavigate();
+  
 
   const [managers, setManagers] = useState([]);
 
@@ -95,6 +96,17 @@ export default function Applications() {
 
   const [isModalOpen, setIsModalOpen] =
     useState(false);
+
+    const [
+  selectedApplication,
+  setSelectedApplication,
+] = useState(null);
+
+const [isDrawerOpen, setIsDrawerOpen] =
+  useState(false);
+
+const [drawerLoading, setDrawerLoading] =
+  useState(false);
 
   const [form, setForm] = useState(initialForm);
 
@@ -243,6 +255,22 @@ const [
     };
   }, [applications]);
 
+
+  function openApplicationDrawer(application) {
+  setSelectedApplication(application);
+  setIsDrawerOpen(true);
+  setError("");
+  setSuccessMessage("");
+}
+
+function closeApplicationDrawer() {
+  if (drawerLoading) {
+    return;
+  }
+
+  setIsDrawerOpen(false);
+  setSelectedApplication(null);
+}
   function openCreateModal() {
     setForm(initialForm);
     setError("");
@@ -435,6 +463,125 @@ const [
         : "Менеджер снят с заявки"
     );
   }
+
+  async function handleSaveApplication(
+  application,
+  form
+)
+
+{
+  if (!application?.id || drawerLoading) {
+    return;
+  }
+
+  setDrawerLoading(true);
+  setError("");
+  setSuccessMessage("");
+
+  const updates = {
+    full_name: form.full_name.trim(),
+
+    phone:
+      form.phone.trim() || null,
+
+    telegram:
+      form.telegram.trim() || null,
+
+    source:
+      form.source.trim() || null,
+
+    product:
+      form.product.trim() || null,
+
+    status: form.status,
+
+    assigned_manager_id:
+      form.assigned_manager_id || null,
+
+    amount:
+      form.amount === ""
+        ? null
+        : Number(form.amount),
+
+    comment:
+      form.comment.trim() || null,
+  };
+
+  const { data, error: updateError } =
+    await applicationService.updateApplication(
+      application.id,
+      updates
+    );
+
+  if (updateError) {
+    console.error(
+      "Ошибка сохранения заявки:",
+      updateError
+    );
+
+    setError(
+      updateError.message ||
+        "Не удалось сохранить заявку"
+    );
+
+    setDrawerLoading(false);
+    return;
+  }
+
+  setApplications((currentApplications) =>
+    currentApplications.map((item) =>
+      item.id === application.id
+        ? data
+        : item
+    )
+  );
+
+  setSelectedApplication(data);
+  setSuccessMessage("Заявка сохранена");
+  setDrawerLoading(false);
+}
+async function handleDeleteApplication(
+  application
+) {
+  if (!application?.id || drawerLoading) {
+    return;
+  }
+
+  setDrawerLoading(true);
+  setError("");
+  setSuccessMessage("");
+
+  const { error: deleteError } =
+    await applicationService.deleteApplication(
+      application.id
+    );
+
+  if (deleteError) {
+    console.error(
+      "Ошибка удаления заявки:",
+      deleteError
+    );
+
+    setError(
+      deleteError.message ||
+        "Не удалось удалить заявку"
+    );
+
+    setDrawerLoading(false);
+    return;
+  }
+
+  setApplications((currentApplications) =>
+    currentApplications.filter(
+      (item) => item.id !== application.id
+    )
+  );
+
+  setDrawerLoading(false);
+  setIsDrawerOpen(false);
+  setSelectedApplication(null);
+  setSuccessMessage("Заявка удалена");
+}
 
   function handleDragStart(event, applicationId) {
   setDraggedApplicationId(applicationId);
@@ -726,11 +873,9 @@ async function handleColumnDrop(event, newStatus) {
     onManagerChange={
       handleManagerChange
     }
-    onOpenApplication={(applicationId) =>
-      navigate(
-        `/applications/${applicationId}`
-      )
-    }
+    onOpenApplication={(application) =>
+  openApplicationDrawer(application)
+}
   />
 ) : (
   <div className="applications-table-wrapper">
@@ -754,9 +899,7 @@ async function handleColumnDrop(event, newStatus) {
   key={application.id}
   className="application-table-row"
   onClick={() =>
-    navigate(
-      `/applications/${application.id}`
-    )
+    openApplicationDrawer(application)
   }
 >
                       <td>
@@ -1095,6 +1238,16 @@ async function handleColumnDrop(event, newStatus) {
           </section>
         </div>
       )}
+
+      <ApplicationDrawer
+  application={selectedApplication}
+  isOpen={isDrawerOpen}
+  managers={managers}
+  actionLoading={drawerLoading}
+  onClose={closeApplicationDrawer}
+  onSave={handleSaveApplication}
+  onDelete={handleDeleteApplication}
+/>
     </main>
   );
 }
@@ -1206,10 +1359,8 @@ function ApplicationsKanban({
                         }
                         onDragEnd={onDragEnd}
                         onClick={() =>
-                          onOpenApplication(
-                            application.id
-                          )
-                        }
+  onOpenApplication(application)
+}
                       >
                         <div className="applications-kanban-card__top">
                           <div className="applications-kanban-card__client">

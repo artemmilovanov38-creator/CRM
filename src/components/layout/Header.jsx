@@ -34,36 +34,43 @@ const navigation = [
     title: "Дашборд",
     icon: BarChart3,
     path: "/dashboard",
+    roles: ["admin", "head", "manager"],
   },
   {
     title: "Входящий поток",
     icon: Send,
     path: "/incoming",
+    roles: ["admin", "head", "manager"],
   },
   {
     title: "Заявки",
     icon: FileText,
     path: "/applications",
+    roles: ["admin", "head", "manager"],
   },
   {
     title: "Менеджеры",
     icon: Users,
     path: "/managers",
+    roles: ["admin", "head"],
   },
   {
     title: "Рассылки",
     icon: PackageSearch,
     path: "/mailings",
+    roles: ["admin", "head", "manager"],
   },
   {
     title: "Расчёт зарплаты",
     icon: Calculator,
     path: "/salaries",
+    roles: ["admin", "head"],
   },
   {
     title: "Отчёты",
     icon: ChartNoAxesCombined,
     path: "/reports",
+    roles: ["admin", "head"],
   },
   {
     title: "Пользователи",
@@ -75,6 +82,7 @@ const navigation = [
     title: "Настройки",
     icon: Settings,
     path: "/settings",
+    roles: ["admin", "head"],
   },
 ];
 
@@ -373,11 +381,7 @@ export default function Header() {
                 "Пользователь"}
             </strong>
 
-            <span>
-              {user?.role === "admin"
-                ? "Администратор"
-                : user?.role || "Сотрудник"}
-            </span>
+           <span>{getRoleLabel(user?.role)}</span>
           </div>
         </div>
 
@@ -626,4 +630,15 @@ function formatNotificationDate(dateValue) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+
+
+}
+function getRoleLabel(role) {
+  const labels = {
+    admin: "Администратор",
+    head: "Руководитель",
+    manager: "Менеджер",
+  };
+
+  return labels[role] || "Сотрудник";
 }

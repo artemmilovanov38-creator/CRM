@@ -49,7 +49,7 @@ export const profileService = {
     .from("profiles")
     .select(PROFILE_FIELDS)
     .eq("id", managerId)
-    .in("role", ["manager", "leader"])
+    .in("role", ["manager", "head"])
     .maybeSingle();
 
   return {
@@ -76,7 +76,7 @@ export const profileService = {
   const { data, error } = await supabase
     .from("profiles")
     .select(PROFILE_FIELDS)
-    .in("role", ["manager", "leader"])
+   .in("role", ["manager", "head"])
     .order("full_name", {
       ascending: true,
     });
@@ -87,6 +87,147 @@ export const profileService = {
   };
 },
 
+async createUser(values) {
+
+  
+  const fullName = String(
+    values?.full_name || ""
+  ).trim();
+
+  const email = String(
+    values?.email || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const password = String(
+    values?.password || ""
+  );
+
+  const role = String(
+    values?.role || "manager"
+  );
+
+  if (!fullName) {
+    return {
+      data: null,
+      error: new Error(
+        "Укажите имя сотрудника"
+      ),
+    };
+  }
+
+  if (!email) {
+    return {
+      data: null,
+      error: new Error(
+        "Укажите email сотрудника"
+      ),
+    };
+  }
+
+  if (password.length < 8) {
+    return {
+      data: null,
+      error: new Error(
+        "Пароль должен содержать минимум 8 символов"
+      ),
+    };
+  }
+
+  const { data, error } =
+    await supabase.functions.invoke(
+      "create-user",
+      {
+        body: {
+          fullName,
+          email,
+          password,
+          role,
+        },
+      }
+    );
+
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  if (!data?.success) {
+    return {
+      data: null,
+      error: new Error(
+        data?.message ||
+          "Не удалось создать пользователя"
+      ),
+    };
+  }
+
+  const createdProfile = data.user;
+
+  if (!createdProfile?.id) {
+    return {
+      data: null,
+      error: new Error(
+        "Сервер не вернул созданного пользователя"
+      ),
+    };
+  }
+
+  return {
+  data: createdProfile,
+  error: null,
+};
+},
+
+
+async deleteUser(userId) {
+  if (!userId) {
+    return {
+      data: null,
+      error: new Error(
+        "Не передан ID пользователя"
+      ),
+    };
+  }
+
+  const { data, error } =
+    await supabase.functions.invoke(
+      "delete-user",
+      {
+        body: {
+          userId,
+        },
+      }
+    );
+
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  if (!data?.success) {
+    return {
+      data: null,
+      error: new Error(
+        data?.message ||
+          "Не удалось удалить пользователя"
+      ),
+    };
+  }
+
+  return {
+    data: {
+      userId: data.userId,
+      warning: data.warning || null,
+    },
+    error: null,
+  };
+},
   async updateProfile(userId, values) {
     if (!userId) {
       return {

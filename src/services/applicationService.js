@@ -10,6 +10,8 @@ const APPLICATION_FIELDS = `
   status,
   assigned_manager_id,
   created_by,
+  mailing_id,
+mailing_contact_id,
   amount,
   comment,
   created_at,
@@ -91,6 +93,10 @@ export const applicationService = {
 
   async createApplication(values) {
     const payload = {
+      mailing_id: values.mailing_id || null,
+
+mailing_contact_id:
+  values.mailing_contact_id || null,
       full_name: values.full_name.trim(),
       phone: values.phone?.trim() || null,
       telegram: values.telegram?.trim() || null,
@@ -131,6 +137,8 @@ export const applicationService = {
     const allowedFields = [
       "full_name",
       "phone",
+      "mailing_id",
+"mailing_contact_id",
       "telegram",
       "source",
       "product",
