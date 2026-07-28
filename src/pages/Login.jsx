@@ -267,25 +267,7 @@ export default function Login() {
             </button>
           </form>
 
-        <button
-  className="login-submit"
-  type="submit"
-  disabled={isSubmitting}
->
-  <span>
-    {isSubmitting
-      ? "Выполняется вход..."
-      : "Войти в систему"}
-  </span>
-
-  {!isSubmitting && <ArrowRight size={17} />}
-</button>
-</form>
-
-<p className="login-security">
-  <ShieldCheck size={14} />
-  Доступ разрешён только сотрудникам компании
-</p>
+        
 
           <p className="login-security">
             <ShieldCheck size={14} />
