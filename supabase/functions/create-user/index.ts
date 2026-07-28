@@ -42,6 +42,9 @@ Deno.serve(async (request) => {
     const authHeader =
       request.headers.get("Authorization");
 
+      const accessToken =
+  authHeader?.replace(/^Bearer\s+/i, "");
+
     if (!authHeader) {
       return createResponse(
         {
@@ -103,9 +106,11 @@ Deno.serve(async (request) => {
     );
 
     const {
-      data: { user: currentUser },
-      error: currentUserError,
-    } = await userClient.auth.getUser();
+  data: { user: currentUser },
+  error: currentUserError,
+} = await userClient.auth.getUser(
+  accessToken
+);
 
     if (currentUserError || !currentUser) {
       console.error(
