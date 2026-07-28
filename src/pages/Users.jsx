@@ -1,4 +1,5 @@
 import {
+  Plus,
   Search,
   ShieldCheck,
   UserCheck,
@@ -449,12 +450,13 @@ async function handleDeleteUser(profile) {
   </button>
 
   <button
-    className="users-page__create"
-    type="button"
-    onClick={handleOpenCreateUser}
-  >
-    + Новый сотрудник
-  </button>
+  className="users-page__create"
+  type="button"
+  onClick={handleOpenCreateUser}
+>
+  <Plus size={18} />
+  Новый сотрудник
+</button>
 </div>
       </section>
 

@@ -134,19 +134,47 @@ async createUser(values) {
       ),
     };
   }
+const {
+  data: sessionData,
+  error: sessionError,
+} = await supabase.auth.getSession();
 
-  const { data, error } =
-    await supabase.functions.invoke(
-      "create-user",
-      {
-        body: {
-          fullName,
-          email,
-          password,
-          role,
-        },
-      }
-    );
+if (sessionError) {
+  return {
+    data: null,
+    error: new Error(
+      "Не удалось получить текущую сессию"
+    ),
+  };
+}
+
+const accessToken =
+  sessionData?.session?.access_token;
+
+if (!accessToken) {
+  return {
+    data: null,
+    error: new Error(
+      "Сессия отсутствует. Выйдите из аккаунта и войдите снова."
+    ),
+  };
+}
+
+const { data, error } =
+  await supabase.functions.invoke(
+    "create-user",
+    {
+      body: {
+        fullName,
+        email,
+        password,
+        role,
+      },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
 
   if (error) {
     return {
