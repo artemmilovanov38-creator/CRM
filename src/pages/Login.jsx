@@ -27,8 +27,8 @@ export default function Login() {
   } = useAuth();
 
   const [form, setForm] = useState({
-  email: "admin@crm.ru",
-  password: "12345678",
+  email: "",
+  password: "",
   remember: true,
 });
 
@@ -267,12 +267,25 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="login-demo">
-            <strong>Демо-доступ</strong>
+        <button
+  className="login-submit"
+  type="submit"
+  disabled={isSubmitting}
+>
+  <span>
+    {isSubmitting
+      ? "Выполняется вход..."
+      : "Войти в систему"}
+  </span>
 
-            <span>admin@crm.ru</span>
-            <span>Пароль: 12345678</span>
-          </div>
+  {!isSubmitting && <ArrowRight size={17} />}
+</button>
+</form>
+
+<p className="login-security">
+  <ShieldCheck size={14} />
+  Доступ разрешён только сотрудникам компании
+</p>
 
           <p className="login-security">
             <ShieldCheck size={14} />
