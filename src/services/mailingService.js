@@ -64,6 +64,80 @@ function mapMailingFromDatabase(row) {
   };
 }
 
+function getContactStatistics(contacts = []) {
+  return contacts.reduce(
+    (statistics, contact) => {
+      statistics.uploaded += 1;
+
+      if (
+        contact.telegram_found === true ||
+        contact.telegram_username
+      ) {
+        statistics.telegramFound += 1;
+      }
+
+      if (
+        contact.telegram_found === false &&
+        !contact.telegram_username
+      ) {
+        statistics.telegramNotFound += 1;
+      }
+
+      if (
+        contact.sent_at ||
+        [
+          "sent",
+          "responded",
+          "application",
+          "opened",
+        ].includes(contact.status)
+      ) {
+        statistics.sent += 1;
+      }
+
+      if (
+        contact.responded_at ||
+        [
+          "responded",
+          "application",
+          "opened",
+        ].includes(contact.status)
+      ) {
+        statistics.responded += 1;
+      }
+
+      if (
+        contact.application_created_at ||
+        ["application", "opened"].includes(
+          contact.status
+        )
+      ) {
+        statistics.applications += 1;
+      }
+
+    if (contact.status === "opened") {
+        statistics.openings += 1;
+      }
+
+      if (contact.status === "rejected") {
+        statistics.rejected += 1;
+      }
+
+      return statistics;
+    },
+    {
+      uploaded: 0,
+      telegramFound: 0,
+      telegramNotFound: 0,
+      sent: 0,
+      responded: 0,
+      applications: 0,
+      openings: 0,
+      rejected: 0,
+    }
+  );
+}
+
 /**
  * Преобразуем данные формы Mailings.jsx
  * в настоящий формат таблицы Supabase.
@@ -158,20 +232,108 @@ export const mailingService = {
    * Получить все партии.
    */
   async getMailings() {
-    const { data, error } = await supabase
-      .from("mailings")
-      .select(MAILING_FIELDS)
-      .order("created_at", {
-        ascending: false,
-      });
+  const {
+    data: mailings,
+    error: mailingsError,
+  } = await supabase
+    .from("mailings")
+    .select(MAILING_FIELDS)
+    .order("created_at", {
+      ascending: false,
+    });
 
+  if (mailingsError) {
     return {
-      data: (data || []).map(
-        mapMailingFromDatabase
-      ),
-      error,
+      data: [],
+      error: mailingsError,
     };
-  },
+  }
+
+  if (!mailings?.length) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
+
+  const mailingIds = mailings.map(
+    (mailing) => mailing.id
+  );
+
+  const {
+    data: contacts,
+    error: contactsError,
+  } = await supabase
+    .from("mailing_contacts")
+    .select(`
+      id,
+      mailing_id,
+      status,
+      telegram_found,
+      telegram_username,
+      sent_at,
+      responded_at,
+      application_created_at
+    `)
+    .in("mailing_id", mailingIds);
+
+  if (contactsError) {
+    return {
+      data: [],
+      error: contactsError,
+    };
+  }
+
+  const contactsByMailing = (
+    contacts || []
+  ).reduce((result, contact) => {
+    if (!result[contact.mailing_id]) {
+      result[contact.mailing_id] = [];
+    }
+
+    result[contact.mailing_id].push(
+      contact
+    );
+
+    return result;
+  }, {});
+
+  const preparedMailings = mailings.map(
+    (mailing) => {
+      const statistics =
+        getContactStatistics(
+          contactsByMailing[mailing.id] || []
+        );
+
+      const mappedMailing =
+        mapMailingFromDatabase(mailing);
+
+      return {
+        ...mappedMailing,
+
+        uploaded: statistics.uploaded,
+        delivered: statistics.sent,
+        replied: statistics.responded,
+        applications:
+          statistics.applications,
+        openings: statistics.openings,
+
+        telegram_found:
+          statistics.telegramFound,
+
+        telegram_not_found:
+          statistics.telegramNotFound,
+
+        rejected: statistics.rejected,
+      };
+    }
+  );
+
+  return {
+    data: preparedMailings,
+    error: null,
+  };
+},
 
   /**
    * Получить одну партию.

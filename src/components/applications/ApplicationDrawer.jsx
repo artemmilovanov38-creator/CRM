@@ -91,6 +91,41 @@ function getTelegramLink(value) {
 
   return `https://t.me/${username}`;
 }
+function formatDate(value) {
+  if (!value) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatDays(sentAt, createdAt) {
+  if (!sentAt || !createdAt) {
+    return "—";
+  }
+
+  const diff =
+    new Date(createdAt) -
+    new Date(sentAt);
+
+  if (Number.isNaN(diff) || diff < 0) {
+    return "—";
+  }
+
+  const days = Math.floor(
+    diff / (1000 * 60 * 60 * 24)
+  );
+
+  return days === 0
+    ? "В тот же день"
+    : `${days} дн.`;
+}
 
 export default function ApplicationDrawer({
   application,
@@ -196,6 +231,59 @@ export default function ApplicationDrawer({
           className="application-drawer-content"
           onSubmit={handleSubmit}
         >
+
+          <section className="application-drawer-section">
+  <h3>История рассылки</h3>
+
+  <div className="application-history">
+
+    <div className="application-history-row">
+      <span>Дата рассылки</span>
+
+      <strong>
+        {formatDate(
+          application.mailing_contact?.sent_at
+        )}
+      </strong>
+    </div>
+
+    <div className="application-history-row">
+      <span>Дата отклика</span>
+
+      <strong>
+        {formatDate(
+          application.mailing_contact?.responded_at
+        )}
+      </strong>
+    </div>
+
+    <div className="application-history-row">
+      <span>Дата заявки</span>
+
+      <strong>
+        {formatDate(
+          application.mailing_contact
+            ?.application_created_at ||
+            application.created_at
+        )}
+      </strong>
+    </div>
+
+    <div className="application-history-row">
+      <span>До заявки</span>
+
+      <strong>
+        {formatDays(
+          application.mailing_contact?.sent_at,
+          application.mailing_contact
+            ?.application_created_at ||
+            application.created_at
+        )}
+      </strong>
+    </div>
+
+  </div>
+</section>
           <section className="application-drawer-section">
             <h3>Клиент</h3>
 

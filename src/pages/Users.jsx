@@ -605,33 +605,30 @@ async function handleDeleteUser(profile) {
                     <tr key={profile.id}>
                       <td>
                         <button
-  className="users-table__person users-table__person-button"
+  className="users-user-card"
   type="button"
   onClick={() => handleOpenUser(profile)}
 >
-                          <div className="users-table__avatar">
-                            {getInitials(
-                              profile.full_name
-                            )}
-                          </div>
+  <div className="users-user-card__avatar">
+    {getInitials(profile.full_name)}
+  </div>
 
-                          <div>
-                            <strong>
-                              {profile.full_name ||
-                                "Без имени"}
-                            </strong>
+  <div className="users-user-card__content">
+    <strong>
+      {profile.full_name || "Без имени"}
+    </strong>
 
-                            <span>
-                              {profile.email}
-                            </span>
+    <span>
+      {profile.email}
+    </span>
 
-                            {isCurrentUser && (
-                              <small>
-                                Ваш аккаунт
-                              </small>
-                            )}
-                          </div>
-                        </button>
+    {isCurrentUser && (
+      <div className="users-user-card__badge">
+        Ваш аккаунт
+      </div>
+    )}
+  </div>
+</button>
                       </td>
 
                       <td>

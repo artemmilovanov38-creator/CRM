@@ -12,6 +12,13 @@ const APPLICATION_FIELDS = `
   created_by,
   mailing_id,
 mailing_contact_id,
+mailing_contact:mailing_contacts (
+  id,
+  sent_at,
+  responded_at,
+  application_created_at,
+  telegram_username
+),
   amount,
   comment,
   created_at,
@@ -125,6 +132,196 @@ mailing_contact_id:
       error,
     };
   },
+  async createApplicationFromContact(
+  contact,
+  managerId = null
+) {
+  if (!contact) {
+    return {
+      data: null,
+      error: new Error(
+        "Не передан контакт для создания заявки"
+      ),
+    };
+  }
+
+  const telegramUsername = String(
+    contact.telegram_username || ""
+  ).trim();
+
+  if (!telegramUsername) {
+    return {
+      data: null,
+      error: new Error(
+        "У контакта не указан Telegram-ник"
+      ),
+    };
+  }
+
+  /*
+   * Сначала проверяем, не была ли заявка
+   * уже создана из этого контакта.
+   */
+  let duplicateQuery = supabase
+    .from("applications")
+    .select(APPLICATION_FIELDS)
+    .limit(1);
+
+  if (contact.id) {
+    duplicateQuery = duplicateQuery.eq(
+      "mailing_contact_id",
+      contact.id
+    );
+  } else {
+    duplicateQuery = duplicateQuery
+      .eq("mailing_id", contact.mailing_id)
+      .ilike("telegram", telegramUsername);
+  }
+
+  const {
+    data: existingApplications,
+    error: duplicateError,
+  } = await duplicateQuery;
+
+  if (duplicateError) {
+    return {
+      data: null,
+      error: duplicateError,
+    };
+  }
+
+  if (existingApplications?.length) {
+    return {
+      data: existingApplications[0],
+      error: null,
+      alreadyExists: true,
+    };
+  }
+
+  const applicationPayload = {
+    mailing_id: contact.mailing_id || null,
+
+    mailing_contact_id:
+      contact.id || null,
+
+    full_name:
+      contact.full_name?.trim() ||
+      telegramUsername,
+
+    phone:
+      contact.phone?.trim() || null,
+
+    telegram: telegramUsername,
+
+    source: "Telegram",
+
+    product:
+      contact.product?.trim() || null,
+
+    status: "new",
+
+    assigned_manager_id:
+      managerId ||
+      contact.manager_id ||
+      null,
+
+    amount: null,
+
+    comment:
+      "Заявка создана из входящего отклика",
+  };
+
+  const {
+    data: application,
+    error: createError,
+  } = await this.createApplication(
+    applicationPayload
+  );
+
+  if (createError) {
+    return {
+      data: null,
+      error: createError,
+    };
+  }
+
+  const applicationCreatedAt =
+    new Date().toISOString();
+
+  let contactUpdateQuery = supabase
+    .from("mailing_contacts")
+    .update({
+      application_created_at:
+        applicationCreatedAt,
+
+      status: "application",
+
+      manager_id:
+        managerId ||
+        contact.manager_id ||
+        null,
+    });
+
+  if (contact.id) {
+    contactUpdateQuery =
+      contactUpdateQuery.eq(
+        "id",
+        contact.id
+      );
+  } else {
+    contactUpdateQuery =
+      contactUpdateQuery
+        .eq(
+          "mailing_id",
+          contact.mailing_id
+        )
+        .ilike(
+          "telegram_username",
+          telegramUsername
+        );
+  }
+
+  const {
+    data: updatedContacts,
+    error: contactUpdateError,
+  } = await contactUpdateQuery.select(`
+    id,
+    mailing_id,
+    full_name,
+    phone,
+    telegram_username,
+    manager_id,
+    status,
+    sent_at,
+    responded_at,
+    application_created_at
+  `);
+
+  if (contactUpdateError) {
+    /*
+     * Если контакт не обновился,
+     * удаляем только что созданную заявку,
+     * чтобы данные не разошлись.
+     */
+    await supabase
+      .from("applications")
+      .delete()
+      .eq("id", application.id);
+
+    return {
+      data: null,
+      error: contactUpdateError,
+    };
+  }
+
+  return {
+    data: application,
+    contact:
+      updatedContacts?.[0] || null,
+    error: null,
+    alreadyExists: false,
+  };
+},
 
   async updateApplication(applicationId, values) {
     if (!applicationId) {

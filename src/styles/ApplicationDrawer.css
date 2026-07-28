@@ -289,3 +289,28 @@
     width: 100%;
   }
 }
+.application-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.application-history-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.03);
+}
+
+.application-history-row span {
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+.application-history-row strong {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}

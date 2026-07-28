@@ -998,3 +998,15 @@
     );
   }
 }
+.application-days {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 8px;
+  background: rgba(113, 98, 232, 0.12);
+  color: #b8b0ff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}

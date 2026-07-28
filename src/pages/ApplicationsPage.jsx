@@ -91,11 +91,9 @@ export default function Applications() {
   const [isLoading, setIsLoading] =
     useState(true);
 
-  const [isCreating, setIsCreating] =
-    useState(false);
+ 
 
-  const [isModalOpen, setIsModalOpen] =
-    useState(false);
+
 
     const [
   selectedApplication,
@@ -108,7 +106,7 @@ const [isDrawerOpen, setIsDrawerOpen] =
 const [drawerLoading, setDrawerLoading] =
   useState(false);
 
-  const [form, setForm] = useState(initialForm);
+ 
 
   const [error, setError] = useState("");
 
@@ -271,74 +269,12 @@ function closeApplicationDrawer() {
   setIsDrawerOpen(false);
   setSelectedApplication(null);
 }
-  function openCreateModal() {
-    setForm(initialForm);
-    setError("");
-    setSuccessMessage("");
-    setIsModalOpen(true);
-  }
+ 
 
-  function closeCreateModal() {
-    if (isCreating) {
-      return;
-    }
+  
 
-    setIsModalOpen(false);
-    setForm(initialForm);
-  }
 
-  function handleFormChange(event) {
-    const { name, value } = event.target;
-
-    setForm((currentForm) => ({
-      ...currentForm,
-      [name]: value,
-    }));
-  }
-
-  async function handleCreateApplication(
-    event
-  ) {
-    event.preventDefault();
-
-    if (!form.full_name.trim()) {
-      setError("Укажите имя клиента");
-      return;
-    }
-
-    setIsCreating(true);
-    setError("");
-    setSuccessMessage("");
-
-    const { data, error: createError } =
-      await applicationService.createApplication(
-        form
-      );
-
-    if (createError) {
-      console.error(
-        "Ошибка создания заявки:",
-        createError
-      );
-
-      setError(
-        "Не удалось создать заявку"
-      );
-
-      setIsCreating(false);
-      return;
-    }
-
-    setApplications((currentApplications) => [
-      data,
-      ...currentApplications,
-    ]);
-
-    setSuccessMessage("Заявка создана");
-    setIsCreating(false);
-    setIsModalOpen(false);
-    setForm(initialForm);
-  }
+  
 
   async function handleStatusChange(
     applicationId,
@@ -672,14 +608,7 @@ async function handleColumnDrop(event, newStatus) {
           </p>
         </div>
 
-        <button
-          className="applications-create-button"
-          type="button"
-          onClick={openCreateModal}
-        >
-          <Plus size={18} />
-          <span>Новая заявка</span>
-        </button>
+        
       </section>
 
       <section className="applications-stats">
@@ -888,7 +817,10 @@ async function handleColumnDrop(event, newStatus) {
                   <th>Менеджер</th>
                   <th>Статус</th>
                   <th>Сумма</th>
-                  <th>Создана</th>
+<th>Рассылка</th>
+<th>Отклик</th>
+<th>До заявки</th>
+<th>Создана</th>
                 </tr>
               </thead>
 
@@ -1011,26 +943,51 @@ async function handleColumnDrop(event, newStatus) {
                         </select>
                       </td>
 
-                      <td>
-                        <strong className="application-amount">
-                          {application.amount ===
-                            null ||
-                          application.amount ===
-                            undefined
-                            ? "—"
-                            : formatMoney(
-                                application.amount
-                              )}
-                        </strong>
-                      </td>
+                    <td>
+  <strong className="application-amount">
+    {application.amount === null ||
+    application.amount === undefined
+      ? "—"
+      : formatMoney(application.amount)}
+  </strong>
+</td>
 
-                      <td>
-                        <span className="application-date">
-                          {formatDateTime(
-                            application.created_at
-                          )}
-                        </span>
-                      </td>
+<td>
+  <span className="application-date">
+    {formatDateTime(
+      application.mailing_contact?.sent_at
+    )}
+  </span>
+</td>
+
+<td>
+  <span className="application-date">
+    {formatDateTime(
+      application.mailing_contact?.responded_at
+    )}
+  </span>
+</td>
+
+<td>
+  <span className="application-days">
+    {formatDaysToApplication(
+      application.mailing_contact?.sent_at,
+      application.mailing_contact
+        ?.application_created_at ||
+        application.created_at
+    )}
+  </span>
+</td>
+
+<td>
+  <span className="application-date">
+    {formatDateTime(
+      application.mailing_contact
+        ?.application_created_at ||
+        application.created_at
+    )}
+  </span>
+</td>
                     </tr>
                   )
                 )}
@@ -1040,204 +997,7 @@ async function handleColumnDrop(event, newStatus) {
         )}
       </section>
 
-      {isModalOpen && (
-        <div
-          className="application-modal-overlay"
-          onMouseDown={(event) => {
-            if (
-              event.target === event.currentTarget
-            ) {
-              closeCreateModal();
-            }
-          }}
-        >
-          <section className="application-modal">
-            <div className="application-modal__header">
-              <div>
-                <span>Новая заявка</span>
-                <h2>Добавление клиента</h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeCreateModal}
-                disabled={isCreating}
-              >
-                <X size={19} />
-              </button>
-            </div>
-
-            <form
-              className="application-form"
-              onSubmit={handleCreateApplication}
-            >
-              <label className="application-field application-field--wide">
-                <span>Имя клиента *</span>
-
-                <input
-                  type="text"
-                  name="full_name"
-                  value={form.full_name}
-                  onChange={handleFormChange}
-                  placeholder="Иван Петров"
-                  required
-                />
-              </label>
-
-              <label className="application-field">
-                <span>Телефон</span>
-
-                <input
-                  type="text"
-                  name="phone"
-                  value={form.phone}
-                  onChange={handleFormChange}
-                  placeholder="+7 999 000-00-00"
-                />
-              </label>
-
-              <label className="application-field">
-                <span>Telegram</span>
-
-                <input
-                  type="text"
-                  name="telegram"
-                  value={form.telegram}
-                  onChange={handleFormChange}
-                  placeholder="@username"
-                />
-              </label>
-
-              <label className="application-field">
-                <span>Источник</span>
-
-                <select
-                  name="source"
-                  value={form.source}
-                  onChange={handleFormChange}
-                >
-                  {sourceOptions.map((source) => (
-                    <option
-                      key={source}
-                      value={source}
-                    >
-                      {formatSource(source)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="application-field">
-                <span>Продукт</span>
-
-                <input
-                  type="text"
-                  name="product"
-                  value={form.product}
-                  onChange={handleFormChange}
-                  placeholder="Например, Альфа"
-                />
-              </label>
-
-              <label className="application-field">
-                <span>Менеджер</span>
-
-                <select
-                  name="assigned_manager_id"
-                  value={
-                    form.assigned_manager_id
-                  }
-                  onChange={handleFormChange}
-                >
-                  <option value="">
-                    Не назначен
-                  </option>
-
-                  {managers.map((manager) => (
-                    <option
-                      key={manager.id}
-                      value={manager.id}
-                    >
-                      {manager.full_name ||
-                        manager.email}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="application-field">
-                <span>Статус</span>
-
-                <select
-                  name="status"
-                  value={form.status}
-                  onChange={handleFormChange}
-                >
-                  {statusOptions.map((status) => (
-                    <option
-                      key={status.value}
-                      value={status.value}
-                    >
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="application-field">
-                <span>Сумма</span>
-
-                <input
-                  type="number"
-                  name="amount"
-                  value={form.amount}
-                  onChange={handleFormChange}
-                  placeholder="0"
-                  min="0"
-                  step="0.01"
-                />
-              </label>
-
-              <label className="application-field application-field--wide">
-                <span>Комментарий</span>
-
-                <textarea
-                  name="comment"
-                  value={form.comment}
-                  onChange={handleFormChange}
-                  placeholder="Дополнительная информация по заявке"
-                  rows={5}
-                />
-              </label>
-
-              <div className="application-form__actions">
-                <button
-                  className="application-form__cancel"
-                  type="button"
-                  onClick={closeCreateModal}
-                  disabled={isCreating}
-                >
-                  Отмена
-                </button>
-
-                <button
-                  className="application-form__submit"
-                  type="submit"
-                  disabled={isCreating}
-                >
-                  <Plus size={17} />
-
-                  <span>
-                    {isCreating
-                      ? "Создание..."
-                      : "Создать заявку"}
-                  </span>
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+      
 
       <ApplicationDrawer
   application={selectedApplication}
@@ -1568,7 +1328,41 @@ function formatDateTime(dateValue) {
     minute: "2-digit",
   }).format(new Date(dateValue));
 }
+function formatDaysToApplication(
+  sentAt,
+  applicationCreatedAt
+) {
+  if (!sentAt || !applicationCreatedAt) {
+    return "—";
+  }
 
+  const sentDate = new Date(sentAt);
+  const applicationDate = new Date(
+    applicationCreatedAt
+  );
+
+  const difference =
+    applicationDate.getTime() -
+    sentDate.getTime();
+
+  if (
+    Number.isNaN(sentDate.getTime()) ||
+    Number.isNaN(applicationDate.getTime()) ||
+    difference < 0
+  ) {
+    return "—";
+  }
+
+  const days = Math.floor(
+    difference / (1000 * 60 * 60 * 24)
+  );
+
+  if (days === 0) {
+    return "В тот же день";
+  }
+
+  return `${days} дн.`;
+}
 function formatSource(source) {
   if (!source || source === "manual") {
     return "Вручную";

@@ -1,5 +1,11 @@
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Link, useParams } from "react-router-dom";
+import { mailingAnalyticsService } from "../services/mailingAnalyticsService";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -20,219 +26,11 @@ import {
   XCircle,
 } from "lucide-react";
 
-const mailingsData = [
-  {
-    id: 1,
-    title: "WhatsApp — 18 июля №1",
-    channel: "WhatsApp",
-    source: "База блогера",
-    manager: "Анна Иванова",
-    createdAt: "18.07.2026",
-    createdTime: "09:10",
-    status: "active",
-    uploaded: 500,
-    delivered: 438,
-    replied: 126,
-    applications: 44,
-    openings: 23,
-  },
-  {
-    id: 2,
-    title: "Telegram — 18 июля",
-    channel: "Telegram",
-    source: "Собственная база",
-    manager: "Карина Юсупова",
-    createdAt: "18.07.2026",
-    createdTime: "11:30",
-    status: "active",
-    uploaded: 320,
-    delivered: 295,
-    replied: 87,
-    applications: 31,
-    openings: 18,
-  },
-  {
-    id: 3,
-    title: "WhatsApp — 17 июля №2",
-    channel: "WhatsApp",
-    source: "Партнёрская база",
-    manager: "Мария Алиева",
-    createdAt: "17.07.2026",
-    createdTime: "15:20",
-    status: "completed",
-    uploaded: 650,
-    delivered: 572,
-    replied: 141,
-    applications: 52,
-    openings: 28,
-  },
-  {
-    id: 4,
-    title: "ВКонтакте — тёплая база",
-    channel: "ВКонтакте",
-    source: "Входящие лиды",
-    manager: "Светлана Соколова",
-    createdAt: "17.07.2026",
-    createdTime: "12:00",
-    status: "paused",
-    uploaded: 210,
-    delivered: 188,
-    replied: 42,
-    applications: 16,
-    openings: 7,
-  },
-  {
-    id: 5,
-    title: "Telegram — повторный прогрев",
-    channel: "Telegram",
-    source: "Повторная база",
-    manager: "Елизавета Морозова",
-    createdAt: "16.07.2026",
-    createdTime: "10:45",
-    status: "completed",
-    uploaded: 410,
-    delivered: 382,
-    replied: 98,
-    applications: 37,
-    openings: 21,
-  },
-  {
-    id: 6,
-    title: "WhatsApp — холодная база",
-    channel: "WhatsApp",
-    source: "Холодная база",
-    manager: "Дарья Власовская",
-    createdAt: "16.07.2026",
-    createdTime: "08:30",
-    status: "draft",
-    uploaded: 280,
-    delivered: 0,
-    replied: 0,
-    applications: 0,
-    openings: 0,
-  },
-];
 
-const contactsData = [
-  {
-    id: 1,
-    username: "@alena_work",
-    phone: "+7 999 245-12-10",
-    status: "opened",
-    manager: "Анна Иванова",
-    product: "Альфа",
-    lastAction: "Открытие подтверждено",
-    updatedAt: "Сегодня, 12:45",
-  },
-  {
-    id: 2,
-    username: "@roman_job",
-    phone: "+7 922 418-34-20",
-    status: "application",
-    manager: "Анна Иванова",
-    product: "ОТП",
-    lastAction: "Заявка передана на проверку",
-    updatedAt: "Сегодня, 12:18",
-  },
-  {
-    id: 3,
-    username: "@vika_home",
-    phone: "+7 951 227-63-14",
-    status: "replied",
-    manager: "Анна Иванова",
-    product: "Не выбран",
-    lastAction: "Клиент ответил на сообщение",
-    updatedAt: "Сегодня, 11:52",
-  },
-  {
-    id: 4,
-    username: "@ivan_business",
-    phone: "+7 999 531-48-22",
-    status: "delivered",
-    manager: "Не назначен",
-    product: "Не выбран",
-    lastAction: "Сообщение доставлено",
-    updatedAt: "Сегодня, 11:30",
-  },
-  {
-    id: 5,
-    username: "@arina_pro",
-    phone: "+7 912 112-43-15",
-    status: "rejected",
-    manager: "Анна Иванова",
-    product: "Альфа",
-    lastAction: "Заявка отклонена",
-    updatedAt: "Сегодня, 10:47",
-  },
-  {
-    id: 6,
-    username: "@olga_online",
-    phone: "+7 950 884-36-17",
-    status: "no_reply",
-    manager: "Не назначен",
-    product: "Не выбран",
-    lastAction: "Ответ не получен",
-    updatedAt: "Сегодня, 10:20",
-  },
-  {
-    id: 7,
-    username: "@maksim_live",
-    phone: "+7 921 301-19-22",
-    status: "application",
-    manager: "Анна Иванова",
-    product: "Альфа",
-    lastAction: "Создана заявка",
-    updatedAt: "Вчера, 19:48",
-  },
-  {
-    id: 8,
-    username: "@dasha_start",
-    phone: "+7 999 014-22-71",
-    status: "opened",
-    manager: "Анна Иванова",
-    product: "ОТП",
-    lastAction: "Открытие подтверждено",
-    updatedAt: "Вчера, 18:14",
-  },
-];
 
-const activityData = [
-  {
-    id: 1,
-    title: "Открытие подтверждено",
-    description: "@alena_work · Альфа",
-    time: "Сегодня, 12:45",
-    type: "opened",
-  },
-  {
-    id: 2,
-    title: "Создана новая заявка",
-    description: "@roman_job · ОТП",
-    time: "Сегодня, 12:18",
-    type: "application",
-  },
-  {
-    id: 3,
-    title: "Получен ответ",
-    description: "@vika_home ответила на сообщение",
-    time: "Сегодня, 11:52",
-    type: "replied",
-  },
-  {
-    id: 4,
-    title: "Контакт передан менеджеру",
-    description: "@alena_work → Анна Иванова",
-    time: "Сегодня, 11:40",
-    type: "manager",
-  },
-  {
-    id: 5,
-    title: "Рассылка запущена",
-    description: "Загружено 500 контактов",
-    time: "Сегодня, 09:10",
-    type: "started",
-  },
-];
+
+
+
 
 const statusConfig = {
   active: {
@@ -254,26 +52,46 @@ const statusConfig = {
 };
 
 const contactStatusConfig = {
-  opened: {
-    title: "Открытие",
-    className: "mailing-contact-status--green",
+  new: {
+    title: "Новый",
+    className: "mailing-contact-status--gray",
   },
-  application: {
-    title: "Заявка",
-    className: "mailing-contact-status--purple",
+
+  telegram_found: {
+    title: "Telegram найден",
+    className: "mailing-contact-status--blue",
   },
+
+  telegram_not_found: {
+    title: "Telegram не найден",
+    className: "mailing-contact-status--orange",
+  },
+
+  sent: {
+    title: "Отправлено",
+    className: "mailing-contact-status--gray",
+  },
+
   replied: {
     title: "Ответил",
     className: "mailing-contact-status--blue",
   },
-  delivered: {
-    title: "Доставлено",
-    className: "mailing-contact-status--gray",
+
+  application: {
+    title: "Заявка",
+    className: "mailing-contact-status--purple",
   },
+
+  approved: {
+    title: "Открытие",
+    className: "mailing-contact-status--green",
+  },
+
   rejected: {
-    title: "Отклонено",
+    title: "Отказ",
     className: "mailing-contact-status--red",
   },
+
   no_reply: {
     title: "Без ответа",
     className: "mailing-contact-status--orange",
@@ -282,6 +100,25 @@ const contactStatusConfig = {
 
 function formatNumber(value) {
   return new Intl.NumberFormat("ru-RU").format(value);
+}
+function formatDateTime(value) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function getConversion(value, total) {
@@ -315,35 +152,168 @@ function ActivityIcon({ type }) {
 export default function MailingDetails() {
   const { mailingId } = useParams();
 
+  const [mailing, setMailing] = useState(null);
+  const [contacts, setContacts] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [metrics, setMetrics] = useState(null);
+  const [managerStats, setManagerStats] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
   const [mailingStatus, setMailingStatus] = useState(null);
   const [searchValue, setSearchValue] = useState("");
-  const [contactStatusFilter, setContactStatusFilter] = useState("all");
+  const [contactStatusFilter, setContactStatusFilter] =
+    useState("all");
 
-  const mailing = mailingsData.find(
-    (item) => item.id === Number(mailingId)
+    const [managerFilter, setManagerFilter] =
+  useState("all");
+
+  const loadAnalytics = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+
+    const { data, error } =
+      await mailingAnalyticsService.getMailingAnalytics(
+        mailingId
+      );
+
+    if (error) {
+      console.error(
+        "Ошибка загрузки аналитики рассылки:",
+        error
+      );
+
+      setMailing(null);
+      setContacts([]);
+      setActivity([]);
+      setMetrics(null);
+      setManagerStats([]);
+
+      setLoadError(
+        error.message ||
+          "Не удалось загрузить аналитику рассылки"
+      );
+
+      setLoading(false);
+      return;
+    }
+
+    setMailing(data?.mailing || null);
+    setContacts(data?.contacts || []);
+    setActivity(data?.activity || []);
+    setMetrics(data?.metrics || null);
+    setManagerStats(data?.managerStats || []);
+
+    setMailingStatus(
+      data?.mailing?.status || null
+    );
+
+    setLoading(false);
+  }, [mailingId]);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
+
+  const currentStatus =
+    mailingStatus || mailing?.status;
+
+
+    const managerOptions = useMemo(() => {
+  const names = contacts
+    .map((contact) => contact.manager)
+    .filter(Boolean);
+
+  return [...new Set(names)].sort((first, second) =>
+    first.localeCompare(second, "ru")
   );
-
-  const currentStatus = mailingStatus || mailing?.status;
-
+}, [contacts]);
   const filteredContacts = useMemo(() => {
-    const search = searchValue.trim().toLowerCase();
+    const search =
+      searchValue.trim().toLowerCase();
 
-    return contactsData.filter((contact) => {
+    return contacts.filter((contact) => {
+      const username = String(
+        contact.username || ""
+      ).toLowerCase();
+
+      const phone = String(
+        contact.phone || ""
+      ).toLowerCase();
+
+      const manager = String(
+        contact.manager || ""
+      ).toLowerCase();
+
+      const product = String(
+        contact.product || ""
+      ).toLowerCase();
+
       const matchesSearch =
         !search ||
-        contact.username.toLowerCase().includes(search) ||
-        contact.phone.toLowerCase().includes(search) ||
-        contact.manager.toLowerCase().includes(search) ||
-        contact.product.toLowerCase().includes(search);
+        username.includes(search) ||
+        phone.includes(search) ||
+        manager.includes(search) ||
+        product.includes(search);
 
       const matchesStatus =
         contactStatusFilter === "all" ||
         contact.status === contactStatusFilter;
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [searchValue, contactStatusFilter]);
+        const matchesManager =
+  managerFilter === "all" ||
+  contact.manager === managerFilter;
 
+      return (
+  matchesSearch &&
+  matchesStatus &&
+  matchesManager
+);
+    });
+  }, [
+    contacts,
+    searchValue,
+    managerFilter,
+    contactStatusFilter,
+  ]);
+if (loading) {
+  return (
+    <main className="page">
+      <div className="mailing-details-not-found">
+        <Mail size={42} />
+
+        <h1>Загружаем аналитику...</h1>
+
+        <p>
+          Получаем данные рассылки из Supabase.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+if (loadError) {
+  return (
+    <main className="page">
+      <div className="mailing-details-not-found">
+        <XCircle size={42} />
+
+        <h1>Не удалось загрузить рассылку</h1>
+
+        <p>{loadError}</p>
+
+        <button
+          className="primary-button button-with-icon"
+          type="button"
+          onClick={loadAnalytics}
+        >
+          Повторить
+        </button>
+      </div>
+    </main>
+  );
+}
   if (!mailing) {
     return (
       <main className="page">
@@ -370,30 +340,43 @@ export default function MailingDetails() {
 
   const currentStatusConfig = statusConfig[currentStatus];
 
-  const deliveryConversion = getConversion(
-    mailing.delivered,
-    mailing.uploaded
-  );
+  const uploaded = metrics?.uploaded || 0;
 
-  const replyConversion = getConversion(
-    mailing.replied,
-    mailing.delivered
-  );
+const telegramFound =
+  metrics?.telegramFound || 0;
 
-  const applicationConversion = getConversion(
-    mailing.applications,
-    mailing.replied
-  );
+const telegramNotFound =
+  metrics?.telegramNotFound || 0;
 
-  const openingConversion = getConversion(
-    mailing.openings,
-    mailing.applications
-  );
+const delivered = metrics?.sent || 0;
+const replied = metrics?.responded || 0;
+const noReply = metrics?.noReply || 0;
 
-  const totalConversion = getConversion(
-    mailing.openings,
-    mailing.uploaded
-  );
+const applications =
+  metrics?.applications || 0;
+
+const openings = metrics?.approved || 0;
+const rejected = metrics?.rejected || 0;
+
+const unassigned =
+  metrics?.unassigned || 0;
+
+const deliveryConversion =
+  metrics?.sentConversion || 0;
+
+const replyConversion =
+  metrics?.responseConversion || 0;
+
+const applicationConversion =
+  metrics?.applicationConversion || 0;
+
+const openingConversion =
+  metrics?.saleConversion || 0;
+
+const totalConversion =
+  metrics?.totalSaleConversion || 0;
+
+ 
 
   function handlePause() {
     setMailingStatus("paused");
@@ -443,12 +426,19 @@ export default function MailingDetails() {
             <div className="mailing-details-meta">
               <span>
                 <Clock3 size={14} />
-                Запущена {mailing.createdAt} в {mailing.createdTime}
+                Запущена {mailing.created_at
+  ? new Date(mailing.created_at).toLocaleDateString("ru-RU")
+  : "—"} в {mailing.created_at
+  ? new Date(mailing.created_at).toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+  : ""}
               </span>
 
               <span>
                 <UserRound size={14} />
-                Ответственный: {mailing.manager}
+                Ответственный: {mailing.manager_name || "Не назначен"}
               </span>
             </div>
           </div>
@@ -514,10 +504,52 @@ export default function MailingDetails() {
 
           <div>
             <span>Загружено</span>
-            <strong>{formatNumber(mailing.uploaded)}</strong>
+            <strong>{formatNumber(uploaded)}</strong>
             <small>Всего контактов в базе</small>
           </div>
         </article>
+
+        <article>
+  <div className="mailing-details-stat-icon mailing-details-stat-icon--blue">
+    <Send size={19} />
+  </div>
+
+  <div>
+    <span>Telegram найден</span>
+    <strong>
+      {formatNumber(telegramFound)}
+    </strong>
+
+    <small>
+      {getConversion(
+        telegramFound,
+        uploaded
+      )}
+      % от базы
+    </small>
+  </div>
+</article>
+
+<article>
+  <div className="mailing-details-stat-icon mailing-details-stat-icon--orange">
+    <XCircle size={19} />
+  </div>
+
+  <div>
+    <span>Telegram не найден</span>
+    <strong>
+      {formatNumber(telegramNotFound)}
+    </strong>
+
+    <small>
+      {getConversion(
+        telegramNotFound,
+        uploaded
+      )}
+      % от базы
+    </small>
+  </div>
+</article>
 
         <article>
           <div className="mailing-details-stat-icon mailing-details-stat-icon--blue">
@@ -526,7 +558,7 @@ export default function MailingDetails() {
 
           <div>
             <span>Доставлено</span>
-            <strong>{formatNumber(mailing.delivered)}</strong>
+            <strong>{formatNumber(delivered)}</strong>
             <small>{deliveryConversion}% от базы</small>
           </div>
         </article>
@@ -538,10 +570,26 @@ export default function MailingDetails() {
 
           <div>
             <span>Ответили</span>
-            <strong>{formatNumber(mailing.replied)}</strong>
+            <strong>{formatNumber(replied)}</strong>
             <small>{replyConversion}% от доставленных</small>
           </div>
         </article>
+        <article>
+  <div className="mailing-details-stat-icon mailing-details-stat-icon--orange">
+    <Clock3 size={19} />
+  </div>
+
+  <div>
+    <span>Без ответа</span>
+    <strong>
+      {formatNumber(noReply)}
+    </strong>
+
+    <small>
+      Контакты без зафиксированного ответа
+    </small>
+  </div>
+</article>
 
         <article>
           <div className="mailing-details-stat-icon mailing-details-stat-icon--purple">
@@ -550,7 +598,7 @@ export default function MailingDetails() {
 
           <div>
             <span>Заявки</span>
-            <strong>{formatNumber(mailing.applications)}</strong>
+            <strong>{formatNumber(applications)}</strong>
             <small>{applicationConversion}% от ответов</small>
           </div>
         </article>
@@ -562,11 +610,48 @@ export default function MailingDetails() {
 
           <div>
             <span>Открытия</span>
-            <strong>{formatNumber(mailing.openings)}</strong>
+            <strong>{formatNumber(openings)}</strong>
             <small>{openingConversion}% от заявок</small>
           </div>
         </article>
       </section>
+      <article>
+  <div className="mailing-details-stat-icon mailing-details-stat-icon--orange">
+    <XCircle size={19} />
+  </div>
+
+  <div>
+    <span>Отказы</span>
+    <strong>
+      {formatNumber(rejected)}
+    </strong>
+
+    <small>
+      {getConversion(
+        rejected,
+        applications
+      )}
+      % от заявок
+    </small>
+  </div>
+</article>
+
+<article>
+  <div className="mailing-details-stat-icon">
+    <UserRound size={19} />
+  </div>
+
+  <div>
+    <span>Не распределено</span>
+    <strong>
+      {formatNumber(unassigned)}
+    </strong>
+
+    <small>
+      Контакты без менеджера
+    </small>
+  </div>
+</article>
 
       <section className="mailing-details-funnel-card">
         <div className="mailing-details-section-heading">
@@ -584,7 +669,7 @@ export default function MailingDetails() {
           <div className="mailing-details-funnel-step">
             <div>
               <span>Загружено</span>
-              <strong>{formatNumber(mailing.uploaded)}</strong>
+              <strong>{formatNumber(uploaded)}</strong>
             </div>
 
             <small>100%</small>
@@ -597,7 +682,7 @@ export default function MailingDetails() {
           <div className="mailing-details-funnel-step">
             <div>
               <span>Доставлено</span>
-              <strong>{formatNumber(mailing.delivered)}</strong>
+              <strong>{formatNumber(delivered)}</strong>
             </div>
 
             <small>{deliveryConversion}%</small>
@@ -610,7 +695,7 @@ export default function MailingDetails() {
           <div className="mailing-details-funnel-step">
             <div>
               <span>Ответили</span>
-              <strong>{formatNumber(mailing.replied)}</strong>
+              <strong>{formatNumber(replied)}</strong>
             </div>
 
             <small>{replyConversion}%</small>
@@ -623,7 +708,7 @@ export default function MailingDetails() {
           <div className="mailing-details-funnel-step">
             <div>
               <span>Заявки</span>
-              <strong>{formatNumber(mailing.applications)}</strong>
+              <strong>{formatNumber(applications)}</strong>
             </div>
 
             <small>{applicationConversion}%</small>
@@ -636,7 +721,7 @@ export default function MailingDetails() {
           <div className="mailing-details-funnel-step mailing-details-funnel-step--result">
             <div>
               <span>Открытия</span>
-              <strong>{formatNumber(mailing.openings)}</strong>
+              <strong>{formatNumber(openings)}</strong>
             </div>
 
             <small>{openingConversion}%</small>
@@ -659,6 +744,130 @@ export default function MailingDetails() {
         </div>
       </section>
 
+      <section className="mailing-stage-summary">
+
+  <div className="mailing-details-section-heading">
+    <div>
+      <h2>Этапы обработки</h2>
+      <p>Текущее состояние всех контактов</p>
+    </div>
+
+    <TrendingUp size={20}/>
+  </div>
+
+  <div className="mailing-stage-grid">
+
+    <article>
+      <span>Новых</span>
+      <strong>
+        {contacts.filter(c=>c.status==="new").length}
+      </strong>
+    </article>
+
+    <article>
+      <span>Telegram найден</span>
+      <strong>{telegramFound}</strong>
+    </article>
+
+    <article>
+      <span>Telegram не найден</span>
+      <strong>{telegramNotFound}</strong>
+    </article>
+
+    <article>
+      <span>Сообщение отправлено</span>
+      <strong>{delivered}</strong>
+    </article>
+
+    <article>
+      <span>Ответили</span>
+      <strong>{replied}</strong>
+    </article>
+
+    <article>
+      <span>Без ответа</span>
+      <strong>{noReply}</strong>
+    </article>
+
+    <article>
+      <span>Создано заявок</span>
+      <strong>{applications}</strong>
+    </article>
+
+    <article>
+      <span>Открытия</span>
+      <strong>{openings}</strong>
+    </article>
+
+    <article>
+      <span>Отказы</span>
+      <strong>{rejected}</strong>
+    </article>
+
+  </div>
+
+</section>
+
+      <section className="mailing-managers-section">
+  <div className="mailing-details-section-heading">
+    <div>
+      <h2>Результаты менеджеров</h2>
+      <p>
+        Распределение контактов и результаты обработки
+      </p>
+    </div>
+
+    <Users size={20} />
+  </div>
+
+  <div className="mailing-managers-table-wrapper">
+    <table className="mailing-managers-table">
+      <thead>
+        <tr>
+          <th>Менеджер</th>
+          <th>Выделено</th>
+          <th>Отправлено</th>
+          <th>Ответили</th>
+          <th>Заявки</th>
+          <th>Открытия</th>
+          <th>Отказы</th>
+          <th>Конверсия ответа</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {managerStats.map((manager) => (
+          <tr key={manager.id || "unassigned"}>
+            <td>
+              <strong>{manager.name}</strong>
+            </td>
+
+            <td>{formatNumber(manager.assigned)}</td>
+            <td>{formatNumber(manager.sent)}</td>
+            <td>{formatNumber(manager.responded)}</td>
+            <td>{formatNumber(manager.applications)}</td>
+            <td>{formatNumber(manager.approved)}</td>
+            <td>{formatNumber(manager.rejected)}</td>
+
+            <td>
+              <strong>
+                {manager.responseConversion}%
+              </strong>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  {managerStats.length === 0 && (
+    <div className="mailing-contacts-empty">
+      <Users size={24} />
+      <p>Нет данных по менеджерам</p>
+    </div>
+  )}
+</section>
+
       <div className="mailing-details-content-grid">
         <section className="mailing-contacts-section">
           <div className="mailing-details-section-heading">
@@ -673,6 +882,27 @@ export default function MailingDetails() {
           </div>
 
           <div className="mailing-contacts-toolbar">
+            <div className="toolbar-filter">
+  <select
+    value={managerFilter}
+    onChange={(event) =>
+      setManagerFilter(event.target.value)
+    }
+  >
+    <option value="all">
+      Все менеджеры
+    </option>
+
+    {managerOptions.map((managerName) => (
+      <option
+        value={managerName}
+        key={managerName}
+      >
+        {managerName}
+      </option>
+    ))}
+  </select>
+</div>
             <div className="search-field">
               <Search size={17} />
 
@@ -693,13 +923,41 @@ export default function MailingDetails() {
                   setContactStatusFilter(event.target.value)
                 }
               >
-                <option value="all">Все статусы</option>
-                <option value="opened">Открытия</option>
-                <option value="application">Заявки</option>
-                <option value="replied">Ответили</option>
-                <option value="delivered">Доставлено</option>
-                <option value="no_reply">Без ответа</option>
-                <option value="rejected">Отклонено</option>
+                <option value="all">
+  Все статусы
+</option>
+
+<option value="new">
+  Новые
+</option>
+
+<option value="telegram_found">
+  Telegram найден
+</option>
+
+<option value="telegram_not_found">
+  Telegram не найден
+</option>
+
+<option value="sent">
+  Отправлено
+</option>
+
+<option value="replied">
+  Ответили
+</option>
+
+<option value="application">
+  Созданы заявки
+</option>
+
+<option value="approved">
+  Открытия
+</option>
+
+<option value="rejected">
+  Отказы
+</option>
               </select>
             </div>
           </div>
@@ -713,41 +971,79 @@ export default function MailingDetails() {
             <table className="mailing-contacts-table">
               <thead>
                 <tr>
-                  <th>Клиент</th>
-                  <th>Статус</th>
-                  <th>Продукт</th>
-                  <th>Менеджер</th>
-                  <th>Последнее действие</th>
-                </tr>
+  <th>Клиент</th>
+  <th>Telegram</th>
+  <th>Статус</th>
+  <th>Менеджер</th>
+  <th>Отправлено</th>
+  <th>Получен ответ</th>
+  <th>Создана заявка</th>
+  <th>Последнее действие</th>
+</tr>
               </thead>
 
               <tbody>
                 {filteredContacts.map((contact) => {
                   const contactStatus =
-                    contactStatusConfig[contact.status];
+  contactStatusConfig[contact.status] ||
+  contactStatusConfig.new;
 
                   return (
                     <tr key={contact.id}>
                       <td>
-                        <strong>{contact.username}</strong>
-                        <span>{contact.phone}</span>
-                      </td>
+  <strong>
+    {contact.full_name || "Без имени"}
+  </strong>
 
-                      <td>
-                        <span
-                          className={`mailing-contact-status ${contactStatus.className}`}
-                        >
-                          {contactStatus.title}
-                        </span>
-                      </td>
+  <span>
+    {contact.phone || "Телефон не указан"}
+  </span>
+</td>
 
-                      <td>{contact.product}</td>
-                      <td>{contact.manager}</td>
+<td>
+  <strong>
+    {contact.telegram_username
+      ? `@${String(
+          contact.telegram_username
+        ).replace(/^@/, "")}`
+      : "Не найден"}
+  </strong>
+</td>
 
-                      <td>
-                        <strong>{contact.lastAction}</strong>
-                        <span>{contact.updatedAt}</span>
-                      </td>
+<td>
+  <span
+    className={`mailing-contact-status ${contactStatus.className}`}
+  >
+    {contactStatus.title}
+  </span>
+</td>
+
+<td>
+  {contact.manager || "Не назначен"}
+</td>
+
+<td>
+  {formatDateTime(contact.sent_at)}
+</td>
+
+<td>
+  {formatDateTime(contact.responded_at)}
+</td>
+
+<td>
+  {formatDateTime(
+    contact.application_created_at ||
+      contact.application?.created_at
+  )}
+</td>
+
+<td>
+  <strong>{contact.lastAction}</strong>
+
+  <span>
+    {formatDateTime(contact.lastActionDate)}
+  </span>
+</td>
                     </tr>
                   );
                 })}
@@ -774,7 +1070,7 @@ export default function MailingDetails() {
           </div>
 
           <div className="mailing-activity-list">
-            {activityData.map((activity) => (
+            {activity.map((activity) => (
               <article
                 className={`mailing-activity-item mailing-activity-item--${activity.type}`}
                 key={activity.id}

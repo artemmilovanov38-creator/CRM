@@ -29,6 +29,7 @@ import Users from "./pages/Users.jsx";
 
 
 import "./styles/global.css";
+import "./styles/responsive.css";
 
 export default function App() {
   return (
