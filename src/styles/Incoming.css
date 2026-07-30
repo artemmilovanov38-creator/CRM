@@ -1072,3 +1072,22 @@ min-width:760px;
   color: #6ee7a0;
   font-size: 12px;
 }
+.incoming-response-form__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+}
+
+.incoming-response-form__divider::before,
+.incoming-response-form__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.incoming-response-form__divider span {
+  flex-shrink: 0;
+}

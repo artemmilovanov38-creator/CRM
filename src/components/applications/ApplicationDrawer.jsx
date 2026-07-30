@@ -17,16 +17,8 @@ import "../../styles/ApplicationDrawer.css";
 
 const statusOptions = [
   {
-    value: "new",
-    label: "Новая",
-  },
-  {
     value: "in_progress",
     label: "В работе",
-  },
-  {
-    value: "waiting",
-    label: "Ожидание",
   },
   {
     value: "approved",
@@ -44,7 +36,7 @@ const emptyForm = {
   telegram: "",
   source: "",
   product: "",
-  status: "new",
+  status: "in_progress",
   assigned_manager_id: "",
   amount: "",
   comment: "",
@@ -61,7 +53,11 @@ function getApplicationForm(application) {
     telegram: application.telegram || "",
     source: application.source || "",
     product: application.product || "",
-    status: application.status || "new",
+    status:
+  application.status === "new" ||
+  application.status === "waiting"
+    ? "in_progress"
+    : application.status || "in_progress",
 
     assigned_manager_id:
       application.assigned_manager_id || "",

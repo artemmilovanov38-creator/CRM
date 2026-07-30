@@ -7,11 +7,11 @@ import {
   List,
   MessageCircle,
   Phone,
-  Plus,
+  
   Search,
-  UserRound,
+  
   Users,
-  X,
+  
   XCircle,
 } from "lucide-react";
 
@@ -30,16 +30,8 @@ import ApplicationDrawer from "../components/applications/ApplicationDrawer";
 
 const statusOptions = [
   {
-    value: "new",
-    label: "Новая",
-  },
-  {
     value: "in_progress",
     label: "В работе",
-  },
-  {
-    value: "waiting",
-    label: "Ожидание",
   },
   {
     value: "approved",
@@ -51,27 +43,7 @@ const statusOptions = [
   },
 ];
 
-const sourceOptions = [
-  "manual",
-  "Telegram",
-  "VK",
-  "Instagram",
-  "Сайт",
-  "Рекомендация",
-  "Другое",
-];
 
-const initialForm = {
-  full_name: "",
-  phone: "",
-  telegram: "",
-  source: "manual",
-  product: "",
-  status: "new",
-  assigned_manager_id: "",
-  amount: "",
-  comment: "",
-};
 
 export default function Applications() {
   const [applications, setApplications] =
@@ -164,8 +136,17 @@ const [
     }
 
     setApplications(
-      applicationsResult.data || []
-    );
+  (applicationsResult.data || []).map(
+    (application) => ({
+      ...application,
+      status:
+        application.status === "new" ||
+        application.status === "waiting"
+          ? "in_progress"
+          : application.status,
+    })
+  )
+);
 
     setManagers(managersResult.data || []);
 
@@ -232,25 +213,23 @@ const [
         0
       );
 
-    return {
-      total: applications.length,
+   return {
+  total: applications.length,
 
-      new: applications.filter(
-        (application) =>
-          application.status === "new"
-      ).length,
+  inProgress: applications.filter(
+    (application) =>
+      application.status === "in_progress"
+  ).length,
 
-      inProgress: applications.filter(
-        (application) =>
-          application.status ===
-            "in_progress" ||
-          application.status === "waiting"
-      ).length,
+  approved: approvedApplications.length,
 
-      approved: approvedApplications.length,
+  rejected: applications.filter(
+    (application) =>
+      application.status === "rejected"
+  ).length,
 
-      totalAmount,
-    };
+  totalAmount,
+};
   }, [applications]);
 
 
@@ -618,11 +597,7 @@ async function handleColumnDrop(event, newStatus) {
           icon={Users}
         />
 
-        <StatCard
-          title="Новые"
-          value={stats.new}
-          icon={UserRound}
-        />
+       
 
         <StatCard
           title="В работе"
@@ -635,6 +610,12 @@ async function handleColumnDrop(event, newStatus) {
           value={stats.approved}
           icon={CheckCircle2}
         />
+
+        <StatCard
+  title="Отказы"
+  value={stats.rejected}
+  icon={XCircle}
+/>
 
         <StatCard
           title="Сумма успешных"

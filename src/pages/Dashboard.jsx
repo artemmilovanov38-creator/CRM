@@ -6,7 +6,7 @@ import {
   FileText,
   RefreshCw,
   TrendingUp,
-  UserRound,
+  
   Users,
 } from "lucide-react";
 
@@ -24,22 +24,16 @@ import { applicationService } from "../services/applicationService";
 import { profileService } from "../services/profileService";
 
 const statusConfig = {
-  new: {
-    label: "Новые",
-    className: "new",
-  },
   in_progress: {
     label: "В работе",
     className: "in-progress",
   },
-  waiting: {
-    label: "Ожидание",
-    className: "waiting",
-  },
+
   approved: {
     label: "Успешные",
     className: "approved",
   },
+
   rejected: {
     label: "Отказы",
     className: "rejected",
@@ -94,8 +88,17 @@ export default function Dashboard() {
     }
 
     setApplications(
-      applicationsResult.data || []
-    );
+  (applicationsResult.data || []).map(
+    (application) => ({
+      ...application,
+      status:
+        application.status === "new" ||
+        application.status === "waiting"
+          ? "in_progress"
+          : application.status,
+    })
+  )
+);
 
     setManagers(managersResult.data || []);
 
@@ -105,19 +108,13 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const total = applications.length;
 
-    const newApplications =
-      applications.filter(
-        (application) =>
-          application.status === "new"
-      ).length;
+    
 
-    const inProgress =
-      applications.filter(
-        (application) =>
-          application.status ===
-            "in_progress" ||
-          application.status === "waiting"
-      ).length;
+   const inProgress =
+  applications.filter(
+    (application) =>
+      application.status === "in_progress"
+  ).length;
 
     const approvedApplications =
       applications.filter(
@@ -152,8 +149,7 @@ export default function Dashboard() {
         : 0;
 
     return {
-      total,
-      newApplications,
+  total,
       inProgress,
       approved,
       rejected,
@@ -311,12 +307,7 @@ export default function Dashboard() {
           icon={FileText}
         />
 
-        <StatCard
-          title="Новые заявки"
-          value={stats.newApplications}
-          description="Требуют обработки"
-          icon={UserRound}
-        />
+        
 
         <StatCard
           title="В работе"

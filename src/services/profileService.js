@@ -1,5 +1,7 @@
 import { supabase } from "../lib/supabase";
 
+
+
 const PROFILE_FIELDS = `
   id,
   full_name,

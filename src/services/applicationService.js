@@ -109,7 +109,7 @@ mailing_contact_id:
       telegram: values.telegram?.trim() || null,
       source: values.source || "manual",
       product: values.product?.trim() || null,
-      status: values.status || "new",
+      status: values.status || "in_progress",
       assigned_manager_id:
         values.assigned_manager_id || null,
       amount:
@@ -146,17 +146,21 @@ mailing_contact_id:
   }
 
   const telegramUsername = String(
-    contact.telegram_username || ""
-  ).trim();
+  contact.telegram_username || ""
+).trim();
 
-  if (!telegramUsername) {
-    return {
-      data: null,
-      error: new Error(
-        "У контакта не указан Telegram-ник"
-      ),
-    };
-  }
+const phone = String(
+  contact.phone || ""
+).trim();
+
+if (!telegramUsername && !phone) {
+  return {
+    data: null,
+    error: new Error(
+      "У контакта не указан Telegram или номер телефона"
+    ),
+  };
+}
 
   /*
    * Сначала проверяем, не была ли заявка
@@ -167,16 +171,20 @@ mailing_contact_id:
     .select(APPLICATION_FIELDS)
     .limit(1);
 
-  if (contact.id) {
-    duplicateQuery = duplicateQuery.eq(
-      "mailing_contact_id",
-      contact.id
-    );
-  } else {
-    duplicateQuery = duplicateQuery
-      .eq("mailing_id", contact.mailing_id)
-      .ilike("telegram", telegramUsername);
-  }
+ if (contact.id) {
+  duplicateQuery = duplicateQuery.eq(
+    "mailing_contact_id",
+    contact.id
+  );
+} else if (telegramUsername) {
+  duplicateQuery = duplicateQuery
+    .eq("mailing_id", contact.mailing_id)
+    .ilike("telegram", telegramUsername);
+} else {
+  duplicateQuery = duplicateQuery
+    .eq("mailing_id", contact.mailing_id)
+    .eq("phone", phone);
+}
 
   const {
     data: existingApplications,
@@ -204,21 +212,21 @@ mailing_contact_id:
     mailing_contact_id:
       contact.id || null,
 
-    full_name:
-      contact.full_name?.trim() ||
-      telegramUsername,
+   full_name:
+  contact.full_name?.trim() ||
+  telegramUsername ||
+  phone,
 
-    phone:
-      contact.phone?.trim() || null,
+phone: phone || null,
 
-    telegram: telegramUsername,
+telegram:
+  telegramUsername || null,
 
-    source: "Telegram",
+source: telegramUsername
+  ? "Telegram"
+  : "Телефон",
 
-    product:
-      contact.product?.trim() || null,
-
-    status: "new",
+status: "in_progress",
 
     assigned_manager_id:
       managerId ||
@@ -268,19 +276,26 @@ mailing_contact_id:
         "id",
         contact.id
       );
-  } else {
-    contactUpdateQuery =
-      contactUpdateQuery
-        .eq(
-          "mailing_id",
-          contact.mailing_id
-        )
-        .ilike(
-          "telegram_username",
-          telegramUsername
-        );
-  }
-
+  } else if (telegramUsername) {
+  contactUpdateQuery =
+    contactUpdateQuery
+      .eq(
+        "mailing_id",
+        contact.mailing_id
+      )
+      .ilike(
+        "telegram_username",
+        telegramUsername
+      );
+} else {
+  contactUpdateQuery =
+    contactUpdateQuery
+      .eq(
+        "mailing_id",
+        contact.mailing_id
+      )
+      .eq("phone", phone);
+}
   const {
     data: updatedContacts,
     error: contactUpdateError,

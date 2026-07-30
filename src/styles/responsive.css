@@ -1,15 +1,939 @@
-/* ======================================
-   GLOBAL RESPONSIVE
-====================================== */
+/* ======================================================
+   CRM STATS — RESPONSIVE OVERRIDES
+   Подключать ПОСЛЕ всех остальных CSS-файлов.
+====================================================== */
 
+/* ======================================================
+   1. LARGE TABLETS / SMALL LAPTOPS — до 1200px
+====================================================== */
 @media (max-width: 1200px) {
+  .page,
+  .dashboard-page,
+  .applications-page,
+  .application-details-page,
+  .incoming-page,
+  .manager-details-page,
+  .managers-page,
+  .users-page {
+    width: min(100% - 32px, 1500px);
+  }
+
+  .header__inner {
+    width: min(100% - 28px, 1500px);
+    gap: 16px;
+  }
+
+  .dashboard-stats-grid,
+  .reports-metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .applications-stats,
+  .incoming-stats,
+  .mailing-details-stats,
+  .manager-details-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .users-page .users-stats,
+  .managers-stats,
+  .mailings-summary-grid,
+  .mailing-contacts-summary,
+  .manager-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-main-grid,
+  .dashboard-bottom-grid,
+  .manager-details-columns,
+  .mailing-details-content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .incoming-grid,
+  .manager-grid,
+  .managers-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mailings-grid {
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+  }
+
+  .reports-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
+/* ======================================================
+   2. TABLETS — до 900px
+====================================================== */
 @media (max-width: 900px) {
+  html,
+  body,
+  #root,
+  .app {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .page,
+  .dashboard-page,
+  .applications-page,
+  .application-details-page,
+  .incoming-page,
+  .manager-details-page,
+  .managers-page,
+  .users-page {
+    width: min(100% - 28px, 1500px);
+    padding-top: 26px;
+    padding-bottom: 48px;
+  }
+
+  .page-header,
+  .dashboard-header,
+  .applications-header,
+  .incoming-heading,
+  .users-page__header,
+  .managers-page__header,
+  .mailing-contacts-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .page-actions,
+  .users-page__header-actions,
+  .reports-header-actions {
+    width: 100%;
+  }
+
+  .page-actions > *,
+  .users-page__header-actions > *,
+  .reports-header-actions > * {
+    flex: 1 1 180px;
+  }
+
+  .dashboard-header h1,
+  .applications-header h1,
+  .incoming-heading h1,
+  .users-page__header h1,
+  .managers-page__header h1 {
+    font-size: 28px;
+  }
+
+  .dashboard-refresh,
+  .applications-create-button,
+  .incoming-refresh-button,
+  .users-page__refresh,
+  .users-page__create,
+  .managers-page__refresh {
+    width: 100%;
+  }
+
+  .applications-toolbar,
+  .incoming-toolbar,
+  .users-page .users-toolbar,
+  .managers-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .applications-search,
+  .incoming-search,
+  .users-page .users-search,
+  .managers-search {
+    grid-column: 1 / -1;
+  }
+
+  .mailings-toolbar,
+  .mailing-contacts-toolbar,
+  .manager-applications-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .mailings-toolbar .search-field,
+  .mailing-contacts-toolbar .search-field,
+  .manager-applications-toolbar .search-field {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .mailings-toolbar .toolbar-filter,
+  .mailing-contacts-toolbar .toolbar-filter,
+  .manager-applications-toolbar .toolbar-filter {
+    flex: 1 1 200px;
+  }
+
+  .mailings-toolbar .toolbar-filter select,
+  .mailing-contacts-toolbar .toolbar-filter select,
+  .manager-applications-toolbar .toolbar-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .application-details-layout,
+  .manager-details-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .application-details-sidebar,
+  .manager-details-sidebar {
+    position: static;
+  }
+
+  .mailings-funnel,
+  .mailing-details-funnel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mailings-funnel-arrow,
+  .mailing-details-funnel-line {
+    display: none;
+  }
+
+  .mailings-funnel-stage:last-child,
+  .mailing-details-funnel-step:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .manager-profile-main,
+  .mailing-details-header-card {
+    align-items: flex-start;
+  }
+
+  .mailing-details-header-card {
+    flex-direction: column;
+  }
+
+  .mailing-details-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .mailing-details-actions > button,
+  .mailing-details-actions > a {
+    flex: 1 1 170px;
+  }
+
+  .reports-chart-grid,
+  .reports-main-grid,
+  .reports-bottom-grid,
+  .reports-content-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .table-container,
+  .applications-table-wrapper,
+  .users-table-wrapper,
+  .manager-applications-table-wrapper,
+  .mailing-contacts-table-wrapper,
+  .mailing-managers-table-wrapper {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
 }
 
+/* ======================================================
+   3. MOBILE — до 760px
+====================================================== */
 @media (max-width: 760px) {
+  :root {
+    --mobile-page-gap: 14px;
+  }
+
+  body {
+    background:
+      radial-gradient(
+        circle at top,
+        rgba(39, 104, 255, 0.05),
+        transparent 260px
+      ),
+      var(--background);
+  }
+
+  .page,
+  .dashboard-page,
+  .applications-page,
+  .application-details-page,
+  .incoming-page,
+  .manager-details-page,
+  .managers-page,
+  .users-page {
+    width: calc(100% - 24px);
+    padding-top: 20px;
+    padding-bottom: 36px;
+  }
+
+  /* ---------- HEADER / MOBILE MENU ---------- */
+  .header {
+    z-index: 1000;
+  }
+
+  .header__inner {
+    width: calc(100% - 20px);
+    min-height: 64px;
+    gap: 10px;
+  }
+
+  .header__burger {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    flex: 0 0 42px;
+    border: 1px solid #30384a;
+    border-radius: 11px;
+    background: #171c27;
+    color: #f4f6fb;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  }
+
+  .header__logo {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .header__logo-mark {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+  }
+
+  .header__logo-title {
+    font-size: 14px;
+  }
+
+  .header__logo-subtitle,
+  .header__user,
+  .header__logout {
+    display: none;
+  }
+
+  .header__actions {
+    margin-left: auto;
+  }
+
+  .header__icon-button {
+    width: 42px;
+    height: 42px;
+    border: 1px solid #2b3343;
+    background: #151a24;
+  }
+
+  .header__nav {
+    position: fixed;
+    z-index: 1002;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(86vw, 330px);
+    padding: 84px 14px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+    overflow-y: auto;
+    background: #0f141d;
+    border-right: 1px solid #293142;
+    box-shadow: 24px 0 60px rgba(0, 0, 0, 0.45);
+    transform: translateX(-105%);
+    transition: transform 0.24s ease;
+  }
+
+  .header__nav--mobile-open {
+    transform: translateX(0);
+  }
+
+  .header__nav-item,
+  .header__nav-item span {
+    display: flex;
+  }
+
+  .header__nav-item {
+    width: 100%;
+    min-height: 46px;
+    justify-content: flex-start;
+    gap: 11px;
+    padding: 0 13px;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    font-size: 13px;
+  }
+
+  .header__nav-item--active {
+    border-color: rgba(93, 119, 255, 0.35);
+    background: rgba(39, 104, 255, 0.18);
+  }
+
+  .header__mobile-overlay {
+    position: fixed;
+    z-index: 1001;
+    inset: 0;
+    border: 0;
+    background: rgba(2, 5, 10, 0.7);
+    backdrop-filter: blur(3px);
+  }
+
+  .notifications-dropdown {
+    position: fixed !important;
+    top: 70px !important;
+    right: 10px !important;
+    left: 10px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100dvh - 82px);
+  }
+
+  /* ---------- TYPOGRAPHY / HEADERS ---------- */
+  .page-title,
+  .dashboard-header h1,
+  .applications-header h1,
+  .incoming-heading h1,
+  .users-page__header h1,
+  .managers-page__header h1,
+  .application-details-header h1,
+  .manager-details-header h1,
+  .mailing-details-title-row h1 {
+    font-size: 24px;
+    line-height: 1.2;
+  }
+
+  .page-description,
+  .dashboard-header p,
+  .applications-header p,
+  .incoming-heading p,
+  .users-page__header p,
+  .managers-page__header p {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ---------- BUTTONS ---------- */
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .applications-create-button,
+  .dashboard-refresh,
+  .incoming-refresh-button,
+  .users-page__refresh,
+  .users-page__create,
+  .managers-page__refresh {
+    min-height: 44px;
+  }
+
+  /* ---------- STATS ---------- */
+  .metrics-grid,
+  .dashboard-stats-grid,
+  .applications-stats,
+  .incoming-stats,
+  .mailing-details-stats,
+  .manager-details-stats,
+  .reports-metrics-grid,
+  .users-page .users-stats,
+  .managers-stats,
+  .mailings-summary-grid,
+  .mailing-contacts-summary,
+  .manager-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .metric-card,
+  .dashboard-stat-card,
+  .applications-stat-card,
+  .incoming-stat-card,
+  .mailing-details-stats article,
+  .manager-details-stats article,
+  .reports-metric-card,
+  .users-page .users-stat-card,
+  .managers-stat-card,
+  .mailings-summary-card,
+  .mailing-contacts-summary article,
+  .manager-summary-card {
+    min-height: 100px;
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .metric-card__value,
+  .dashboard-stat-card strong,
+  .applications-stat-card strong,
+  .incoming-stat-card strong,
+  .mailing-details-stats article strong,
+  .manager-details-stats strong,
+  .reports-metric-card strong,
+  .users-stat-card strong,
+  .managers-stat-card strong,
+  .mailings-summary-card strong,
+  .mailing-contacts-summary strong {
+    font-size: 21px;
+  }
+
+  /* ---------- TOOLBARS / FILTERS ---------- */
+  .filters,
+  .applications-toolbar,
+  .incoming-toolbar,
+  .users-page .users-toolbar,
+  .managers-toolbar,
+  .mailings-toolbar,
+  .mailing-contacts-toolbar,
+  .manager-applications-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .applications-search,
+  .incoming-search,
+  .users-page .users-search,
+  .managers-search {
+    grid-column: auto;
+  }
+
+  .search-field,
+  .applications-search,
+  .incoming-search,
+  .users-page .users-search,
+  .managers-search,
+  .toolbar-filter,
+  .filter-field,
+  .applications-filter,
+  .managers-filter,
+  .users-filter {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .toolbar-filter select,
+  .filter-field input,
+  .filter-field select,
+  .applications-filter,
+  .managers-filter,
+  .users-filter,
+  .applications-refresh-button,
+  .incoming-reset-button {
+    width: 100%;
+  }
+
+  /* ---------- CARDS / LISTS ---------- */
+  .incoming-grid,
+  .lead-grid,
+  .manager-grid,
+  .managers-grid,
+  .mailings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-application {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .dashboard-application > *:not(.dashboard-application__client):not(.dashboard-status):not(svg) {
+    display: none;
+  }
+
+  .dashboard-card__header,
+  .mailings-section-heading,
+  .mailing-details-section-heading,
+  .manager-section-heading,
+  .reports-card-heading,
+  .reports-summary-heading {
+    align-items: flex-start;
+  }
+
+  .manager-card-top,
+  .manager-card__top,
+  .mailing-card-header,
+  .incoming-card__top,
+  .lead-card__top,
+  .mailing-contact-heading {
+    align-items: flex-start;
+  }
+
+  .mailing-contact-card {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .mailing-contact-details {
+    grid-template-columns: 1fr;
+  }
+
+  /* ---------- DETAIL HEADERS ---------- */
+  .application-details-header,
+  .manager-details-header,
+  .manager-profile-card,
+  .mailing-details-header-card {
+    padding: 18px;
+  }
+
+  .application-details-header__client,
+  .manager-details-header__person,
+  .manager-profile-main,
+  .mailing-details-header-main {
+    align-items: flex-start;
+  }
+
+  .manager-profile-heading,
+  .mailing-details-title-row {
+    flex-direction: column;
+  }
+
+  .mailing-details-status {
+    margin-top: 0;
+  }
+
+  .application-details-form,
+  .manager-details-form,
+  .user-drawer__grid,
+  .manager-performance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .application-details-field--wide,
+  .manager-details-field--wide,
+  .application-details-form__actions,
+  .manager-details-form__actions {
+    grid-column: auto;
+  }
+
+  .application-details-form__actions,
+  .manager-details-form__actions {
+    justify-content: stretch;
+  }
+
+  .application-details-save,
+  .manager-details-save {
+    width: 100%;
+  }
+
+  /* ---------- FUNNELS ---------- */
+  .mailings-funnel,
+  .mailing-details-funnel {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .mailings-funnel-stage:last-child,
+  .mailing-details-funnel-step:last-child {
+    grid-column: auto;
+  }
+
+  .mailing-total-conversion {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  /* ---------- TABLES ---------- */
+  .table-container,
+  .applications-table-wrapper,
+  .users-table-wrapper,
+  .manager-applications-table-wrapper,
+  .mailing-contacts-table-wrapper,
+  .mailing-managers-table-wrapper {
+    margin-right: -2px;
+    overflow-x: auto;
+    border-radius: 12px;
+  }
+
+  .data-table,
+  .applications-table,
+  .users-table,
+  .manager-applications-table,
+  .mailing-contacts-table,
+  .mailing-managers-table {
+    font-size: 12px;
+  }
+
+  .data-table th,
+  .data-table td,
+  .applications-table th,
+  .applications-table td,
+  .users-table th,
+  .users-table td,
+  .manager-applications-table th,
+  .manager-applications-table td,
+  .mailing-contacts-table th,
+  .mailing-contacts-table td,
+  .mailing-managers-table th,
+  .mailing-managers-table td {
+    padding: 12px;
+  }
+
+  /* ---------- REPORTS ---------- */
+  .reports-filter-heading {
+    flex-direction: column;
+  }
+
+  .reports-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reports-header-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .reports-header-actions > * {
+    width: 100%;
+  }
+
+  /* ---------- DRAWERS ---------- */
+  .application-drawer,
+  .contact-drawer,
+  .user-drawer {
+    width: 100%;
+    max-width: none;
+    border-left: 0;
+  }
+
+  .application-drawer-header,
+  .contact-drawer-header,
+  .user-drawer__header {
+    min-height: 76px;
+    padding: 14px;
+  }
+
+  .application-drawer-section,
+  .contact-drawer-content,
+  .user-drawer__section {
+    padding: 14px;
+  }
+
+  .application-drawer-footer,
+  .user-drawer__footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    padding: 14px;
+  }
+
+  .application-drawer-delete,
+  .application-drawer-save,
+  .user-drawer__save,
+  .user-drawer__status-button,
+  .user-drawer__delete {
+    width: 100%;
+  }
+
+  .user-drawer__danger-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  /* ---------- BULK ACTIONS ---------- */
+  .mailing-contacts-bulk-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mailing-contacts-bulk-actions strong {
+    margin-right: 0;
+  }
+
+  .mailing-contacts-bulk-actions select,
+  .mailing-contacts-bulk-actions button {
+    width: 100%;
+  }
 }
 
+/* ======================================================
+   4. SMALL PHONES — до 480px
+====================================================== */
 @media (max-width: 480px) {
+  .page,
+  .dashboard-page,
+  .applications-page,
+  .application-details-page,
+  .incoming-page,
+  .manager-details-page,
+  .managers-page,
+  .users-page {
+    width: calc(100% - 20px);
+    padding-top: 16px;
+    padding-bottom: 28px;
+  }
+
+  .header__inner {
+    width: calc(100% - 14px);
+  }
+
+  .header__logo > div:last-child {
+    display: none;
+  }
+
+  .header__logo {
+    flex: 0 0 auto;
+  }
+
+  .page-title,
+  .dashboard-header h1,
+  .applications-header h1,
+  .incoming-heading h1,
+  .users-page__header h1,
+  .managers-page__header h1,
+  .application-details-header h1,
+  .manager-details-header h1,
+  .mailing-details-title-row h1 {
+    font-size: 22px;
+  }
+
+  .metrics-grid,
+  .dashboard-stats-grid,
+  .applications-stats,
+  .incoming-stats,
+  .mailing-details-stats,
+  .manager-details-stats,
+  .reports-metrics-grid,
+  .users-page .users-stats,
+  .managers-stats,
+  .mailings-summary-grid,
+  .mailing-contacts-summary,
+  .manager-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card,
+  .dashboard-stat-card,
+  .applications-stat-card,
+  .incoming-stat-card,
+  .mailing-details-stats article,
+  .manager-details-stats article,
+  .reports-metric-card,
+  .users-page .users-stat-card,
+  .managers-stat-card,
+  .mailings-summary-card,
+  .mailing-contacts-summary article,
+  .manager-summary-card {
+    min-height: 88px;
+  }
+
+  .application-details-topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .application-details-back,
+  .application-details-delete,
+  .manager-details-back {
+    width: 100%;
+  }
+
+  .application-details-header__client,
+  .manager-details-header__person,
+  .manager-profile-main,
+  .mailing-details-header-main {
+    flex-direction: column;
+  }
+
+  .application-details-header__avatar,
+  .manager-details-header__avatar,
+  .manager-profile-avatar,
+  .mailing-details-channel-icon {
+    width: 52px;
+    height: 52px;
+    flex-basis: 52px;
+    border-radius: 15px;
+  }
+
+  .mailing-details-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .mailing-details-actions > button,
+  .mailing-details-actions > a {
+    width: 100%;
+  }
+
+  .manager-card-top,
+  .manager-card__top,
+  .incoming-card__top,
+  .lead-card__top,
+  .mailing-contact-heading {
+    flex-direction: column;
+  }
+
+  .manager-status,
+  .mailing-status {
+    margin-left: 0;
+  }
+
+  .manager-metrics,
+  .mailing-primary-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .manager-metrics div,
+  .mailing-primary-stats div {
+    padding: 10px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .manager-metrics div:last-child,
+  .mailing-primary-stats div:last-child {
+    border-bottom: 0;
+  }
+
+  .mailing-result-stats,
+  .mailing-conversions {
+    grid-template-columns: 1fr;
+  }
+
+  .user-drawer__danger-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .application-drawer-person h2,
+  .contact-drawer-person h2,
+  .user-drawer__title h2 {
+    max-width: 210px;
+    font-size: 16px;
+  }
+
+  .application-history-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+/* ======================================================
+   5. TOUCH DEVICES
+====================================================== */
+@media (hover: none) and (pointer: coarse) {
+  button,
+  a,
+  select,
+  input,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .header__icon-button,
+  .header__burger,
+  .users-page__refresh,
+  .users-page__create,
+  .applications-create-button,
+  .incoming-refresh-button,
+  .managers-page__refresh {
+    min-height: 44px;
+  }
+
+  .manager-card:hover,
+  .mailing-card:hover,
+  .incoming-card:hover,
+  .lead-card:hover,
+  .mailing-contact-card:hover,
+  .users-page__refresh:hover {
+    transform: none;
+  }
 }

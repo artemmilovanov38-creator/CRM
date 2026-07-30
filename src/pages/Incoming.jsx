@@ -34,6 +34,7 @@ export default function Incoming() {
 
   const [telegramUsername, setTelegramUsername] =
     useState("");
+    const [phone, setPhone] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -115,22 +116,23 @@ export default function Incoming() {
     }
   }
 
-  function openModal() {
-    setTelegramUsername("");
-    setFormError("");
-    setSuccessMessage("");
-    setModalOpen(true);
+ function openModal() {
+  setTelegramUsername("");
+  setPhone("");
+  setFormError("");
+  setSuccessMessage("");
+  setModalOpen(true);
+}
+function closeModal() {
+  if (saving) {
+    return;
   }
 
-  function closeModal() {
-    if (saving) {
-      return;
-    }
-
-    setModalOpen(false);
-    setTelegramUsername("");
-    setFormError("");
-  }
+  setModalOpen(false);
+  setTelegramUsername("");
+  setPhone("");
+  setFormError("");
+}
 
   async function handleCreateApplication(
   contact
@@ -191,87 +193,101 @@ export default function Incoming() {
   setCreatingApplicationId(null);
 }
   async function handleSubmit(event) {
-    event.preventDefault();
+  event.preventDefault();
 
-    setFormError("");
-    setSuccessMessage("");
+  setFormError("");
+  setSuccessMessage("");
 
-    const normalizedUsername =
-      incomingResponseService
-        .normalizeTelegramUsername(
-          telegramUsername
-        );
-
-    if (!normalizedUsername) {
-      setFormError(
-        "Введите Telegram-ник человека"
-      );
-      return;
-    }
-
-    if (!currentProfile?.id) {
-      setFormError(
-        "Не удалось определить текущего пользователя"
-      );
-      return;
-    }
-
-    setSaving(true);
-
-    const result =
-      await incomingResponseService.registerResponse(
-        normalizedUsername,
-        currentProfile.id
+  const normalizedUsername =
+    incomingResponseService
+      .normalizeTelegramUsername(
+        telegramUsername
       );
 
-    if (result.error) {
-      console.error(
-        "Ошибка регистрации отклика:",
-        result.error
-      );
-
-      setFormError(
-        result.error.message ||
-          "Не удалось сохранить отклик"
-      );
-
-      setSaving(false);
-      return;
-    }
-
-    if (!result.data?.matched) {
-      setFormError(
-        `${normalizedUsername} не найден среди контактов, которым была отправлена рассылка`
-      );
-
-      setSaving(false);
-      return;
-    }
-
-    if (result.data.alreadyResponded) {
-      setFormError(
-        `${normalizedUsername} уже был отмечен как ответивший`
-      );
-
-      setSaving(false);
-      return;
-    }
-
-    setSuccessMessage(
-      `${normalizedUsername} отмечен как ответивший`
+  const normalizedPhone =
+    incomingResponseService.normalizePhone(
+      phone
     );
 
-    setTelegramUsername("");
+  if (
+    !normalizedUsername &&
+    !normalizedPhone
+  ) {
+    setFormError(
+      "Введите Telegram-ник или номер телефона"
+    );
+    return;
+  }
 
-    await loadResponses(false);
+  if (!currentProfile?.id) {
+    setFormError(
+      "Не удалось определить текущего пользователя"
+    );
+    return;
+  }
+
+  setSaving(true);
+
+  const result =
+    await incomingResponseService.registerResponse({
+      telegram: normalizedUsername,
+      phone: normalizedPhone,
+      managerId: currentProfile.id,
+    });
+
+  if (result.error) {
+    console.error(
+      "Ошибка регистрации отклика:",
+      result.error
+    );
+
+    setFormError(
+      result.error.message ||
+        "Не удалось сохранить отклик"
+    );
 
     setSaving(false);
-
-    setTimeout(() => {
-      setModalOpen(false);
-      setSuccessMessage("");
-    }, 900);
+    return;
   }
+
+  const identifier =
+    normalizedUsername ||
+    formatPhone(normalizedPhone);
+
+  if (!result.data?.matched) {
+    setFormError(
+      `${identifier} не найден среди контактов, которым была отправлена рассылка`
+    );
+
+    setSaving(false);
+    return;
+  }
+
+  if (result.data.alreadyResponded) {
+    setFormError(
+      `${identifier} уже был отмечен как ответивший`
+    );
+
+    setSaving(false);
+    return;
+  }
+
+  setSuccessMessage(
+    `${identifier} отмечен как ответивший`
+  );
+
+  setTelegramUsername("");
+  setPhone("");
+
+  await loadResponses(false);
+
+  setSaving(false);
+
+  setTimeout(() => {
+    setModalOpen(false);
+    setSuccessMessage("");
+  }, 900);
+}
 
   const filteredResponses = useMemo(() => {
     const normalizedSearch = search
@@ -343,11 +359,11 @@ export default function Incoming() {
           <h1>Входящий поток</h1>
 
           <p>
-            Добавляйте Telegram-ники людей,
-            которые ответили на рассылку. CRM
-            сама найдёт контакт и отметит его
-            как ответившего.
-          </p>
+  Добавляйте Telegram-ник или номер
+  телефона человека, который ответил
+  на рассылку. CRM сама найдёт контакт
+  и отметит его как ответившего.
+</p>
         </div>
 
         <div className="incoming-heading__actions">
@@ -485,7 +501,7 @@ export default function Incoming() {
           <span>
             {search
               ? "Попробуйте изменить поисковый запрос."
-              : "Добавьте Telegram-ник человека, который ответил на рассылку."}
+              : "Добавьте Telegram-ник или номер телефона человека, который ответил на рассылку."}
           </span>
 
           {!search && (
@@ -638,14 +654,14 @@ export default function Incoming() {
                 <span>Новый отклик</span>
 
                 <h2>
-                  Добавить Telegram-ник
-                </h2>
+  Добавить отклик
+</h2>
 
                 <p>
-                  CRM найдёт последнюю рассылку
-                  на этот ник и отметит контакт
-                  как ответивший.
-                </p>
+  Укажите Telegram-ник или номер
+  телефона. CRM найдёт последний
+  подходящий контакт из рассылки.
+</p>
               </div>
 
               <button
@@ -664,31 +680,52 @@ export default function Incoming() {
               onSubmit={handleSubmit}
             >
               <label className="incoming-modal__field">
-                <span>Telegram-ник *</span>
+  <span>Telegram-ник</span>
 
-                <input
-                  type="text"
-                  value={telegramUsername}
-                  onChange={(event) => {
-                    setTelegramUsername(
-                      event.target.value
-                    );
+  <input
+    type="text"
+    value={telegramUsername}
+    onChange={(event) => {
+      setTelegramUsername(
+        event.target.value
+      );
 
-                    if (formError) {
-                      setFormError("");
-                    }
-                  }}
-                  placeholder="@username"
-                  autoFocus
-                  disabled={saving}
-                />
-              </label>
+      if (formError) {
+        setFormError("");
+      }
+    }}
+    placeholder="@username"
+    autoFocus
+    disabled={saving}
+  />
+</label>
 
-              <div className="incoming-response-form__hint">
-                Можно вставить ник с символом
-                "@", без него или ссылку вида
-                "t.me/username".
-              </div>
+<div className="incoming-response-form__divider">
+  <span>или</span>
+</div>
+
+<label className="incoming-modal__field">
+  <span>Номер телефона</span>
+
+  <input
+    type="tel"
+    value={phone}
+    onChange={(event) => {
+      setPhone(event.target.value);
+
+      if (formError) {
+        setFormError("");
+      }
+    }}
+    placeholder="+7 999 123-45-67"
+    disabled={saving}
+  />
+</label>
+
+<div className="incoming-response-form__hint">
+  Заполните Telegram или номер телефона.
+  Оба поля одновременно заполнять не обязательно.
+</div>
 
               {formError && (
                 <div className="incoming-modal__error">
@@ -747,6 +784,30 @@ function formatTelegramUsername(value) {
   return `@${username}`;
 }
 
+function formatPhone(value) {
+  const digits = String(value || "").replace(
+    /\D/g,
+    ""
+  );
+
+  if (
+    digits.length === 11 &&
+    digits.startsWith("7")
+  ) {
+    return `+7 ${digits.slice(
+      1,
+      4
+    )} ${digits.slice(
+      4,
+      7
+    )}-${digits.slice(
+      7,
+      9
+    )}-${digits.slice(9)}`;
+  }
+
+  return value || "Номер не указан";
+}
 function formatDate(value) {
   if (!value) {
     return "Не указано";

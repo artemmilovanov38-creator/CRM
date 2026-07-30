@@ -444,6 +444,43 @@ const handleBulkAssignManager = async () => {
   setActionLoading(false);
 };
 
+const handleAutoAssign = async () => {
+  if (actionLoading) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Автоматически распределить все нераспределённые контакты между активными менеджерами?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setActionLoading(true);
+
+  const result =
+    await mailingContactService.autoAssignManagers(
+      mailingId
+    );
+
+  if (result.error) {
+    alert(
+      result.error.message ||
+        "Не удалось выполнить распределение."
+    );
+
+    setActionLoading(false);
+    return;
+  }
+
+  await loadPageData();
+
+  alert("Контакты успешно распределены.");
+
+  setActionLoading(false);
+};
+
 const handleCreateApplication = async (
   contact
 ) => {
@@ -578,6 +615,19 @@ const handleCreateApplication = async (
           <RefreshCw size={16} />
           Обновить
         </button>
+
+        <button
+  type="button"
+  className="primary-button button-with-icon"
+  onClick={handleAutoAssign}
+  disabled={actionLoading}
+>
+  <UserRound size={16} />
+
+  {actionLoading
+    ? "Распределяем..."
+    : "Автораспределение"}
+</button>
       </div>
 
       <section className="mailing-contacts-summary">

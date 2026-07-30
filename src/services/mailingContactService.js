@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { profileService } from "./profileService";
 
 const normalizePhone = (value) => {
   if (!value) return null;
@@ -90,7 +91,53 @@ const getContactsByMailingId = async (mailingId) => {
     };
   }
 
-  const { data, error } = await supabase
+  const {
+    data: userData,
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    return {
+      data: [],
+      error: userError,
+    };
+  }
+
+  const currentUser = userData?.user;
+
+  if (!currentUser?.id) {
+    return {
+      data: [],
+      error: new Error(
+        "Пользователь не авторизован."
+      ),
+    };
+  }
+
+  const {
+    data: currentProfile,
+    error: profileError,
+  } = await profileService.getProfileById(
+    currentUser.id
+  );
+
+  if (profileError) {
+    return {
+      data: [],
+      error: profileError,
+    };
+  }
+
+  if (!currentProfile) {
+    return {
+      data: [],
+      error: new Error(
+        "Профиль пользователя не найден."
+      ),
+    };
+  }
+
+  let query = supabase
     .from("mailing_contacts")
     .select(`
       *,
@@ -100,10 +147,21 @@ const getContactsByMailingId = async (mailingId) => {
         email
       )
     `)
-    .eq("mailing_id", mailingId)
-    .order("created_at", {
+    .eq("mailing_id", mailingId);
+
+  if (currentProfile.role === "manager") {
+    query = query.eq(
+      "manager_id",
+      currentUser.id
+    );
+  }
+
+  const { data, error } = await query.order(
+    "created_at",
+    {
       ascending: false,
-    });
+    }
+  );
 
   return {
     data: data || [],
@@ -423,8 +481,64 @@ const markTelegramNotFound = async (
     status: "telegram_not_found",
   });
 };
+const autoAssignManagers = async (mailingId) => {
+  if (!mailingId) {
+    return {
+      error: new Error("Не указан ID партии."),
+    };
+  }
 
+  const managersResult = await getActiveManagers();
+
+  if (managersResult.error) {
+    return {
+      error: managersResult.error,
+    };
+  }
+
+  const managers = managersResult.data;
+
+  if (managers.length === 0) {
+    return {
+      error: new Error("Нет активных менеджеров."),
+    };
+  }
+
+  const contactsResult =
+    await getContactsByMailingId(mailingId);
+
+  if (contactsResult.error) {
+    return {
+      error: contactsResult.error,
+    };
+  }
+
+  const contacts = contactsResult.data.filter(
+    (contact) => !contact.manager_id
+  );
+
+  let managerIndex = 0;
+
+  for (const contact of contacts) {
+    await assignManager(
+      contact.id,
+      managers[managerIndex].id
+    );
+
+    managerIndex++;
+
+    if (managerIndex >= managers.length) {
+      managerIndex = 0;
+    }
+  }
+
+  return {
+    data: true,
+    error: null,
+  };
+};
 export const mailingContactService = {
+  autoAssignManagers,
   normalizePhone,
   normalizeContact,
   getContactsByMailingId,
