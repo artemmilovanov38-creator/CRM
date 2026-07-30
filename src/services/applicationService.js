@@ -433,22 +433,81 @@ status: "in_progress",
     });
   },
 
-  async deleteApplication(applicationId) {
-    if (!applicationId) {
+ async deleteApplication(applicationId) {
+  if (!applicationId) {
+    return {
+      success: false,
+      error: new Error("Не передан ID заявки"),
+    };
+  }
+
+  // Сначала получаем заявку, чтобы узнать,
+  // из какого контакта она была создана.
+  const {
+    data: application,
+    error: applicationError,
+  } = await supabase
+    .from("applications")
+    .select(`
+      id,
+      mailing_contact_id
+    `)
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  if (applicationError) {
+    return {
+      success: false,
+      error: applicationError,
+    };
+  }
+
+  if (!application) {
+    return {
+      success: false,
+      error: new Error("Заявка не найдена"),
+    };
+  }
+
+  // Удаляем заявку.
+  const { error: deleteError } = await supabase
+    .from("applications")
+    .delete()
+    .eq("id", applicationId);
+
+  if (deleteError) {
+    return {
+      success: false,
+      error: deleteError,
+    };
+  }
+
+  // Если заявка была создана из контакта рассылки,
+  // возвращаем контакт в состояние "Ответил".
+  if (application.mailing_contact_id) {
+    const { error: contactError } = await supabase
+      .from("mailing_contacts")
+      .update({
+        application_created_at: null,
+        status: "responded",
+        updated_at: new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        application.mailing_contact_id
+      );
+
+    if (contactError) {
       return {
         success: false,
-        error: new Error("Не передан ID заявки"),
+        error: contactError,
       };
     }
+  }
 
-    const { error } = await supabase
-      .from("applications")
-      .delete()
-      .eq("id", applicationId);
-
-    return {
-      success: !error,
-      error,
-    };
-  },
+  return {
+    success: true,
+    error: null,
+  };
+},
 };
