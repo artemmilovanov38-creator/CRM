@@ -35,6 +35,12 @@ const statusLabels = {
 export default function Users() {
   const { user: currentUser } = useAuth();
 
+  const isHead =
+  currentUser?.role === "head";
+
+const isAdmin =
+  currentUser?.role === "admin";
+
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] =
@@ -322,6 +328,24 @@ async function handleDeleteUser(profile) {
       return;
     }
 
+    if (profile.role === "head") {
+  setError(
+    "Аккаунт руководителя нельзя заблокировать"
+  );
+
+  return;
+}
+
+if (
+  currentUser?.role === "admin" &&
+  profile.role !== "manager"
+) {
+  setError(
+    "Администратор может управлять только менеджерами"
+  );
+
+  return;
+}
     const newStatus =
       profile.status === "blocked"
         ? "active"
@@ -603,6 +627,28 @@ async function handleDeleteUser(profile) {
                   const isUpdating =
                     updatingUserId === profile.id;
 
+                    const isTargetHead =
+  profile.role === "head";
+
+const isTargetAdmin =
+  profile.role === "admin";
+
+const canManageTarget =
+  !isCurrentUser &&
+  !isTargetHead &&
+  (
+    isHead ||
+    (
+      isAdmin &&
+      profile.role === "manager"
+    )
+  );
+
+const canChangeRole =
+  isHead &&
+  !isCurrentUser &&
+  !isTargetHead;
+
                   return (
                     <tr key={profile.id}>
                       <td>
@@ -638,9 +684,9 @@ async function handleDeleteUser(profile) {
                           className="users-table__role"
                           value={profile.role}
                           disabled={
-                            isUpdating ||
-                            isCurrentUser
-                          }
+  isUpdating ||
+  !canChangeRole
+}
                           onChange={(event) =>
                             handleRoleChange(
                               profile.id,
@@ -652,9 +698,11 @@ async function handleDeleteUser(profile) {
                             Администратор
                           </option>
 
-                         <option value="head">
-  Руководитель
-</option>
+                         {isHead && (
+  <option value="head">
+    Руководитель
+  </option>
+)}
 
                           <option value="manager">
                             Менеджер
@@ -689,10 +737,10 @@ async function handleDeleteUser(profile) {
                               : "users-table__action--block"
                           }`}
                           type="button"
-                          disabled={
-                            isUpdating ||
-                            isCurrentUser
-                          }
+                         disabled={
+  isUpdating ||
+  !canManageTarget
+}
                           onClick={() =>
                             handleStatusToggle(
                               profile

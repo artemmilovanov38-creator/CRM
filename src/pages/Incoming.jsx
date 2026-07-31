@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   Clock3,
   Inbox,
+  Phone,
   Plus,
   RefreshCw,
   Search,
   Send,
+  UserRound,
   X,
 } from "lucide-react";
 
@@ -19,7 +21,6 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
 import { incomingResponseService } from "../services/incomingResponseService";
-
 import { applicationService } from "../services/applicationService";
 
 import "../styles/Incoming.css";
@@ -32,16 +33,23 @@ export default function Incoming() {
   const [responses, setResponses] = useState([]);
   const [search, setSearch] = useState("");
 
-  const [telegramUsername, setTelegramUsername] =
-    useState("");
-    const [phone, setPhone] = useState("");
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [
-  creatingApplicationId,
-  setCreatingApplicationId,
-] = useState(null);
+    telegramUsername,
+    setTelegramUsername,
+  ] = useState("");
+
+  const [phone, setPhone] = useState("");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [
+    creatingApplicationId,
+    setCreatingApplicationId,
+  ] = useState(null);
 
   const [modalOpen, setModalOpen] =
     useState(false);
@@ -50,8 +58,10 @@ export default function Incoming() {
   const [formError, setFormError] =
     useState("");
 
-  const [successMessage, setSuccessMessage] =
-    useState("");
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState("");
 
   useEffect(() => {
     loadResponses();
@@ -65,7 +75,7 @@ export default function Incoming() {
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           schema: "public",
           table: "mailing_contacts",
         },
@@ -116,178 +126,182 @@ export default function Incoming() {
     }
   }
 
- function openModal() {
-  setTelegramUsername("");
-  setPhone("");
-  setFormError("");
-  setSuccessMessage("");
-  setModalOpen(true);
-}
-function closeModal() {
-  if (saving) {
-    return;
+  function openModal() {
+    setTelegramUsername("");
+    setPhone("");
+    setFormError("");
+    setSuccessMessage("");
+    setModalOpen(true);
   }
 
-  setModalOpen(false);
-  setTelegramUsername("");
-  setPhone("");
-  setFormError("");
-}
+  function closeModal() {
+    if (saving) {
+      return;
+    }
+
+    setModalOpen(false);
+    setTelegramUsername("");
+    setPhone("");
+    setFormError("");
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    setFormError("");
+    setSuccessMessage("");
+
+    const normalizedUsername =
+      incomingResponseService
+        .normalizeTelegramUsername(
+          telegramUsername
+        );
+
+    const normalizedPhone =
+      incomingResponseService.normalizePhone(
+        phone
+      );
+
+    if (
+      !normalizedUsername &&
+      !normalizedPhone
+    ) {
+      setFormError(
+        "Введите Telegram-ник или номер телефона"
+      );
+
+      return;
+    }
+
+    if (!currentProfile?.id) {
+      setFormError(
+        "Не удалось определить текущего пользователя"
+      );
+
+      return;
+    }
+
+    setSaving(true);
+
+    const result =
+      await incomingResponseService.registerResponse({
+        telegram: normalizedUsername,
+        phone: normalizedPhone,
+        managerId: currentProfile.id,
+      });
+
+    if (result.error) {
+      console.error(
+        "Ошибка регистрации отклика:",
+        result.error
+      );
+
+      setFormError(
+        result.error.message ||
+          "Не удалось сохранить отклик"
+      );
+
+      setSaving(false);
+      return;
+    }
+
+    const identifier =
+      normalizedUsername ||
+      formatPhone(normalizedPhone);
+
+    if (!result.data?.matched) {
+      setFormError(
+        `${identifier} не найден среди контактов, которым была отправлена рассылка`
+      );
+
+      setSaving(false);
+      return;
+    }
+
+    if (result.data.alreadyResponded) {
+      setFormError(
+        `${identifier} уже был отмечен как ответивший`
+      );
+
+      setSaving(false);
+      return;
+    }
+
+    setSuccessMessage(
+      `${identifier} отмечен как ответивший`
+    );
+
+    setTelegramUsername("");
+    setPhone("");
+
+    await loadResponses(false);
+
+    setSaving(false);
+
+    setTimeout(() => {
+      setModalOpen(false);
+      setSuccessMessage("");
+    }, 1000);
+  }
 
   async function handleCreateApplication(
-  contact
-) {
-  if (!contact?.id) {
-    setError(
-      "Не удалось определить контакт для создания заявки"
-    );
-    return;
-  }
-
-  if (creatingApplicationId) {
-    return;
-  }
-
-  setError("");
-  setSuccessMessage("");
-  setCreatingApplicationId(contact.id);
-
-  const result =
-    await applicationService
-      .createApplicationFromContact(
-        contact,
-        currentProfile?.id || null
+    contact
+  ) {
+    if (!contact?.id) {
+      setError(
+        "Не удалось определить контакт для создания заявки"
       );
 
-  if (result.error) {
-    console.error(
-      "Ошибка создания заявки:",
-      result.error
-    );
+      return;
+    }
 
-    setError(
-      result.error.message ||
-        "Не удалось создать заявку"
-    );
+    if (creatingApplicationId) {
+      return;
+    }
+
+    setError("");
+    setSuccessMessage("");
+    setCreatingApplicationId(contact.id);
+
+    const result =
+      await applicationService
+        .createApplicationFromContact(
+          contact,
+          currentProfile?.id || null
+        );
+
+    if (result.error) {
+      console.error(
+        "Ошибка создания заявки:",
+        result.error
+      );
+
+      setError(
+        result.error.message ||
+          "Не удалось создать заявку"
+      );
+
+      setCreatingApplicationId(null);
+      return;
+    }
+
+    const identifier =
+      getContactIdentifier(contact);
+
+    if (result.alreadyExists) {
+      setSuccessMessage(
+        `Заявка для ${identifier} уже существует`
+      );
+    } else {
+      setSuccessMessage(
+        `Заявка для ${identifier} создана`
+      );
+    }
+
+    await loadResponses(false);
 
     setCreatingApplicationId(null);
-    return;
   }
-
-  if (result.alreadyExists) {
-    setSuccessMessage(
-      `Заявка для ${formatTelegramUsername(
-        contact.telegram_username
-      )} уже существует`
-    );
-  } else {
-    setSuccessMessage(
-      `Заявка для ${formatTelegramUsername(
-        contact.telegram_username
-      )} создана`
-    );
-  }
-
-  await loadResponses(false);
-
-  setCreatingApplicationId(null);
-}
-  async function handleSubmit(event) {
-  event.preventDefault();
-
-  setFormError("");
-  setSuccessMessage("");
-
-  const normalizedUsername =
-    incomingResponseService
-      .normalizeTelegramUsername(
-        telegramUsername
-      );
-
-  const normalizedPhone =
-    incomingResponseService.normalizePhone(
-      phone
-    );
-
-  if (
-    !normalizedUsername &&
-    !normalizedPhone
-  ) {
-    setFormError(
-      "Введите Telegram-ник или номер телефона"
-    );
-    return;
-  }
-
-  if (!currentProfile?.id) {
-    setFormError(
-      "Не удалось определить текущего пользователя"
-    );
-    return;
-  }
-
-  setSaving(true);
-
-  const result =
-    await incomingResponseService.registerResponse({
-      telegram: normalizedUsername,
-      phone: normalizedPhone,
-      managerId: currentProfile.id,
-    });
-
-  if (result.error) {
-    console.error(
-      "Ошибка регистрации отклика:",
-      result.error
-    );
-
-    setFormError(
-      result.error.message ||
-        "Не удалось сохранить отклик"
-    );
-
-    setSaving(false);
-    return;
-  }
-
-  const identifier =
-    normalizedUsername ||
-    formatPhone(normalizedPhone);
-
-  if (!result.data?.matched) {
-    setFormError(
-      `${identifier} не найден среди контактов, которым была отправлена рассылка`
-    );
-
-    setSaving(false);
-    return;
-  }
-
-  if (result.data.alreadyResponded) {
-    setFormError(
-      `${identifier} уже был отмечен как ответивший`
-    );
-
-    setSaving(false);
-    return;
-  }
-
-  setSuccessMessage(
-    `${identifier} отмечен как ответивший`
-  );
-
-  setTelegramUsername("");
-  setPhone("");
-
-  await loadResponses(false);
-
-  setSaving(false);
-
-  setTimeout(() => {
-    setModalOpen(false);
-    setSuccessMessage("");
-  }, 900);
-}
 
   const filteredResponses = useMemo(() => {
     const normalizedSearch = search
@@ -341,10 +355,17 @@ function closeModal() {
         isToday(response.responded_at)
     ).length;
 
+    const withApplications =
+      responses.filter(
+        (response) =>
+          response.application_created_at
+      ).length;
+
     return {
       total: responses.length,
       today: respondedToday,
       averageDelay,
+      withApplications,
     };
   }, [responses]);
 
@@ -359,11 +380,12 @@ function closeModal() {
           <h1>Входящий поток</h1>
 
           <p>
-  Добавляйте Telegram-ник или номер
-  телефона человека, который ответил
-  на рассылку. CRM сама найдёт контакт
-  и отметит его как ответившего.
-</p>
+            Добавьте Telegram-ник или номер
+            человека, который ответил на
+            рассылку. CRM автоматически найдёт
+            контакт и отметит его как
+            ответившего.
+          </p>
         </div>
 
         <div className="incoming-heading__actions">
@@ -374,7 +396,7 @@ function closeModal() {
             disabled={loading}
           >
             <RefreshCw
-              size={16}
+              size={18}
               className={
                 loading
                   ? "incoming-refresh-icon--loading"
@@ -382,7 +404,7 @@ function closeModal() {
               }
             />
 
-            Обновить
+            <span>Обновить</span>
           </button>
 
           <button
@@ -390,91 +412,81 @@ function closeModal() {
             type="button"
             onClick={openModal}
           >
-            <Plus size={17} />
-            Добавить отклик
+            <Plus size={19} />
+            <span>Добавить отклик</span>
           </button>
         </div>
       </section>
 
       <section className="incoming-stats">
-        <article className="incoming-stat-card">
-          <div className="incoming-stat-card__icon">
-            <Inbox size={20} />
-          </div>
+        <StatCard
+          icon={Inbox}
+          title="Всего откликов"
+          value={stats.total}
+        />
 
-          <div>
-            <span>Всего откликов</span>
-            <strong>{stats.total}</strong>
-          </div>
-        </article>
+        <StatCard
+          icon={CheckCircle2}
+          title="Ответили сегодня"
+          value={stats.today}
+          variant="success"
+        />
 
-        <article className="incoming-stat-card incoming-stat-card--new">
-          <div className="incoming-stat-card__icon">
-            <CheckCircle2 size={20} />
-          </div>
+        <StatCard
+          icon={Clock3}
+          title="Среднее время"
+          value={formatAverageDays(
+            stats.averageDelay
+          )}
+          variant="warning"
+        />
 
-          <div>
-            <span>Ответили сегодня</span>
-            <strong>{stats.today}</strong>
-          </div>
-        </article>
-
-        <article className="incoming-stat-card incoming-stat-card--progress">
-          <div className="incoming-stat-card__icon">
-            <Clock3 size={20} />
-          </div>
-
-          <div>
-            <span>
-              Среднее время до отклика
-            </span>
-
-            <strong>
-              {formatAverageDays(
-                stats.averageDelay
-              )}
-            </strong>
-          </div>
-        </article>
+        <StatCard
+          icon={UserRound}
+          title="Создано заявок"
+          value={stats.withApplications}
+          variant="blue"
+        />
       </section>
 
       <section className="incoming-toolbar">
         <div className="incoming-search">
-          <Search size={17} />
+          <Search size={19} />
 
           <input
-            type="text"
-            placeholder="Поиск по Telegram, имени или телефону..."
+            type="search"
+            placeholder="Telegram, имя или телефон"
             value={search}
             onChange={(event) =>
               setSearch(event.target.value)
             }
           />
-        </div>
 
-        {search && (
-          <button
-            className="incoming-reset-button"
-            type="button"
-            onClick={() => setSearch("")}
-          >
-            Сбросить
-          </button>
-        )}
+          {search && (
+            <button
+              type="button"
+              aria-label="Очистить поиск"
+              onClick={() => setSearch("")}
+            >
+              <X size={17} />
+            </button>
+          )}
+        </div>
       </section>
 
       {error && (
-        <div className="incoming-error">
+        <div className="incoming-alert incoming-alert--error">
           {error}
         </div>
       )}
 
-{successMessage && !modalOpen && (
-  <div className="incoming-page-success">
-    <CheckCircle2 size={17} />
-    {successMessage}
-  </div>
-)}
+      {successMessage && !modalOpen && (
+        <div className="incoming-alert incoming-alert--success">
+          <CheckCircle2 size={18} />
+          <span>{successMessage}</span>
+        </div>
+      )}
+
       {loading ? (
         <div className="incoming-state">
           <div className="incoming-loader" />
@@ -484,13 +496,12 @@ function closeModal() {
           </strong>
 
           <span>
-            Данные появятся через несколько
-            секунд.
+            Получаем актуальные данные из CRM.
           </span>
         </div>
       ) : filteredResponses.length === 0 ? (
         <div className="incoming-state">
-          <Inbox size={36} />
+          <Inbox size={42} />
 
           <strong>
             {search
@@ -500,8 +511,8 @@ function closeModal() {
 
           <span>
             {search
-              ? "Попробуйте изменить поисковый запрос."
-              : "Добавьте Telegram-ник или номер телефона человека, который ответил на рассылку."}
+              ? "Измените поисковый запрос."
+              : "Добавьте первый отклик по номеру телефона или Telegram."}
           </span>
 
           {!search && (
@@ -510,131 +521,153 @@ function closeModal() {
               type="button"
               onClick={openModal}
             >
-              <Plus size={17} />
-              Добавить первый отклик
+              <Plus size={18} />
+              Добавить отклик
             </button>
           )}
         </div>
       ) : (
         <>
           <div className="incoming-results">
-            Найдено откликов:{" "}
+            Найдено:{" "}
             <strong>
               {filteredResponses.length}
             </strong>
           </div>
 
-          <section className="incoming-table-card">
-            <div className="incoming-table-wrapper">
-              <table className="incoming-table">
-                <thead>
-                  <tr>
-                    <th>Telegram</th>
-                    <th>Дата рассылки</th>
-                    <th>Дата отклика</th>
-                    <th>Время до отклика</th>
-                    <th>Статус</th>
-                    <th>Действие</th>
-                  </tr>
-                </thead>
+          <section className="incoming-grid">
+            {filteredResponses.map(
+              (response) => {
+                const delay = getDaysBetween(
+                  response.sent_at,
+                  response.responded_at
+                );
 
-                <tbody>
-                  {filteredResponses.map(
-                    (response, index) => {
-                      const daysAfterMailing =
-                        getDaysBetween(
-                          response.sent_at,
+                const isCreating =
+                  creatingApplicationId ===
+                  response.id;
+
+                return (
+                  <article
+                    className="incoming-card"
+                    key={response.id}
+                  >
+                    <div className="incoming-card__top">
+                      <div className="incoming-card__identity">
+                        <div className="incoming-card__avatar">
+                          {response.telegram_username ? (
+                            <Send size={20} />
+                          ) : (
+                            <Phone size={20} />
+                          )}
+                        </div>
+
+                        <div>
+                          <span>Ответивший контакт</span>
+
+                          <h2>
+                            {getContactIdentifier(
+                              response
+                            )}
+                          </h2>
+
+                          {response.full_name && (
+                            <p>
+                              {response.full_name}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <span className="incoming-card__status">
+                        <CheckCircle2 size={14} />
+                        Ответил
+                      </span>
+                    </div>
+
+                    <div className="incoming-card__details">
+                      <DetailItem
+                        label="Отправлено"
+                        value={formatDate(
+                          response.sent_at
+                        )}
+                      />
+
+                      <DetailItem
+                        label="Получен ответ"
+                        value={formatDate(
                           response.responded_at
-                        );
+                        )}
+                      />
 
-                      const rowKey = [
-                        response.mailing_id,
-                        response.telegram_username,
-                        response.responded_at,
-                        index,
-                      ].join("-");
+                      <DetailItem
+                        label="Время до ответа"
+                        value={formatDays(delay)}
+                      />
 
-                      return (
-                        <tr key={rowKey}>
-                          <td>
-                            <div className="incoming-user">
-                              <div className="incoming-user__icon">
-                                <Send size={16} />
-                              </div>
+                      <DetailItem
+                        label="Телефон"
+                        value={
+                          response.phone
+                            ? formatPhone(
+                                response.phone
+                              )
+                            : "Не указан"
+                        }
+                      />
+                    </div>
 
-                              <div>
-                                <strong>
-                                  {formatTelegramUsername(
-                                    response.telegram_username
-                                  )}
-                                </strong>
+                    <div className="incoming-card__actions">
+                      {response.application_created_at ? (
+                        <div className="incoming-application-created">
+                          <CheckCircle2 size={17} />
 
-                                {response.full_name && (
-                                  <span>
-                                    {
-                                      response.full_name
-                                    }
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
+                          <div>
+                            <strong>
+                              Заявка создана
+                            </strong>
 
-                          <td>
-                            {formatDate(
-                              response.sent_at
-                            )}
-                          </td>
-
-                          <td>
-                            {formatDate(
-                              response.responded_at
-                            )}
-                          </td>
-
-                          <td>
-                            <span className="incoming-delay">
-                              {formatDays(
-                                daysAfterMailing
-                              )}
+                            <span>
+                              Контакт уже перенесён
+                              в заявки
                             </span>
-                          </td>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className="incoming-create-application"
+                          type="button"
+                          onClick={() =>
+                            handleCreateApplication(
+                              response
+                            )
+                          }
+                          disabled={isCreating}
+                        >
+                          <Plus size={18} />
 
-                          <td>
-  {response.application_created_at ? (
-    <span className="incoming-application-created">
-      <CheckCircle2 size={15} />
-      Заявка создана
-    </span>
-  ) : (
-    <button
-      className="incoming-create-application"
-      type="button"
-      onClick={() =>
-        handleCreateApplication(response)
-      }
-      disabled={
-        creatingApplicationId === response.id
-      }
-    >
-      <Plus size={15} />
-
-      {creatingApplicationId === response.id
-        ? "Создаём..."
-        : "Создать заявку"}
-    </button>
-  )}
-</td>
-                        </tr>
-                      );
-                    }
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          {isCreating
+                            ? "Создаём заявку..."
+                            : "Создать заявку"}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              }
+            )}
           </section>
         </>
       )}
+
+      <button
+        className="incoming-floating-button"
+        type="button"
+        aria-label="Добавить отклик"
+        onClick={openModal}
+      >
+        <Plus size={26} />
+      </button>
 
       {modalOpen && (
         <div
@@ -648,30 +681,34 @@ function closeModal() {
             }
           }}
         >
-          <div className="incoming-modal incoming-modal--small">
+          <section
+            className="incoming-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="incoming-modal-title"
+          >
             <div className="incoming-modal__header">
               <div>
                 <span>Новый отклик</span>
 
-                <h2>
-  Добавить отклик
-</h2>
+                <h2 id="incoming-modal-title">
+                  Кто вам написал?
+                </h2>
 
                 <p>
-  Укажите Telegram-ник или номер
-  телефона. CRM найдёт последний
-  подходящий контакт из рассылки.
-</p>
+                  Заполните одно поле: Telegram
+                  или номер телефона.
+                </p>
               </div>
 
               <button
                 className="incoming-modal__close"
                 type="button"
+                aria-label="Закрыть"
                 onClick={closeModal}
                 disabled={saving}
-                aria-label="Закрыть"
               >
-                <X size={20} />
+                <X size={21} />
               </button>
             </div>
 
@@ -680,52 +717,60 @@ function closeModal() {
               onSubmit={handleSubmit}
             >
               <label className="incoming-modal__field">
-  <span>Telegram-ник</span>
+                <span>Telegram-ник</span>
 
-  <input
-    type="text"
-    value={telegramUsername}
-    onChange={(event) => {
-      setTelegramUsername(
-        event.target.value
-      );
+                <div className="incoming-input">
+                  <Send size={18} />
 
-      if (formError) {
-        setFormError("");
-      }
-    }}
-    placeholder="@username"
-    autoFocus
-    disabled={saving}
-  />
-</label>
+                  <input
+                    type="text"
+                    value={telegramUsername}
+                    onChange={(event) => {
+                      setTelegramUsername(
+                        event.target.value
+                      );
 
-<div className="incoming-response-form__divider">
-  <span>или</span>
-</div>
+                      setFormError("");
+                    }}
+                    placeholder="@username"
+                    autoFocus
+                    disabled={saving}
+                  />
+                </div>
+              </label>
 
-<label className="incoming-modal__field">
-  <span>Номер телефона</span>
+              <div className="incoming-response-form__divider">
+                <span>или</span>
+              </div>
 
-  <input
-    type="tel"
-    value={phone}
-    onChange={(event) => {
-      setPhone(event.target.value);
+              <label className="incoming-modal__field">
+                <span>Номер телефона</span>
 
-      if (formError) {
-        setFormError("");
-      }
-    }}
-    placeholder="+7 999 123-45-67"
-    disabled={saving}
-  />
-</label>
+                <div className="incoming-input">
+                  <Phone size={18} />
 
-<div className="incoming-response-form__hint">
-  Заполните Telegram или номер телефона.
-  Оба поля одновременно заполнять не обязательно.
-</div>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={phone}
+                    onChange={(event) => {
+                      setPhone(
+                        event.target.value
+                      );
+
+                      setFormError("");
+                    }}
+                    placeholder="+7 999 123-45-67"
+                    disabled={saving}
+                  />
+                </div>
+              </label>
+
+              <div className="incoming-response-form__hint">
+                CRM выполнит поиск только среди
+                контактов, которым была отправлена
+                рассылка.
+              </div>
 
               {formError && (
                 <div className="incoming-modal__error">
@@ -735,8 +780,8 @@ function closeModal() {
 
               {successMessage && (
                 <div className="incoming-modal__success">
-                  <CheckCircle2 size={17} />
-                  {successMessage}
+                  <CheckCircle2 size={18} />
+                  <span>{successMessage}</span>
                 </div>
               )}
 
@@ -755,33 +800,83 @@ function closeModal() {
                   type="submit"
                   disabled={saving}
                 >
-                  <CheckCircle2 size={17} />
+                  <CheckCircle2 size={18} />
 
                   {saving
                     ? "Проверяем..."
-                    : "Сохранить отклик"}
+                    : "Отметить ответ"}
                 </button>
               </div>
             </form>
-          </div>
+          </section>
         </div>
       )}
     </main>
   );
 }
 
+function StatCard({
+  icon: Icon,
+  title,
+  value,
+  variant = "",
+}) {
+  return (
+    <article
+      className={[
+        "incoming-stat-card",
+        variant
+          ? `incoming-stat-card--${variant}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="incoming-stat-card__icon">
+        <Icon size={20} />
+      </div>
+
+      <div>
+        <span>{title}</span>
+        <strong>{value}</strong>
+      </div>
+    </article>
+  );
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="incoming-card__detail">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function getContactIdentifier(contact) {
+  if (contact?.telegram_username) {
+    return formatTelegramUsername(
+      contact.telegram_username
+    );
+  }
+
+  if (contact?.phone) {
+    return formatPhone(contact.phone);
+  }
+
+  return contact?.full_name || "Без данных";
+}
+
 function formatTelegramUsername(value) {
   if (!value) {
-    return "Ник не указан";
+    return "Telegram не указан";
   }
 
   const username = String(value).trim();
 
-  if (username.startsWith("@")) {
-    return username;
-  }
-
-  return `@${username}`;
+  return username.startsWith("@")
+    ? username
+    : `@${username}`;
 }
 
 function formatPhone(value) {
@@ -789,6 +884,15 @@ function formatPhone(value) {
     /\D/g,
     ""
   );
+
+  if (
+    digits.length === 11 &&
+    digits.startsWith("8")
+  ) {
+    return formatPhone(
+      `7${digits.slice(1)}`
+    );
+  }
 
   if (
     digits.length === 11 &&
@@ -808,6 +912,7 @@ function formatPhone(value) {
 
   return value || "Номер не указан";
 }
+
 function formatDate(value) {
   if (!value) {
     return "Не указано";
@@ -819,16 +924,22 @@ function formatDate(value) {
     return "Не указано";
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    "ru-RU",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(date);
 }
 
-function getDaysBetween(startValue, endValue) {
+function getDaysBetween(
+  startValue,
+  endValue
+) {
   if (!startValue || !endValue) {
     return null;
   }
@@ -844,7 +955,8 @@ function getDaysBetween(startValue, endValue) {
   }
 
   const milliseconds =
-    endDate.getTime() - startDate.getTime();
+    endDate.getTime() -
+    startDate.getTime();
 
   if (milliseconds < 0) {
     return 0;
@@ -879,7 +991,8 @@ function formatDays(value) {
     )}`;
   }
 
-  const days = Math.round(value * 10) / 10;
+  const days =
+    Math.round(value * 10) / 10;
 
   return `${days} ${getWordForm(
     Math.floor(days),
@@ -908,8 +1021,10 @@ function isToday(value) {
   return (
     date.getFullYear() ===
       today.getFullYear() &&
-    date.getMonth() === today.getMonth() &&
-    date.getDate() === today.getDate()
+    date.getMonth() ===
+      today.getMonth() &&
+    date.getDate() ===
+      today.getDate()
   );
 }
 

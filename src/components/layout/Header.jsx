@@ -6,6 +6,7 @@ import {
 
 import {
   NavLink,
+  useLocation,
   useNavigate,
 } from "react-router-dom";
 
@@ -17,17 +18,21 @@ import {
   CheckCheck,
   FileText,
   LogOut,
+  Menu,
   PackageSearch,
   Send,
   Settings,
   Trash2,
   UserCog,
   Users,
+  ContactRound,
 } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext.jsx";
 
 import { notificationService } from "../../services/notificationService";
+
+import MobileMenu from "./MobileMenu";
 
 const navigation = [
   {
@@ -40,7 +45,7 @@ const navigation = [
     title: "Входящий поток",
     icon: Send,
     path: "/incoming",
-    roles: ["admin", "head", "manager"],
+    roles: ["admin", "head"],
   },
   {
     title: "Заявки",
@@ -48,6 +53,11 @@ const navigation = [
     path: "/applications",
     roles: ["admin", "head", "manager"],
   },
+  {
+  title: "Мои контакты",
+  path: "/my-contacts",
+  icon: ContactRound,
+},
   {
     title: "Менеджеры",
     icon: Users,
@@ -58,8 +68,9 @@ const navigation = [
     title: "Рассылки",
     icon: PackageSearch,
     path: "/mailings",
-    roles: ["admin", "head", "manager"],
+    roles: ["admin", "head"],
   },
+  
   {
     title: "Расчёт зарплаты",
     icon: Calculator,
@@ -73,11 +84,16 @@ const navigation = [
     roles: ["admin", "head"],
   },
   {
-    title: "Пользователи",
-    icon: UserCog,
-    path: "/users",
-    roles: ["admin"],
-  },
+  title: "Пользователи",
+  icon: UserCog,
+  path: "/users",
+  roles: ["admin", "head"],
+},
+{
+  title: "Входящий поток",
+  path: "/incoming",
+  icon: Send,
+},
   {
     title: "Настройки",
     icon: Settings,
@@ -86,27 +102,56 @@ const navigation = [
   },
 ];
 
+
 export default function Header() {
   const navigate = useNavigate();
+  const location = useLocation();
+
   const { user, logout } = useAuth();
 
   const notificationRef = useRef(null);
 
-  const [notifications, setNotifications] =
-    useState([]);
-
-  const [isNotificationsOpen, setIsNotificationsOpen] =
+  const [isMobileMenuOpen, setIsMobileMenuOpen] =
     useState(false);
 
-  const [isNotificationsLoading, setIsNotificationsLoading] =
-    useState(false);
+  const [
+    isNotificationsOpen,
+    setIsNotificationsOpen,
+  ] = useState(false);
+
+  const [
+    isNotificationsLoading,
+    setIsNotificationsLoading,
+  ] = useState(false);
 
   const [notificationError, setNotificationError] =
     useState("");
 
+  const [notifications, setNotifications] =
+    useState([]);
+
   const unreadCount = notifications.filter(
     (notification) => !notification.is_read
   ).length;
+
+  const availableNavigation = navigation.filter(
+    (item) =>
+      !item.roles ||
+      item.roles.includes(user?.role)
+  );
+
+  const userName =
+    user?.name ||
+    user?.full_name ||
+    user?.email ||
+    "Пользователь";
+
+  const userInitials = getInitials(userName);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+    setIsNotificationsOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -116,14 +161,15 @@ export default function Header() {
 
     loadNotifications();
 
-    const channel = notificationService.subscribe(
-      user.id,
-      () => {
-        loadNotifications({
-          showLoading: false,
-        });
-      }
-    );
+    const channel =
+      notificationService.subscribe(
+        user.id,
+        () => {
+          loadNotifications({
+            showLoading: false,
+          });
+        }
+      );
 
     return () => {
       notificationService.unsubscribe(channel);
@@ -154,6 +200,38 @@ export default function Header() {
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) {
+      return undefined;
+    }
+
+    const previousOverflow =
+      document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        setIsMobileMenuOpen(false);
+      }
+    }
+
+    window.addEventListener(
+      "keydown",
+      handleEscape
+    );
+
+    return () => {
+      document.body.style.overflow =
+        previousOverflow;
+
+      window.removeEventListener(
+        "keydown",
+        handleEscape
+      );
+    };
+  }, [isMobileMenuOpen]);
 
   async function loadNotifications({
     showLoading = true,
@@ -192,6 +270,9 @@ export default function Header() {
   }
 
   async function handleLogout() {
+    setIsMobileMenuOpen(false);
+    setIsNotificationsOpen(false);
+
     const result = await logout();
 
     if (!result.success) {
@@ -253,11 +334,6 @@ export default function Header() {
       );
 
     if (error || !success) {
-      console.error(
-        "Ошибка прочтения уведомлений:",
-        error
-      );
-
       setNotificationError(
         "Не удалось отметить уведомления"
       );
@@ -305,218 +381,228 @@ export default function Header() {
     );
   }
 
-  const availableNavigation = navigation.filter(
-    (item) => {
-      if (!item.roles) {
-        return true;
-      }
-
-      return item.roles.includes(user?.role);
-    }
-  );
-
-  const userInitials = getInitials(
-    user?.name ||
-      user?.full_name ||
-      user?.email
-  );
-
   return (
-    <header className="header">
-      <div className="header__inner">
-        <NavLink
-          className="header__logo"
-          to="/dashboard"
-        >
-          <div className="header__logo-mark">
-            C
-          </div>
-
-          <div>
-            <div className="header__logo-title">
-              CRM Stats
-            </div>
-
-            <div className="header__logo-subtitle">
-              Аналитика команды
-            </div>
-          </div>
-        </NavLink>
-
-        <nav className="header__nav">
-          {availableNavigation.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  [
-                    "header__nav-item",
-                    isActive
-                      ? "header__nav-item--active"
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")
-                }
-              >
-                <Icon size={16} />
-                <span>{item.title}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-
-        <div className="header__user">
-          <div className="header__user-avatar">
-            {userInitials}
-          </div>
-
-          <div className="header__user-info">
-            <strong>
-              {user?.name ||
-                user?.full_name ||
-                "Пользователь"}
-            </strong>
-
-           <span>{getRoleLabel(user?.role)}</span>
-          </div>
-        </div>
-
-        <div className="header__actions">
-          <div
-            className="header-notifications"
-            ref={notificationRef}
+    <>
+      <header className="header">
+        <div className="header__inner">
+          <button
+            className="header__burger"
+            type="button"
+            aria-label="Открыть меню"
+            aria-expanded={isMobileMenuOpen}
+            onClick={() =>
+              setIsMobileMenuOpen(true)
+            }
           >
-            <button
-              className="header__icon-button"
-              type="button"
-              aria-label="Уведомления"
-              aria-expanded={
-                isNotificationsOpen
-              }
-              onClick={() =>
-                setIsNotificationsOpen(
-                  (currentValue) =>
-                    !currentValue
-                )
-              }
+            <Menu size={21} />
+          </button>
+
+          <NavLink
+            className="header__logo"
+            to="/dashboard"
+          >
+            <div className="header__logo-mark">
+              C
+            </div>
+
+            <div>
+              <div className="header__logo-title">
+                CRM Stats
+              </div>
+
+              <div className="header__logo-subtitle">
+                Аналитика команды
+              </div>
+            </div>
+          </NavLink>
+
+          <nav className="header__nav">
+            {availableNavigation.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    [
+                      "header__nav-item",
+                      isActive
+                        ? "header__nav-item--active"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  }
+                >
+                  <Icon size={16} />
+                  <span>{item.title}</span>
+                </NavLink>
+              );
+            })}
+          </nav>
+
+          <div className="header__user">
+            <div className="header__user-avatar">
+              {userInitials}
+            </div>
+
+            <div className="header__user-info">
+              <strong>{userName}</strong>
+              <span>
+                {getRoleLabel(user?.role)}
+              </span>
+            </div>
+          </div>
+
+          <div className="header__actions">
+            <div
+              className="header-notifications"
+              ref={notificationRef}
             >
-              <Bell size={18} />
+              <button
+                className="header__icon-button"
+                type="button"
+                aria-label="Уведомления"
+                aria-expanded={
+                  isNotificationsOpen
+                }
+                onClick={() => {
+                  setIsNotificationsOpen(
+                    (currentValue) =>
+                      !currentValue
+                  );
 
-              {unreadCount > 0 && (
-                <span className="header__notification">
-                  {unreadCount > 99
-                    ? "99+"
-                    : unreadCount}
-                </span>
-              )}
-            </button>
+                  setIsMobileMenuOpen(false);
+                }}
+              >
+                <Bell size={18} />
 
-            {isNotificationsOpen && (
-              <div className="notifications-dropdown">
-                <div className="notifications-dropdown__header">
-                  <div>
-                    <strong>Уведомления</strong>
+                {unreadCount > 0 && (
+                  <span className="header__notification">
+                    {unreadCount > 99
+                      ? "99+"
+                      : unreadCount}
+                  </span>
+                )}
+              </button>
 
-                    <span>
-                      {unreadCount > 0
-                        ? `Непрочитанных: ${unreadCount}`
-                        : "Новых уведомлений нет"}
-                    </span>
-                  </div>
-
-                  {unreadCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={
-                        handleMarkAllAsRead
-                      }
-                    >
-                      <CheckCheck size={15} />
-                      <span>Прочитать все</span>
-                    </button>
-                  )}
-                </div>
-
-                <div className="notifications-dropdown__body">
-                  {isNotificationsLoading ? (
-                    <div className="notifications-dropdown__state">
-                      <div className="notifications-dropdown__spinner" />
-
-                      <span>
-                        Загрузка уведомлений...
-                      </span>
-                    </div>
-                  ) : notificationError ? (
-                    <div className="notifications-dropdown__state">
+              {isNotificationsOpen && (
+                <div className="notifications-dropdown">
+                  <div className="notifications-dropdown__header">
+                    <div>
                       <strong>
-                        Произошла ошибка
+                        Уведомления
                       </strong>
 
                       <span>
-                        {notificationError}
+                        {unreadCount > 0
+                          ? `Непрочитанных: ${unreadCount}`
+                          : "Новых уведомлений нет"}
                       </span>
+                    </div>
 
+                    {unreadCount > 0 && (
                       <button
                         type="button"
-                        onClick={() =>
-                          loadNotifications()
+                        onClick={
+                          handleMarkAllAsRead
                         }
                       >
-                        Повторить
+                        <CheckCheck size={15} />
+                        <span>
+                          Прочитать все
+                        </span>
                       </button>
-                    </div>
-                  ) : notifications.length ===
-                    0 ? (
-                    <div className="notifications-dropdown__state">
-                      <Bell size={32} />
+                    )}
+                  </div>
 
-                      <strong>
-                        Уведомлений пока нет
-                      </strong>
+                  <div className="notifications-dropdown__body">
+                    {isNotificationsLoading ? (
+                      <div className="notifications-dropdown__state">
+                        <div className="notifications-dropdown__spinner" />
 
-                      <span>
-                        Здесь появятся новые события
-                        CRM.
-                      </span>
-                    </div>
-                  ) : (
-                    notifications.map(
-                      (notification) => (
-                        <NotificationItem
-                          key={notification.id}
-                          notification={
-                            notification
+                        <span>
+                          Загрузка уведомлений...
+                        </span>
+                      </div>
+                    ) : notificationError ? (
+                      <div className="notifications-dropdown__state">
+                        <strong>
+                          Произошла ошибка
+                        </strong>
+
+                        <span>
+                          {notificationError}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            loadNotifications()
                           }
-                          onClick={
-                            handleNotificationClick
-                          }
-                          onDelete={
-                            handleDeleteNotification
-                          }
-                        />
+                        >
+                          Повторить
+                        </button>
+                      </div>
+                    ) : notifications.length ===
+                      0 ? (
+                      <div className="notifications-dropdown__state">
+                        <Bell size={32} />
+
+                        <strong>
+                          Уведомлений пока нет
+                        </strong>
+
+                        <span>
+                          Здесь появятся новые события CRM.
+                        </span>
+                      </div>
+                    ) : (
+                      notifications.map(
+                        (notification) => (
+                          <NotificationItem
+                            key={notification.id}
+                            notification={
+                              notification
+                            }
+                            onClick={
+                              handleNotificationClick
+                            }
+                            onDelete={
+                              handleDeleteNotification
+                            }
+                          />
+                        )
                       )
-                    )
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          <button
-            className="header__logout"
-            type="button"
-            onClick={handleLogout}
-          >
-            <LogOut size={17} />
-            <span>Выйти</span>
-          </button>
+            <button
+              className="header__logout"
+              type="button"
+              onClick={handleLogout}
+            >
+              <LogOut size={17} />
+              <span>Выйти</span>
+            </button>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      <MobileMenu
+        isOpen={isMobileMenuOpen}
+        navigation={availableNavigation}
+        user={user}
+        onClose={() =>
+          setIsMobileMenuOpen(false)
+        }
+        onLogout={handleLogout}
+      />
+    </>
   );
 }
 
@@ -567,7 +653,6 @@ function NotificationItem({
         className="notification-item__delete"
         type="button"
         aria-label="Удалить уведомление"
-        title="Удалить уведомление"
         onClick={(event) =>
           onDelete(event, notification.id)
         }
@@ -583,13 +668,23 @@ function getInitials(value) {
     return "U";
   }
 
-  return value
+  return String(value)
     .trim()
     .split(/\s+/)
     .slice(0, 2)
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function getRoleLabel(role) {
+  const labels = {
+    admin: "Администратор",
+    head: "Руководитель",
+    manager: "Менеджер",
+  };
+
+  return labels[role] || "Сотрудник";
 }
 
 function formatNotificationDate(dateValue) {
@@ -615,30 +710,20 @@ function formatNotificationDate(dateValue) {
     return `${minutes} мин. назад`;
   }
 
-  const hours = Math.floor(
-    minutes / 60
-  );
+  const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
     return `${hours} ч. назад`;
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-
-
-}
-function getRoleLabel(role) {
-  const labels = {
-    admin: "Администратор",
-    head: "Руководитель",
-    manager: "Менеджер",
-  };
-
-  return labels[role] || "Сотрудник";
+  return new Intl.DateTimeFormat(
+    "ru-RU",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(date);
 }

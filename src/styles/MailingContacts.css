@@ -500,3 +500,35 @@
     width: 100%;
   }
 }
+/* ======================================================
+   MAILING CONTACTS — BASE ENHANCEMENTS
+====================================================== */
+
+.mailing-contacts-header__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.mailing-contacts-header__actions button {
+  white-space: nowrap;
+}
+
+.mailing-contact-card {
+  min-width: 0;
+}
+
+.mailing-contact-heading > div {
+  min-width: 0;
+}
+
+.mailing-contact-heading h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailing-contact-checkbox {
+  flex: 0 0 auto;
+}

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import "../styles/ApplicationDetails.css";
+import { productService } from "../services/productService";
 
 import { useAuth } from "../context/AuthContext";
 import { applicationService } from "../services/applicationService";
@@ -28,10 +29,10 @@ import { profileService } from "../services/profileService";
 const statusOptions = [
   { value: "new", label: "Новая" },
   { value: "in_progress", label: "В работе" },
-  { value: "waiting", label: "Ожидание" },
-  { value: "approved", label: "Успешная" },
+  { value: "approved", label: "Успешно открыта" },
   { value: "rejected", label: "Отказ" },
 ];
+
 
 const sourceOptions = [
   "manual",
@@ -45,6 +46,7 @@ const sourceOptions = [
 
 const initialForm = {
   full_name: "",
+  product_id: "",
   phone: "",
   telegram: "",
   source: "manual",
@@ -61,6 +63,7 @@ export default function ApplicationDetails() {
   const { applicationId } = useParams();
 
   const [application, setApplication] = useState(null);
+  const [products, setProducts] = useState([]);
   const [managers, setManagers] = useState([]);
   const [form, setForm] = useState(initialForm);
 
@@ -142,22 +145,38 @@ export default function ApplicationDetails() {
     setSuccessMessage("");
 
     const [
-      applicationResult,
-      managersResult,
-      historyResult,
-      messagesResult,
-    ] = await Promise.all([
-      applicationService.getApplicationById(applicationId),
-      profileService.getManagers(),
-      applicationHistoryService.getHistory(applicationId),
-      applicationMessageService.getMessages(applicationId),
-    ]);
+  applicationResult,
+  managersResult,
+  productsResult,
+  historyResult,
+  messagesResult,
+] = await Promise.all([
+  applicationService.getApplicationById(
+    applicationId
+  ),
+  profileService.getManagers(),
+  productService.getActiveProducts(),
+  applicationHistoryService.getHistory(
+    applicationId
+  ),
+  applicationMessageService.getMessages(
+    applicationId
+  ),
+]);
 
     if (managersResult.error) {
       console.error("Ошибка загрузки менеджеров:", managersResult.error);
     }
     setManagers(managersResult.data || []);
 
+    if (productsResult.error) {
+  console.error(
+    "Ошибка загрузки продуктов:",
+    productsResult.error
+  );
+}
+
+setProducts(productsResult.data || []);
     if (historyResult.error) {
       console.error("Ошибка загрузки истории:", historyResult.error);
     }
@@ -187,21 +206,25 @@ export default function ApplicationDetails() {
 
     const data = applicationResult.data;
 
-    setApplication(data);
-    setForm({
-      full_name: data.full_name || "",
-      phone: data.phone || "",
-      telegram: data.telegram || "",
-      source: data.source || "manual",
-      product: data.product || "",
-      status: data.status || "new",
-      assigned_manager_id: data.assigned_manager_id || "",
-      amount:
-        data.amount === null || data.amount === undefined
-          ? ""
-          : String(data.amount),
-      comment: data.comment || "",
-    });
+   setForm({
+  full_name: data.full_name || "",
+  phone: data.phone || "",
+  telegram: data.telegram || "",
+  source: data.source || "manual",
+
+  product_id: data.product_id || "",
+  product: data.product || "",
+
+  status: data.status || "new",
+  assigned_manager_id:
+    data.assigned_manager_id || "",
+  amount:
+    data.amount === null ||
+    data.amount === undefined
+      ? ""
+      : String(data.amount),
+  comment: data.comment || "",
+});
 
     setIsLoading(false);
   }, [applicationId]);
@@ -665,16 +688,32 @@ export default function ApplicationDetails() {
                 </select>
               </label>
 
-              <label className="application-details-field">
-                <span>Продукт</span>
-                <input
-                  type="text"
-                  name="product"
-                  value={form.product}
-                  onChange={handleChange}
-                  placeholder="Например, Альфа"
-                />
-              </label>
+             <label className="application-details-field">
+  <span>Продукт</span>
+
+  <select
+    name="product_id"
+    value={form.product_id}
+    onChange={handleChange}
+    required
+  >
+    <option value="">
+      Выберите продукт
+    </option>
+
+    {products.map((product) => (
+      <option
+        key={product.id}
+        value={product.id}
+      >
+        {product.name} —{" "}
+        {formatMoney(
+          product.opening_price
+        )}
+      </option>
+    ))}
+  </select>
+</label>
 
               <label className="application-details-field">
                 <span>Менеджер</span>

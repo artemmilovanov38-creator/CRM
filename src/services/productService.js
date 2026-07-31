@@ -4,6 +4,7 @@ const PRODUCT_FIELDS = `
   id,
   name,
   description,
+  opening_price,
   is_active,
   created_by,
   created_at,
@@ -97,17 +98,37 @@ export const productService = {
       };
     }
 
-    const payload = {
-      name,
-      description:
-        values?.description?.trim() || null,
-      is_active:
-        values?.is_active !== undefined
-          ? Boolean(values.is_active)
-          : true,
-      created_by:
-        authData?.user?.id || null,
-    };
+   const openingPrice = Number(
+  values?.opening_price ?? 0
+);
+
+if (
+  !Number.isFinite(openingPrice) ||
+  openingPrice < 0
+) {
+  return {
+    data: null,
+    error: new Error(
+      "Стоимость открытия должна быть числом от 0"
+    ),
+  };
+}
+
+const payload = {
+  name,
+  description:
+    values?.description?.trim() || null,
+
+  opening_price: openingPrice,
+
+  is_active:
+    values?.is_active !== undefined
+      ? Boolean(values.is_active)
+      : true,
+
+  created_by:
+    authData?.user?.id || null,
+};
 
     const { data, error } = await supabase
       .from("products")
@@ -132,11 +153,12 @@ export const productService = {
       };
     }
 
-    const allowedFields = [
-      "name",
-      "description",
-      "is_active",
-    ];
+   const allowedFields = [
+  "name",
+  "description",
+  "opening_price",
+  "is_active",
+];
 
     const payload = Object.fromEntries(
       Object.entries(values || {}).filter(([key]) =>
@@ -161,6 +183,26 @@ export const productService = {
       payload.description =
         payload.description?.trim() || null;
     }
+
+    if ("opening_price" in payload) {
+  const openingPrice = Number(
+    payload.opening_price
+  );
+
+  if (
+    !Number.isFinite(openingPrice) ||
+    openingPrice < 0
+  ) {
+    return {
+      data: null,
+      error: new Error(
+        "Стоимость открытия должна быть числом от 0"
+      ),
+    };
+  }
+
+  payload.opening_price = openingPrice;
+}
 
     if ("is_active" in payload) {
       payload.is_active = Boolean(

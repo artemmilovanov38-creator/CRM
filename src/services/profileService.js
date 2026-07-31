@@ -165,6 +165,7 @@ if (!accessToken) {
 const { data, error } =
   await supabase.functions.invoke(
     "create-user",
+    
     {
       body: {
         fullName,
@@ -177,6 +178,16 @@ const { data, error } =
       },
     }
   );
+  if (role === "head") {
+  return createResponse(
+    {
+      success: false,
+      message:
+        "Создание дополнительного руководителя запрещено",
+    },
+    403
+  );
+}
 
   if (error) {
     return {
@@ -259,47 +270,106 @@ async deleteUser(userId) {
   };
 },
   async updateProfile(userId, values) {
-    if (!userId) {
-      return {
-        data: null,
-        error: new Error("Не передан ID пользователя"),
-      };
-    }
+  if (!userId) {
+    return {
+      data: null,
+      error: new Error(
+        "Не передан ID пользователя"
+      ),
+    };
+  }
 
-   const allowedFields = [
-  "full_name",
-  "role",
-  "status",
-  "avatar",
-  "phone",
-  "telegram",
-  "hire_date",
-  "note",
-];
+  const allowedFields = [
+    "full_name",
+    "role",
+    "status",
+    "avatar",
+    "phone",
+    "telegram",
+    "hire_date",
+    "note",
+  ];
 
-    const sanitizedValues = Object.fromEntries(
-      Object.entries(values).filter(([key]) =>
-        allowedFields.includes(key)
+  const sanitizedValues =
+    Object.fromEntries(
+      Object.entries(values || {}).filter(
+        ([key]) =>
+          allowedFields.includes(key)
       )
     );
 
-    if (Object.keys(sanitizedValues).length === 0) {
-      return {
-        data: null,
-        error: new Error("Нет данных для обновления"),
-      };
-    }
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .update(sanitizedValues)
-      .eq("id", userId)
-      .select(PROFILE_FIELDS)
-      .single();
-
+  if (
+    Object.keys(sanitizedValues).length === 0
+  ) {
     return {
-      data,
+      data: null,
+      error: new Error(
+        "Нет данных для обновления"
+      ),
+    };
+  }
+
+  const {
+    data: sessionData,
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError) {
+    return {
+      data: null,
+      error: new Error(
+        "Не удалось получить текущую сессию"
+      ),
+    };
+  }
+
+  const accessToken =
+    sessionData?.session?.access_token;
+
+  if (!accessToken) {
+    return {
+      data: null,
+      error: new Error(
+        "Сессия отсутствует. Войдите в аккаунт повторно."
+      ),
+    };
+  }
+
+  const { data, error } =
+    await supabase.functions.invoke(
+      "update-user",
+      {
+        body: {
+          userId,
+          updates: sanitizedValues,
+        },
+        headers: {
+          Authorization:
+            `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+  if (error) {
+    return {
+      data: null,
       error,
     };
-  },
+  }
+
+  if (!data?.success) {
+    return {
+      data: null,
+      error: new Error(
+        data?.message ||
+          "Не удалось обновить пользователя"
+      ),
+    };
+  }
+
+  return {
+    data: data.user,
+    error: null,
+  };
+},
 };

@@ -3,10 +3,12 @@ import {
   Mail,
   MessageCircle,
   Phone,
+  RefreshCw,
   Search,
   ShieldCheck,
   UserCheck,
   Users,
+  X,
 } from "lucide-react";
 
 import {
@@ -22,7 +24,7 @@ import "../styles/Managers.css";
 import { profileService } from "../services/profileService";
 
 const roleLabels = {
-  leader: "Руководитель",
+  head: "Руководитель",
   manager: "Менеджер",
 };
 
@@ -35,17 +37,23 @@ const statusLabels = {
 export default function Managers() {
   const navigate = useNavigate();
 
-  const [managers, setManagers] = useState([]);
-  const [search, setSearch] = useState("");
+  const [managers, setManagers] =
+    useState([]);
+
+  const [search, setSearch] =
+    useState("");
+
   const [roleFilter, setRoleFilter] =
     useState("all");
+
   const [statusFilter, setStatusFilter] =
     useState("all");
 
   const [isLoading, setIsLoading] =
     useState(true);
 
-  const [error, setError] = useState("");
+  const [error, setError] =
+    useState("");
 
   useEffect(() => {
     loadManagers();
@@ -55,7 +63,10 @@ export default function Managers() {
     setIsLoading(true);
     setError("");
 
-    const { data, error: managersError } =
+    const {
+      data,
+      error: managersError,
+    } =
       await profileService.getManagers();
 
     if (managersError) {
@@ -65,7 +76,8 @@ export default function Managers() {
       );
 
       setError(
-        "Не удалось загрузить список менеджеров"
+        managersError.message ||
+          "Не удалось загрузить список менеджеров"
       );
 
       setManagers([]);
@@ -74,29 +86,31 @@ export default function Managers() {
       return;
     }
 
-    setManagers(data);
+    setManagers(data || []);
     setIsLoading(false);
   }
 
   const filteredManagers = useMemo(() => {
-    const normalizedSearch =
-      search.trim().toLowerCase();
+    const normalizedSearch = search
+      .trim()
+      .toLowerCase();
 
     return managers.filter((manager) => {
+      const searchableValue = [
+        manager.full_name,
+        manager.email,
+        manager.phone,
+        manager.telegram,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
       const matchesSearch =
         !normalizedSearch ||
-        manager.full_name
-          ?.toLowerCase()
-          .includes(normalizedSearch) ||
-        manager.email
-          ?.toLowerCase()
-          .includes(normalizedSearch) ||
-        manager.phone
-          ?.toLowerCase()
-          .includes(normalizedSearch) ||
-        manager.telegram
-          ?.toLowerCase()
-          .includes(normalizedSearch);
+        searchableValue.includes(
+          normalizedSearch
+        );
 
       const matchesRole =
         roleFilter === "all" ||
@@ -128,9 +142,9 @@ export default function Managers() {
           manager.status === "active"
       ).length,
 
-      leaders: managers.filter(
+      heads: managers.filter(
         (manager) =>
-          manager.role === "leader"
+          manager.role === "head"
       ).length,
 
       blocked: managers.filter(
@@ -139,6 +153,17 @@ export default function Managers() {
       ).length,
     };
   }, [managers]);
+
+  function resetFilters() {
+    setSearch("");
+    setRoleFilter("all");
+    setStatusFilter("all");
+  }
+
+  const hasFilters =
+    Boolean(search) ||
+    roleFilter !== "all" ||
+    statusFilter !== "all";
 
   return (
     <main className="managers-page">
@@ -151,8 +176,8 @@ export default function Managers() {
           <h1>Менеджеры</h1>
 
           <p>
-            Список сотрудников, их контакты,
-            роли и текущий статус работы.
+            Сотрудники команды, их роли,
+            контакты и текущий статус работы.
           </p>
         </div>
 
@@ -162,6 +187,15 @@ export default function Managers() {
           onClick={loadManagers}
           disabled={isLoading}
         >
+          <RefreshCw
+            size={17}
+            className={
+              isLoading
+                ? "managers-page__refresh-icon managers-page__refresh-icon--loading"
+                : "managers-page__refresh-icon"
+            }
+          />
+
           Обновить
         </button>
       </section>
@@ -177,18 +211,21 @@ export default function Managers() {
           title="Активные"
           value={stats.active}
           icon={UserCheck}
+          variant="success"
         />
 
         <StatCard
           title="Руководители"
-          value={stats.leaders}
+          value={stats.heads}
           icon={ShieldCheck}
+          variant="purple"
         />
 
         <StatCard
           title="Заблокированы"
           value={stats.blocked}
           icon={UserCheck}
+          variant="danger"
         />
       </section>
 
@@ -207,24 +244,40 @@ export default function Managers() {
               type="search"
               value={search}
               onChange={(event) =>
-                setSearch(event.target.value)
+                setSearch(
+                  event.target.value
+                )
               }
-              placeholder="Поиск по имени, email, телефону или Telegram"
+              placeholder="Имя, email, телефон или Telegram"
             />
+
+            {search && (
+              <button
+                type="button"
+                aria-label="Очистить поиск"
+                onClick={() =>
+                  setSearch("")
+                }
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
 
           <select
             className="managers-filter"
             value={roleFilter}
             onChange={(event) =>
-              setRoleFilter(event.target.value)
+              setRoleFilter(
+                event.target.value
+              )
             }
           >
             <option value="all">
               Все роли
             </option>
 
-            <option value="leader">
+            <option value="head">
               Руководители
             </option>
 
@@ -258,108 +311,74 @@ export default function Managers() {
               Заблокированные
             </option>
           </select>
+
+          {hasFilters && (
+            <button
+              className="managers-reset"
+              type="button"
+              onClick={resetFilters}
+            >
+              Сбросить
+            </button>
+          )}
+        </div>
+
+        <div className="managers-result-line">
+          Найдено сотрудников:{" "}
+          <strong>
+            {filteredManagers.length}
+          </strong>
         </div>
 
         {isLoading ? (
           <div className="managers-state">
             <div className="managers-state__spinner" />
-            <span>Загрузка менеджеров...</span>
-          </div>
-        ) : filteredManagers.length === 0 ? (
-          <div className="managers-state">
-            <Users size={38} />
 
             <strong>
-              Менеджеры не найдены
+              Загружаем сотрудников
             </strong>
 
             <span>
-              Добавьте пользователя с ролью
-              manager или leader.
+              Получаем актуальные данные команды.
             </span>
+          </div>
+        ) : filteredManagers.length === 0 ? (
+          <div className="managers-state">
+            <Users size={40} />
+
+            <strong>
+              Сотрудники не найдены
+            </strong>
+
+            <span>
+              Измените поиск или выбранные фильтры.
+            </span>
+
+            {hasFilters && (
+              <button
+                className="managers-state__button"
+                type="button"
+                onClick={resetFilters}
+              >
+                Сбросить фильтры
+              </button>
+            )}
           </div>
         ) : (
           <div className="managers-grid">
-            {filteredManagers.map((manager) => (
-              <article
-                className="manager-card"
-                key={manager.id}
-              >
-                <div className="manager-card__top">
-                  <div className="manager-card__avatar">
-                    {getInitials(
-                      manager.full_name
-                    )}
-                  </div>
-
-                  <div className="manager-card__identity">
-                    <strong>
-                      {manager.full_name ||
-                        "Без имени"}
-                    </strong>
-
-                    <span>
-                      {roleLabels[manager.role] ||
-                        manager.role}
-                    </span>
-                  </div>
-
-                  <span
-                    className={`manager-card__status manager-card__status--${manager.status}`}
-                  >
-                    {statusLabels[
-                      manager.status
-                    ] || manager.status}
-                  </span>
-                </div>
-
-                <div className="manager-card__contacts">
-                  <ContactRow
-                    icon={Mail}
-                    value={manager.email}
-                  />
-
-                  <ContactRow
-                    icon={Phone}
-                    value={
-                      manager.phone ||
-                      "Телефон не указан"
-                    }
-                  />
-
-                  <ContactRow
-                    icon={MessageCircle}
-                    value={
-                      manager.telegram ||
-                      "Telegram не указан"
-                    }
-                  />
-
-                  <ContactRow
-                    icon={CalendarDays}
-                    value={
-                      manager.hire_date
-                        ? `Работает с ${formatDate(
-                            manager.hire_date
-                          )}`
-                        : "Дата начала не указана"
-                    }
-                  />
-                </div>
-
-                <button
-                  className="manager-card__button"
-                  type="button"
-                  onClick={() =>
+            {filteredManagers.map(
+              (manager) => (
+                <ManagerCard
+                  key={manager.id}
+                  manager={manager}
+                  onOpen={() =>
                     navigate(
                       `/managers/${manager.id}`
                     )
                   }
-                >
-                  Открыть карточку
-                </button>
-              </article>
-            ))}
+                />
+              )
+            )}
           </div>
         )}
       </section>
@@ -367,13 +386,159 @@ export default function Managers() {
   );
 }
 
+function ManagerCard({
+  manager,
+  onOpen,
+}) {
+  return (
+    <article className="manager-card">
+      <button
+        className="manager-card__main"
+        type="button"
+        onClick={onOpen}
+      >
+        <div className="manager-card__top">
+          <div className="manager-card__avatar">
+            {getInitials(
+              manager.full_name ||
+                manager.email
+            )}
+          </div>
+
+          <div className="manager-card__identity">
+            <strong>
+              {manager.full_name ||
+                "Без имени"}
+            </strong>
+
+            <span>
+              {roleLabels[manager.role] ||
+                manager.role ||
+                "Сотрудник"}
+            </span>
+          </div>
+
+          <span
+            className={`manager-card__status manager-card__status--${
+              manager.status || "inactive"
+            }`}
+          >
+            {statusLabels[
+              manager.status
+            ] ||
+              manager.status ||
+              "Неизвестно"}
+          </span>
+        </div>
+
+        <div className="manager-card__contacts">
+          <ContactRow
+            icon={Mail}
+            label="Email"
+            value={
+              manager.email ||
+              "Email не указан"
+            }
+          />
+
+          <ContactRow
+            icon={Phone}
+            label="Телефон"
+            value={
+              manager.phone ||
+              "Телефон не указан"
+            }
+          />
+
+          <ContactRow
+            icon={MessageCircle}
+            label="Telegram"
+            value={
+              manager.telegram ||
+              "Telegram не указан"
+            }
+          />
+
+          <ContactRow
+            icon={CalendarDays}
+            label="Дата начала"
+            value={
+              manager.hire_date
+                ? formatDate(
+                    manager.hire_date
+                  )
+                : "Не указана"
+            }
+          />
+        </div>
+      </button>
+
+      <div className="manager-card__quick-actions">
+        {manager.phone ? (
+          <a
+            href={`tel:${manager.phone}`}
+            aria-label="Позвонить менеджеру"
+          >
+            <Phone size={17} />
+            Позвонить
+          </a>
+        ) : (
+          <span className="manager-card__quick-action-disabled">
+            <Phone size={17} />
+            Нет телефона
+          </span>
+        )}
+
+        {getTelegramLink(
+          manager.telegram
+        ) ? (
+          <a
+            href={getTelegramLink(
+              manager.telegram
+            )}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Открыть Telegram"
+          >
+            <MessageCircle size={17} />
+            Telegram
+          </a>
+        ) : (
+          <span className="manager-card__quick-action-disabled">
+            <MessageCircle size={17} />
+            Нет Telegram
+          </span>
+        )}
+      </div>
+
+      <button
+        className="manager-card__button"
+        type="button"
+        onClick={onOpen}
+      >
+        Открыть карточку
+      </button>
+    </article>
+  );
+}
+
 function StatCard({
   title,
   value,
   icon: Icon,
+  variant = "",
 }) {
   return (
-    <article className="managers-stat-card">
+    <article
+      className={[
+        "managers-stat-card",
+        variant
+          ? `managers-stat-card--${variant}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="managers-stat-card__icon">
         <Icon size={20} />
       </div>
@@ -388,14 +553,41 @@ function StatCard({
 
 function ContactRow({
   icon: Icon,
+  label,
   value,
 }) {
   return (
     <div className="manager-card__contact">
-      <Icon size={15} />
-      <span>{value}</span>
+      <div className="manager-card__contact-icon">
+        <Icon size={15} />
+      </div>
+
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
     </div>
   );
+}
+
+function getTelegramLink(value) {
+  if (!value) {
+    return null;
+  }
+
+  const username = String(value)
+    .trim()
+    .replace(
+      /^https?:\/\/t\.me\//i,
+      ""
+    )
+    .replace(/^@/, "");
+
+  if (!username) {
+    return null;
+  }
+
+  return `https://t.me/${username}`;
 }
 
 function getInitials(fullName) {
@@ -403,7 +595,7 @@ function getInitials(fullName) {
     return "М";
   }
 
-  return fullName
+  return String(fullName)
     .trim()
     .split(/\s+/)
     .slice(0, 2)
@@ -417,9 +609,18 @@ function formatDate(dateValue) {
     return "—";
   }
 
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date(dateValue));
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ru-RU",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }
+  ).format(date);
 }

@@ -4,12 +4,8 @@ import {
   useMemo,
   useState,
 } from "react";
-import "../styles/Mailings.css";
-import { useNavigate } from "react-router-dom";
-import ImportContactsModal from "../components/mailings/ImportContactsModal";
-import { mailingService } from "../services/mailingService";
-import { profileService } from "../services/profileService";
 
+import { useNavigate } from "react-router-dom";
 
 import {
   ArrowUpRight,
@@ -17,84 +13,52 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  FilePenLine,
   FileText,
   Filter,
   MailPlus,
   MessageCircleReply,
+  Pencil,
   Search,
   Send,
   TrendingUp,
   Users,
 } from "lucide-react";
 
+import ImportContactsModal from "../components/mailings/ImportContactsModal";
 
+import { mailingService } from "../services/mailingService";
+import { profileService } from "../services/profileService";
+
+import "../styles/Mailings.css";
 
 const statusConfig = {
+  draft: {
+    title: "Черновик",
+    className: "mailing-status--draft",
+  },
+  processing: {
+    title: "Обработка базы",
+    className: "mailing-status--processing",
+  },
+  ready: {
+    title: "Готова",
+    className: "mailing-status--ready",
+  },
   active: {
     title: "Активна",
     className: "mailing-status--active",
-  },
-  completed: {
-    title: "Завершена",
-    className: "mailing-status--completed",
   },
   paused: {
     title: "Приостановлена",
     className: "mailing-status--paused",
   },
-  draft: {
-    title: "Черновик",
-    className: "mailing-status--draft",
+  completed: {
+    title: "Завершена",
+    className: "mailing-status--completed",
   },
 };
 
-function formatNumber(value) {
-  return new Intl.NumberFormat("ru-RU").format(value);
-}
-
-function getConversion(value, total) {
-  if (!total) {
-    return 0;
-  }
-
-  return Number(((value / total) * 100).toFixed(1));
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "Дата не указана";
-  }
-
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
-function formatTime(value) {
-  if (!value) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function getManagerName(manager) {
-  if (!manager) {
-    return "Не назначен";
-  }
-
-  return (
-    manager.full_name ||
-    manager.name ||
-    manager.email ||
-    "Не назначен"
-  );
-}
 const initialMailingForm = {
   name: "",
   supplier: "",
@@ -107,258 +71,228 @@ const initialMailingForm = {
 
 export default function Mailings() {
   const navigate = useNavigate();
-  
-  const [mailingsData, setMailingsData] = useState([]);
-const [loading, setLoading] = useState(true);
-const [loadError, setLoadError] = useState("");
-const [importMailing, setImportMailing] = useState(null);
 
-  const [searchValue, setSearchValue] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [channelFilter, setChannelFilter] = useState("all");
-  const [sortValue, setSortValue] = useState("date");
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-const [managers, setManagers] = useState([]);
-const [mailingForm, setMailingForm] = useState(initialMailingForm);
-const [isCreating, setIsCreating] = useState(false);
-const [createError, setCreateError] = useState("");
-const loadMailings = useCallback(async () => {
-  setLoading(true);
-  setLoadError("");
+  const [mailingsData, setMailingsData] =
+    useState([]);
 
-  const { data, error } =
-    await mailingService.getMailings();
+  const [managers, setManagers] =
+    useState([]);
 
-  if (error) {
-    console.error(
-      "Ошибка загрузки рассылок:",
-      error
-    );
+  const [loading, setLoading] =
+    useState(true);
 
-    setLoadError(
-      error.message ||
-        "Не удалось загрузить рассылки"
-    );
+  const [loadError, setLoadError] =
+    useState("");
 
-    setMailingsData([]);
+  const [searchValue, setSearchValue] =
+    useState("");
+
+  const [statusFilter, setStatusFilter] =
+    useState("all");
+
+  const [channelFilter, setChannelFilter] =
+    useState("all");
+
+  const [sortValue, setSortValue] =
+    useState("date");
+
+  const [importMailing, setImportMailing] =
+    useState(null);
+
+  const [editingMailing, setEditingMailing] =
+    useState(null);
+
+  const [isModalOpen, setIsModalOpen] =
+    useState(false);
+
+  const [mailingForm, setMailingForm] =
+    useState(initialMailingForm);
+
+  const [isSaving, setIsSaving] =
+    useState(false);
+
+  const [formError, setFormError] =
+    useState("");
+
+  const loadMailings = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+
+    const { data, error } =
+      await mailingService.getMailings();
+
+    if (error) {
+      console.error(
+        "Ошибка загрузки рассылок:",
+        error
+      );
+
+      setLoadError(
+        error.message ||
+          "Не удалось загрузить рассылки"
+      );
+
+      setMailingsData([]);
+      setLoading(false);
+      return;
+    }
+
+    setMailingsData(data || []);
     setLoading(false);
+  }, []);
 
-    return;
-  }
+  const loadManagers = useCallback(async () => {
+    const { data, error } =
+      await profileService.getManagers();
 
-  setMailingsData(data || []);
-  setLoading(false);
-}, []);
+    if (error) {
+      console.error(
+        "Ошибка загрузки менеджеров:",
+        error
+      );
 
-useEffect(() => {
-  loadMailings();
-}, [loadMailings]);
+      setManagers([]);
+      return;
+    }
 
+    setManagers(data || []);
+  }, []);
 
+  useEffect(() => {
+    loadMailings();
+    loadManagers();
+  }, [
+    loadMailings,
+    loadManagers,
+  ]);
 
-const openCreateModal = () => {
-  setMailingForm(initialMailingForm);
-  setCreateError("");
-  setIsCreateModalOpen(true);
-};
+  const preparedMailings = useMemo(() => {
+    const search = searchValue
+      .trim()
+      .toLowerCase();
 
-const closeCreateModal = () => {
-  if (isCreating) {
-    return;
-  }
+    const filtered = mailingsData.filter(
+      (mailing) => {
+        const searchableValue = [
+          mailing.title,
+          mailing.name,
+          mailing.channel,
+          mailing.mailing_method,
+          mailing.source,
+          mailing.supplier,
+          getManagerName(mailing.manager),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
 
-  setIsCreateModalOpen(false);
-  setCreateError("");
-  setMailingForm(initialMailingForm);
-};
+        const matchesSearch =
+          !search ||
+          searchableValue.includes(search);
 
-const handleMailingFormChange = (event) => {
-  const { name, value } = event.target;
+        const matchesStatus =
+          statusFilter === "all" ||
+          mailing.status === statusFilter;
 
-  setMailingForm((current) => ({
-    ...current,
-    [name]: value,
-  }));
-};
+        const mailingChannel =
+          mailing.channel ||
+          mailing.mailing_method ||
+          "";
 
-const handleOpenImport = (mailing) => {
-  setImportMailing(mailing);
-};
+        const matchesChannel =
+          channelFilter === "all" ||
+          mailingChannel === channelFilter;
 
-const handleCloseImport = () => {
-  setImportMailing(null);
-};
-
-const handleContactsImported = async () => {
-  await loadMailings();
-};
-
-const handleCreateMailing = async (event) => {
-  event.preventDefault();
-
-  if (!mailingForm.name.trim()) {
-  setCreateError("Укажи название партии.");
-  return;
-}
-
-if (!mailingForm.supplier.trim()) {
-  setCreateError("Укажи поставщика лидов.");
-  return;
-}
-
-if (
-  mailingForm.purchase_cost === "" ||
-  Number(mailingForm.purchase_cost) < 0
-) {
-  setCreateError("Укажи корректную стоимость закупки.");
-  return;
-}
-
-if (!mailingForm.mailing_method) {
-  setCreateError("Выбери метод рассылки.");
-  return;
-}
-
-  setIsCreating(true);
-  setCreateError("");
-
-  const { data, error } =
-  await mailingService.createMailing({
-    ...mailingForm,
-
-    purchase_cost: Number(
-      mailingForm.purchase_cost || 0
-    ),
-
-    started_at: mailingForm.started_at
-      ? new Date(
-          mailingForm.started_at
-        ).toISOString()
-      : null,
-
-    total_leads: 0,
-    telegram_found_count: 0,
-    telegram_not_found_count: 0,
-    distributed_count: 0,
-    sent_count: 0,
-    responded_count: 0,
-    applications_count: 0,
-    openings_count: 0,
-  });
-
-  if (error) {
-    console.error("Ошибка создания рассылки:", error);
-
-    setCreateError(
-      error.message || "Не удалось создать рассылку."
+        return (
+          matchesSearch &&
+          matchesStatus &&
+          matchesChannel
+        );
+      }
     );
 
-    setIsCreating(false);
-    return;
-  }
+    return [...filtered].sort(
+      (first, second) => {
+        if (sortValue === "uploaded") {
+          return (
+            toNumber(second.uploaded) -
+            toNumber(first.uploaded)
+          );
+        }
 
-  if (data) {
-    setMailingsData((current) => [data, ...current]);
-  } else {
-    await loadMailings();
-  }
-  console.log("CREATE:", data);
-console.log("ERROR:", error);
+        if (sortValue === "replies") {
+          return (
+            toNumber(second.replied) -
+            toNumber(first.replied)
+          );
+        }
 
-  setIsCreating(false);
-  setIsCreateModalOpen(false);
-  setMailingForm(initialMailingForm);
-};
-const loadManagers = useCallback(async () => {
-  const { data, error } = await profileService.getManagers();
+        if (
+          sortValue === "applications"
+        ) {
+          return (
+            toNumber(second.applications) -
+            toNumber(first.applications)
+          );
+        }
 
-  if (error) {
-    console.error("Ошибка загрузки менеджеров:", error);
-    setManagers([]);
-    return;
-  }
+        if (sortValue === "openings") {
+          return (
+            toNumber(second.openings) -
+            toNumber(first.openings)
+          );
+        }
 
-  setManagers(data || []);
-}, []);
+        if (sortValue === "conversion") {
+          return (
+            getConversion(
+              second.openings,
+              second.uploaded
+            ) -
+            getConversion(
+              first.openings,
+              first.uploaded
+            )
+          );
+        }
 
-useEffect(() => {
-  loadManagers();
-}, [loadManagers]);
-  const preparedMailings = useMemo(() => {
-    const search = searchValue.trim().toLowerCase();
-
-    const filtered = mailingsData.filter((mailing) => {
-      const matchesSearch =
-        !search ||
-        mailing.title.toLowerCase().includes(search) ||
-        mailing.channel.toLowerCase().includes(search) ||
-        mailing.source.toLowerCase().includes(search) ||
-        getManagerName(mailing.manager)
-  .toLowerCase()
-  .includes(search);
-
-      const matchesStatus =
-        statusFilter === "all" || mailing.status === statusFilter;
-
-      const matchesChannel =
-        channelFilter === "all" || mailing.channel === channelFilter;
-
-      return matchesSearch && matchesStatus && matchesChannel;
-    });
-
-    return [...filtered].sort((first, second) => {
-      if (sortValue === "uploaded") {
-        return second.uploaded - first.uploaded;
-      }
-
-      if (sortValue === "replies") {
-        return second.replied - first.replied;
-      }
-
-      if (sortValue === "applications") {
-        return second.applications - first.applications;
-      }
-
-      if (sortValue === "openings") {
-        return second.openings - first.openings;
-      }
-
-      if (sortValue === "conversion") {
-        const firstConversion = getConversion(
-          first.openings,
-          first.uploaded
+        return (
+          new Date(
+            second.created_at || 0
+          ).getTime() -
+          new Date(
+            first.created_at || 0
+          ).getTime()
         );
-
-        const secondConversion = getConversion(
-          second.openings,
-          second.uploaded
-        );
-
-        return secondConversion - firstConversion;
       }
-
-      return (
-  new Date(second.created_at).getTime() -
-  new Date(first.created_at).getTime()
-);
-    });
+    );
   }, [
-  mailingsData,
-  searchValue,
-  statusFilter,
-  channelFilter,
-  sortValue,
-]);
+    mailingsData,
+    searchValue,
+    statusFilter,
+    channelFilter,
+    sortValue,
+  ]);
 
   const totals = useMemo(() => {
     return mailingsData.reduce(
       (result, mailing) => {
         result.campaigns += 1;
-        result.uploaded += mailing.uploaded;
-        result.delivered += mailing.delivered;
-        result.replied += mailing.replied;
-        result.applications += mailing.applications;
-        result.openings += mailing.openings;
+
+        result.uploaded +=
+          toNumber(mailing.uploaded);
+
+        result.delivered +=
+          toNumber(mailing.delivered);
+
+        result.replied +=
+          toNumber(mailing.replied);
+
+        result.applications +=
+          toNumber(mailing.applications);
+
+        result.openings +=
+          toNumber(mailing.openings);
 
         if (mailing.status === "active") {
           result.active += 1;
@@ -378,184 +312,411 @@ useEffect(() => {
     );
   }, [mailingsData]);
 
-  const totalReplyConversion = getConversion(
-    totals.replied,
-    totals.delivered
-  );
+  function openCreateModal() {
+    setEditingMailing(null);
+    setMailingForm(initialMailingForm);
+    setFormError("");
+    setIsModalOpen(true);
+  }
 
-  const totalOpeningConversion = getConversion(
-    totals.openings,
-    totals.uploaded
-  );
+  function openEditModal(mailing) {
+    setEditingMailing(mailing);
+
+    setMailingForm({
+      name:
+        mailing.name ||
+        mailing.title ||
+        "",
+
+      supplier:
+        mailing.supplier ||
+        mailing.source ||
+        "",
+
+      purchase_cost:
+        mailing.purchase_cost ??
+        "",
+
+      mailing_method:
+        mailing.mailing_method ||
+        mailing.channel ||
+        "Telegram",
+
+      status:
+        mailing.status ||
+        "draft",
+
+      comment:
+        mailing.comment ||
+        "",
+
+      started_at:
+        formatDateTimeLocal(
+          mailing.started_at
+        ),
+    });
+
+    setFormError("");
+    setIsModalOpen(true);
+  }
+
+  function closeModal() {
+    if (isSaving) {
+      return;
+    }
+
+    setIsModalOpen(false);
+    setEditingMailing(null);
+    setMailingForm(initialMailingForm);
+    setFormError("");
+  }
+
+  function handleFormChange(event) {
+    const { name, value } =
+      event.target;
+
+    setMailingForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  function validateForm() {
+    if (!mailingForm.name.trim()) {
+      return "Укажи название партии.";
+    }
+
+    if (!mailingForm.supplier.trim()) {
+      return "Укажи поставщика лидов.";
+    }
+
+    if (
+      mailingForm.purchase_cost === "" ||
+      !Number.isFinite(
+        Number(mailingForm.purchase_cost)
+      ) ||
+      Number(
+        mailingForm.purchase_cost
+      ) < 0
+    ) {
+      return "Укажи корректную стоимость закупки.";
+    }
+
+    if (!mailingForm.mailing_method) {
+      return "Выбери метод рассылки.";
+    }
+
+    return "";
+  }
+
+  async function handleSubmitMailing(
+    event
+  ) {
+    event.preventDefault();
+
+    const validationError =
+      validateForm();
+
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+
+    setIsSaving(true);
+    setFormError("");
+
+    const payload = {
+      name: mailingForm.name.trim(),
+
+      supplier:
+        mailingForm.supplier.trim(),
+
+      purchase_cost: Number(
+        mailingForm.purchase_cost
+      ),
+
+      mailing_method:
+        mailingForm.mailing_method,
+
+      status:
+        mailingForm.status,
+
+      comment:
+        mailingForm.comment.trim() ||
+        null,
+
+      started_at:
+        mailingForm.started_at
+          ? new Date(
+              mailingForm.started_at
+            ).toISOString()
+          : null,
+    };
+
+    let result;
+
+    if (editingMailing) {
+      if (
+        typeof mailingService
+          .updateMailing !== "function"
+      ) {
+        setFormError(
+          "В mailingService отсутствует метод updateMailing."
+        );
+
+        setIsSaving(false);
+        return;
+      }
+
+      result =
+        await mailingService.updateMailing(
+          editingMailing.id,
+          payload
+        );
+    } else {
+      result =
+        await mailingService.createMailing({
+          ...payload,
+          total_leads: 0,
+          telegram_found_count: 0,
+          telegram_not_found_count: 0,
+          distributed_count: 0,
+          sent_count: 0,
+          responded_count: 0,
+          applications_count: 0,
+          openings_count: 0,
+        });
+    }
+
+    if (result.error) {
+      console.error(
+        editingMailing
+          ? "Ошибка редактирования рассылки:"
+          : "Ошибка создания рассылки:",
+        result.error
+      );
+
+      setFormError(
+        result.error.message ||
+          (editingMailing
+            ? "Не удалось сохранить изменения."
+            : "Не удалось создать рассылку.")
+      );
+
+      setIsSaving(false);
+      return;
+    }
+
+    await loadMailings();
+
+    setIsSaving(false);
+    closeModal();
+  }
+
+  async function handleContactsImported() {
+    await loadMailings();
+  }
+
+  const totalReplyConversion =
+    getConversion(
+      totals.replied,
+      totals.delivered
+    );
+
+  const totalOpeningConversion =
+    getConversion(
+      totals.openings,
+      totals.uploaded
+    );
 
   if (loading) {
-  return (
-    <main className="page">
-      <div className="empty-search">
-        <h2>Загружаем рассылки...</h2>
-        <p>Получаем данные из Supabase.</p>
-      </div>
-    </main>
-  );
-}
+    return (
+      <main className="page">
+        <div className="empty-search">
+          <h2>
+            Загружаем рассылки...
+          </h2>
 
-if (loadError) {
-  return (
-    <main className="page">
-      <div className="empty-search">
-        <h2>Не удалось загрузить рассылки</h2>
+          <p>
+            Получаем данные из Supabase.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
-        <p>{loadError}</p>
+  if (loadError) {
+    return (
+      <main className="page">
+        <div className="empty-search">
+          <h2>
+            Не удалось загрузить рассылки
+          </h2>
 
-        <button
-          className="primary-button"
-          type="button"
-          onClick={loadMailings}
-        >
-          Повторить
-        </button>
-      </div>
-    </main>
-  );
-}
+          <p>{loadError}</p>
+
+          <button
+            className="primary-button"
+            type="button"
+            onClick={loadMailings}
+          >
+            Повторить
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Рассылки</h1>
+          <h1 className="page-title">
+            Рассылки
+          </h1>
 
           <p className="page-description">
-            Управление кампаниями, базами клиентов и показателями конверсии
+            Управление партиями,
+            контактами, распределением и
+            аналитикой.
           </p>
         </div>
 
         <div className="page-header-actions">
-  <button
-    className="secondary-button"
-    type="button"
-    onClick={loadMailings}
-  >
-    Обновить
-  </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={loadMailings}
+          >
+            Обновить
+          </button>
 
-  <button
-  className="primary-button button-with-icon"
-  type="button"
-  onClick={openCreateModal}
->
- <MailPlus size={17} />
-Создать партию
-</button>
-</div>
+          <button
+            className="primary-button button-with-icon"
+            type="button"
+            onClick={openCreateModal}
+          >
+            <MailPlus size={17} />
+            Создать партию
+          </button>
+        </div>
       </div>
 
       <section className="mailings-summary-grid">
-        <article className="mailings-summary-card">
-          <div className="mailings-summary-icon">
-            <Send size={19} />
-          </div>
+        <SummaryCard
+          icon={Send}
+          title="Всего рассылок"
+          value={totals.campaigns}
+          description={`${totals.active} активных сейчас`}
+        />
 
-          <div>
-            <span>Всего рассылок</span>
-            <strong>{totals.campaigns}</strong>
-            <small>{totals.active} активных сейчас</small>
-          </div>
-        </article>
+        <SummaryCard
+          icon={Users}
+          iconClass="mailings-summary-icon--purple"
+          title="Загружено контактов"
+          value={formatNumber(
+            totals.uploaded
+          )}
+          description={`Доставлено: ${formatNumber(
+            totals.delivered
+          )}`}
+        />
 
-        <article className="mailings-summary-card">
-          <div className="mailings-summary-icon mailings-summary-icon--purple">
-            <Users size={19} />
-          </div>
+        <SummaryCard
+          icon={MessageCircleReply}
+          iconClass="mailings-summary-icon--orange"
+          title="Ответили"
+          value={formatNumber(
+            totals.replied
+          )}
+          description={`Конверсия: ${totalReplyConversion}%`}
+        />
 
-          <div>
-            <span>Загружено контактов</span>
-            <strong>{formatNumber(totals.uploaded)}</strong>
-            <small>
-              Доставлено: {formatNumber(totals.delivered)}
-            </small>
-          </div>
-        </article>
-
-        <article className="mailings-summary-card">
-          <div className="mailings-summary-icon mailings-summary-icon--orange">
-            <MessageCircleReply size={19} />
-          </div>
-
-          <div>
-            <span>Ответили</span>
-            <strong>{formatNumber(totals.replied)}</strong>
-            <small>Конверсия: {totalReplyConversion}%</small>
-          </div>
-        </article>
-
-        <article className="mailings-summary-card">
-          <div className="mailings-summary-icon mailings-summary-icon--green">
-            <CheckCircle2 size={19} />
-          </div>
-
-          <div>
-            <span>Открытий</span>
-            <strong>{formatNumber(totals.openings)}</strong>
-            <small>Конверсия: {totalOpeningConversion}%</small>
-          </div>
-        </article>
+        <SummaryCard
+          icon={CheckCircle2}
+          iconClass="mailings-summary-icon--green"
+          title="Открытий"
+          value={formatNumber(
+            totals.openings
+          )}
+          description={`Конверсия: ${totalOpeningConversion}%`}
+        />
       </section>
 
       <section className="mailings-funnel-card">
         <div className="mailings-section-heading">
           <div>
-            <h2>Общая воронка рассылок</h2>
-            <p>Путь контакта от загрузки в базу до открытия продукта</p>
+            <h2>
+              Общая воронка рассылок
+            </h2>
+
+            <p>
+              Путь контакта от загрузки
+              до успешного открытия.
+            </p>
           </div>
 
           <TrendingUp size={20} />
         </div>
 
         <div className="mailings-funnel">
-          <div className="mailings-funnel-stage">
-            <span>Загружено</span>
-            <strong>{formatNumber(totals.uploaded)}</strong>
-            <small>100%</small>
+          <FunnelStage
+            title="Загружено"
+            value={totals.uploaded}
+            percent={100}
+          />
+
+          <div className="mailings-funnel-arrow">
+            →
           </div>
 
-          <div className="mailings-funnel-arrow">→</div>
+          <FunnelStage
+            title="Доставлено"
+            value={totals.delivered}
+            percent={getConversion(
+              totals.delivered,
+              totals.uploaded
+            )}
+          />
 
-          <div className="mailings-funnel-stage">
-            <span>Доставлено</span>
-            <strong>{formatNumber(totals.delivered)}</strong>
-            <small>
-              {getConversion(totals.delivered, totals.uploaded)}%
-            </small>
+          <div className="mailings-funnel-arrow">
+            →
           </div>
 
-          <div className="mailings-funnel-arrow">→</div>
+          <FunnelStage
+            title="Ответили"
+            value={totals.replied}
+            percent={
+              totalReplyConversion
+            }
+          />
 
-          <div className="mailings-funnel-stage">
-            <span>Ответили</span>
-            <strong>{formatNumber(totals.replied)}</strong>
-            <small>{totalReplyConversion}%</small>
+          <div className="mailings-funnel-arrow">
+            →
           </div>
 
-          <div className="mailings-funnel-arrow">→</div>
+          <FunnelStage
+            title="Заявки"
+            value={totals.applications}
+            percent={getConversion(
+              totals.applications,
+              totals.replied
+            )}
+          />
 
-          <div className="mailings-funnel-stage">
-            <span>Заявки</span>
-            <strong>{formatNumber(totals.applications)}</strong>
-            <small>
-              {getConversion(totals.applications, totals.replied)}%
-            </small>
+          <div className="mailings-funnel-arrow">
+            →
           </div>
 
-          <div className="mailings-funnel-arrow">→</div>
-
-          <div className="mailings-funnel-stage mailings-funnel-stage--accent">
-            <span>Открытия</span>
-            <strong>{formatNumber(totals.openings)}</strong>
-            <small>
-              {getConversion(totals.openings, totals.applications)}%
-            </small>
-          </div>
+          <FunnelStage
+            title="Открытия"
+            value={totals.openings}
+            percent={getConversion(
+              totals.openings,
+              totals.applications
+            )}
+            accent
+          />
         </div>
       </section>
 
@@ -565,9 +726,13 @@ if (loadError) {
 
           <input
             type="text"
-            placeholder="Поиск по названию, менеджеру или источнику"
+            placeholder="Название, поставщик или менеджер"
             value={searchValue}
-            onChange={(event) => setSearchValue(event.target.value)}
+            onChange={(event) =>
+              setSearchValue(
+                event.target.value
+              )
+            }
           />
         </div>
 
@@ -576,465 +741,812 @@ if (loadError) {
 
           <select
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
+            onChange={(event) =>
+              setStatusFilter(
+                event.target.value
+              )
+            }
           >
-            <option value="all">Все статусы</option>
-            <option value="active">Активные</option>
-            <option value="completed">Завершённые</option>
-            <option value="paused">Приостановленные</option>
-            <option value="draft">Черновики</option>
+            <option value="all">
+              Все статусы
+            </option>
+
+            {Object.entries(
+              statusConfig
+            ).map(
+              ([value, config]) => (
+                <option
+                  key={value}
+                  value={value}
+                >
+                  {config.title}
+                </option>
+              )
+            )}
           </select>
         </div>
 
         <div className="toolbar-filter">
           <select
             value={channelFilter}
-            onChange={(event) => setChannelFilter(event.target.value)}
+            onChange={(event) =>
+              setChannelFilter(
+                event.target.value
+              )
+            }
           >
-            <option value="all">Все каналы</option>
-            <option value="WhatsApp">WhatsApp</option>
-            <option value="Telegram">Telegram</option>
-            <option value="ВКонтакте">ВКонтакте</option>
+            <option value="all">
+              Все каналы
+            </option>
+            <option value="Telegram">
+              Telegram
+            </option>
+            <option value="WhatsApp">
+              WhatsApp
+            </option>
+            <option value="Ручная рассылка">
+              Ручная рассылка
+            </option>
+            <option value="Telegram Bot">
+              Telegram Bot
+            </option>
           </select>
         </div>
 
         <div className="toolbar-filter">
           <select
             value={sortValue}
-            onChange={(event) => setSortValue(event.target.value)}
+            onChange={(event) =>
+              setSortValue(
+                event.target.value
+              )
+            }
           >
-            <option value="date">Сначала новые</option>
-            <option value="uploaded">По размеру базы</option>
-            <option value="replies">По ответам</option>
-            <option value="applications">По заявкам</option>
-            <option value="openings">По открытиям</option>
-            <option value="conversion">По конверсии</option>
+            <option value="date">
+              Сначала новые
+            </option>
+            <option value="uploaded">
+              По размеру базы
+            </option>
+            <option value="replies">
+              По ответам
+            </option>
+            <option value="applications">
+              По заявкам
+            </option>
+            <option value="openings">
+              По открытиям
+            </option>
+            <option value="conversion">
+              По конверсии
+            </option>
           </select>
         </div>
       </section>
 
       <div className="mailings-result-line">
-        Найдено рассылок: <strong>{preparedMailings.length}</strong>
+        Найдено рассылок:{" "}
+        <strong>
+          {preparedMailings.length}
+        </strong>
       </div>
 
       <section className="mailings-grid">
-        {preparedMailings.map((mailing) => {
-          const status = statusConfig[mailing.status];
-
-          const deliveryConversion = getConversion(
-            mailing.delivered,
-            mailing.uploaded
-          );
-
-          const replyConversion = getConversion(
-            mailing.replied,
-            mailing.delivered
-          );
-
-          const applicationConversion = getConversion(
-            mailing.applications,
-            mailing.replied
-          );
-
-          const openingConversion = getConversion(
-            mailing.openings,
-            mailing.applications
-          );
-
-          return (
-            <article className="mailing-card" key={mailing.id}>
-              <div className="mailing-card-header">
-                <div className="mailing-channel-icon">
-                  <Send size={18} />
-                </div>
-
-                <div className="mailing-card-title">
-                  <h2>{mailing.title}</h2>
-
-                  <p>
-                    {mailing.channel} · {mailing.source}
-                  </p>
-                </div>
-
-                <span
-                  className={`mailing-status ${status.className}`}
-                >
-                  <span />
-                  {status.title}
-                </span>
-              </div>
-
-              <div className="mailing-meta">
-                <div>
-                  <CalendarDays size={14} />
-                  {formatDate(mailing.created_at)}
-                </div>
-
-                <div>
-                  <Clock3 size={14} />
-                  {formatTime(mailing.created_at)}
-                </div>
-              </div>
-
-              <div className="mailing-manager">
-                <span>Ответственный менеджер</span>
-                <strong>
-  {getManagerName(mailing.manager)}
-</strong>
-              </div>
-
-              <div className="mailing-primary-stats">
-                <div>
-                  <span>Загружено</span>
-                  <strong>{formatNumber(mailing.uploaded)}</strong>
-                </div>
-
-                <div>
-                  <span>Доставлено</span>
-                  <strong>{formatNumber(mailing.delivered)}</strong>
-                </div>
-
-                <div>
-                  <span>Ответили</span>
-                  <strong>{formatNumber(mailing.replied)}</strong>
-                </div>
-              </div>
-
-              <div className="mailing-result-stats">
-                <div>
-                  <div className="mailing-result-icon">
-                    <FileText size={16} />
-                  </div>
-
-                  <div>
-                    <span>Заявки</span>
-                    <strong>{mailing.applications}</strong>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mailing-result-icon mailing-result-icon--green">
-                    <CheckCircle2 size={16} />
-                  </div>
-
-                  <div>
-                    <span>Открытия</span>
-                    <strong>{mailing.openings}</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mailing-conversions">
-                <div>
-                  <span>Доставка</span>
-                  <strong>{deliveryConversion}%</strong>
-                </div>
-
-                <div>
-                  <span>Ответ</span>
-                  <strong>{replyConversion}%</strong>
-                </div>
-
-                <div>
-                  <span>Ответ → заявка</span>
-                  <strong>{applicationConversion}%</strong>
-                </div>
-
-                <div>
-                  <span>Заявка → открытие</span>
-                  <strong>{openingConversion}%</strong>
-                </div>
-              </div>
-
-              <div className="mailing-conversion-progress">
-                <div>
-                  <span>Общая конверсия в открытие</span>
-
-                  <strong>
-                    {getConversion(mailing.openings, mailing.uploaded)}%
-                  </strong>
-                </div>
-
-                <div className="mailing-progress-track">
-                  <span
-                    style={{
-                      width: `${Math.min(
-                        getConversion(
-                          mailing.openings,
-                          mailing.uploaded
-                        ) * 4,
-                        100
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mailing-card-actions">
-  <button
-    className="mailing-import-button"
-    type="button"
-    onClick={() => handleOpenImport(mailing)}
-  >
-    Импорт контактов
-  </button>
-
-  <button
-  type="button"
-  className="mailing-open-button"
-  onClick={() =>
-    navigate(`/mailings/${mailing.id}`)
-  }
->
-  Открыть контакты
-</button>
-
-  <button
-    className="mailing-open-button"
-    type="button"
-    onClick={() =>
-      navigate(`/mailings/${mailing.id}`)
-    }
-  >
-    <BarChart3 size={16} />
-    Открыть аналитику
-    <ArrowUpRight size={16} />
-  </button>
-</div>
-            </article>
-          );
-        })}
+        {preparedMailings.map(
+          (mailing) => (
+            <MailingCard
+              key={mailing.id}
+              mailing={mailing}
+              onImport={() =>
+                setImportMailing(
+                  mailing
+                )
+              }
+              onContacts={() =>
+                navigate(
+                  `/mailings/${mailing.id}/contacts`
+                )
+              }
+              onAnalytics={() =>
+                navigate(
+                  `/mailings/${mailing.id}`
+                )
+              }
+              onEdit={() =>
+                openEditModal(mailing)
+              }
+            />
+          )
+        )}
       </section>
 
-      {preparedMailings.length === 0 && (
+      {preparedMailings.length ===
+        0 && (
         <div className="empty-search">
           <Search size={28} />
-          <h2>Рассылки не найдены</h2>
-          <p>Измени запрос или выбранные фильтры.</p>
+          <h2>
+            Рассылки не найдены
+          </h2>
+          <p>
+            Измени запрос или фильтры.
+          </p>
         </div>
       )}
 
+      {isModalOpen && (
+        <MailingModal
+          isEditing={Boolean(
+            editingMailing
+          )}
+          form={mailingForm}
+          error={formError}
+          isSaving={isSaving}
+          onChange={
+            handleFormChange
+          }
+          onClose={closeModal}
+          onSubmit={
+            handleSubmitMailing
+          }
+        />
+      )}
 
-      {isCreateModalOpen && (
-  <div
-    className="mailing-modal-backdrop"
-    onMouseDown={(event) => {
-      if (event.target === event.currentTarget) {
-        closeCreateModal();
-      }
-    }}
-  >
-    <section
-      className="mailing-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-mailing-title"
-    >
-      <div className="mailing-modal-header">
-        <div>
-          <h2 id="create-mailing-title">
-  Создать партию
-</h2>
-
-<p>
-  Укажи информацию о закупке лидов. Контакты добавим
-  следующим шагом через импорт файла.
-</p>
-        </div>
-
-        <button
-          className="mailing-modal-close"
-          type="button"
-          onClick={closeCreateModal}
-          aria-label="Закрыть"
-        >
-          ×
-        </button>
-      </div>
-     
-
-      <form
-        className="mailing-form"
-        onSubmit={handleCreateMailing}
-      >
-        <div className="mailing-form-grid">
-          <label className="mailing-form-field mailing-form-field--full">
-  <span>Название партии *</span>
-
-  <input
-    type="text"
-    name="name"
-    value={mailingForm.name}
-    onChange={handleMailingFormChange}
-    placeholder="Например: Партия лидов 25 июля"
-    autoFocus
-  />
-</label>
-
-<label className="mailing-form-field">
-  <span>Поставщик лидов *</span>
-
-  <input
-    type="text"
-    name="supplier"
-    value={mailingForm.supplier}
-    onChange={handleMailingFormChange}
-    placeholder="Например: Иван Иванов"
-  />
-</label>
-
-<label className="mailing-form-field">
-  <span>Стоимость закупки, ₽ *</span>
-
-  <input
-    type="number"
-    name="purchase_cost"
-    min="0"
-    step="0.01"
-    value={mailingForm.purchase_cost}
-    onChange={handleMailingFormChange}
-    placeholder="50000"
-  />
-</label>
-
-<label className="mailing-form-field">
-  <span>Метод рассылки *</span>
-
-  <select
-    name="mailing_method"
-    value={mailingForm.mailing_method}
-    onChange={handleMailingFormChange}
-  >
-    <option value="Telegram">
-      Telegram
-    </option>
-
-    <option value="WhatsApp">
-      WhatsApp
-    </option>
-
-    <option value="Ручная рассылка">
-      Ручная рассылка
-    </option>
-
-    <option value="Telegram Bot">
-      Telegram Bot
-    </option>
-
-    <option value="Другое">
-      Другое
-    </option>
-  </select>
-</label>
-
-<label className="mailing-form-field">
-  <span>Статус партии</span>
-
-  <select
-    name="status"
-    value={mailingForm.status}
-    onChange={handleMailingFormChange}
-  >
-    <option value="draft">
-      Черновик
-    </option>
-
-    <option value="processing">
-      Обработка базы
-    </option>
-
-    <option value="ready">
-      Готова к рассылке
-    </option>
-
-    <option value="active">
-      Активная
-    </option>
-
-    <option value="paused">
-      Приостановлена
-    </option>
-
-    <option value="completed">
-      Завершена
-    </option>
-  </select>
-</label>
-
-<label className="mailing-form-field mailing-form-field--full">
-  <span>Дата начала работы</span>
-
-  <input
-    type="datetime-local"
-    name="started_at"
-    value={mailingForm.started_at}
-    onChange={handleMailingFormChange}
-  />
-</label>
-
-<label className="mailing-form-field mailing-form-field--full">
-  <span>Комментарий</span>
-
-  <textarea
-    name="comment"
-    value={mailingForm.comment}
-    onChange={handleMailingFormChange}
-    rows="5"
-    placeholder="Дополнительная информация о партии, условиях закупки или поставщике..."
-  />
-</label>
-
-<div className="mailing-form-field mailing-form-field--full">
-  <div className="settings-info-box">
-    Количество контактов будет рассчитано автоматически
-    после импорта Excel или CSV.
-  </div>
-</div>
-        </div>
-
-        {createError && (
-          <div className="mailing-form-error">
-            {createError}
-          </div>
-        )}
-
-        <div className="mailing-modal-actions">
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={closeCreateModal}
-            disabled={isCreating}
-          >
-            Отмена
-          </button>
-
-          <button
-            className="primary-button button-with-icon"
-            type="submit"
-            disabled={isCreating}
-          >
-            <MailPlus size={17} />
-
-           {isCreating
-  ? "Создание..."
-  : "Создать партию"}
-          </button>
-        </div>
-      </form>
-    </section>
-  </div>
-)}
-{importMailing && (
-  <ImportContactsModal
-    mailingId={importMailing.id}
-    mailingName={
-      importMailing.name ||
-      importMailing.title
-    }
-    onClose={handleCloseImport}
-    onImported={handleContactsImported}
-  />
-)}
+      {importMailing && (
+        <ImportContactsModal
+          mailingId={
+            importMailing.id
+          }
+          mailingName={
+            importMailing.name ||
+            importMailing.title
+          }
+          onClose={() =>
+            setImportMailing(null)
+          }
+          onImported={
+            handleContactsImported
+          }
+        />
+      )}
     </main>
   );
+}
+
+function MailingCard({
+  mailing,
+  onImport,
+  onContacts,
+  onAnalytics,
+  onEdit,
+}) {
+  const status =
+    statusConfig[mailing.status] ||
+    statusConfig.draft;
+
+  const uploaded =
+    toNumber(mailing.uploaded);
+
+  const delivered =
+    toNumber(mailing.delivered);
+
+  const replied =
+    toNumber(mailing.replied);
+
+  const applications =
+    toNumber(mailing.applications);
+
+  const openings =
+    toNumber(mailing.openings);
+
+  const channel =
+    mailing.channel ||
+    mailing.mailing_method ||
+    "Канал не указан";
+
+  const source =
+    mailing.source ||
+    mailing.supplier ||
+    "Источник не указан";
+
+  return (
+    <article className="mailing-card">
+      <div className="mailing-card-header">
+        <div className="mailing-channel-icon">
+          <Send size={18} />
+        </div>
+
+        <div className="mailing-card-title">
+          <h2>
+            {mailing.name ||
+              mailing.title ||
+              "Без названия"}
+          </h2>
+
+          <p>
+            {channel} · {source}
+          </p>
+        </div>
+
+        <span
+          className={`mailing-status ${status.className}`}
+        >
+          <span />
+          {status.title}
+        </span>
+      </div>
+
+      <div className="mailing-meta">
+        <div>
+          <CalendarDays size={14} />
+          {formatDate(
+            mailing.created_at
+          )}
+        </div>
+
+        <div>
+          <Clock3 size={14} />
+          {formatTime(
+            mailing.created_at
+          )}
+        </div>
+      </div>
+
+      <div className="mailing-manager">
+        <span>
+          Ответственный менеджер
+        </span>
+
+        <strong>
+          {getManagerName(
+            mailing.manager
+          )}
+        </strong>
+      </div>
+
+      <div className="mailing-primary-stats">
+        <Stat
+          title="Загружено"
+          value={uploaded}
+        />
+
+        <Stat
+          title="Доставлено"
+          value={delivered}
+        />
+
+        <Stat
+          title="Ответили"
+          value={replied}
+        />
+      </div>
+
+      <div className="mailing-result-stats">
+        <ResultStat
+          icon={FileText}
+          title="Заявки"
+          value={applications}
+        />
+
+        <ResultStat
+          icon={CheckCircle2}
+          title="Открытия"
+          value={openings}
+          green
+        />
+      </div>
+
+      <div className="mailing-conversions">
+        <Conversion
+          title="Доставка"
+          value={getConversion(
+            delivered,
+            uploaded
+          )}
+        />
+
+        <Conversion
+          title="Ответ"
+          value={getConversion(
+            replied,
+            delivered
+          )}
+        />
+
+        <Conversion
+          title="Ответ → заявка"
+          value={getConversion(
+            applications,
+            replied
+          )}
+        />
+
+        <Conversion
+          title="Заявка → открытие"
+          value={getConversion(
+            openings,
+            applications
+          )}
+        />
+      </div>
+
+      <div className="mailing-card-actions mailing-card-actions--full">
+        <button
+          className="mailing-import-button"
+          type="button"
+          onClick={onImport}
+        >
+          <MailPlus size={16} />
+          Импорт
+        </button>
+
+        <button
+          className="mailing-open-button"
+          type="button"
+          onClick={onContacts}
+        >
+          <Users size={16} />
+          Контакты
+        </button>
+
+        <button
+          className="mailing-open-button"
+          type="button"
+          onClick={onAnalytics}
+        >
+          <BarChart3 size={16} />
+          Аналитика
+          <ArrowUpRight size={15} />
+        </button>
+
+        <button
+          className="mailing-edit-button"
+          type="button"
+          onClick={onEdit}
+        >
+          <Pencil size={16} />
+          Редактировать
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function MailingModal({
+  isEditing,
+  form,
+  error,
+  isSaving,
+  onChange,
+  onClose,
+  onSubmit,
+}) {
+  return (
+    <div
+      className="mailing-modal-backdrop"
+      onMouseDown={(event) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className="mailing-modal"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="mailing-modal-header">
+          <div>
+            <h2>
+              {isEditing
+                ? "Редактировать партию"
+                : "Создать партию"}
+            </h2>
+
+            <p>
+              {isEditing
+                ? "Измени параметры выбранной партии."
+                : "Укажи информацию о закупке лидов."}
+            </p>
+          </div>
+
+          <button
+            className="mailing-modal-close"
+            type="button"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+
+        <form
+          className="mailing-form"
+          onSubmit={onSubmit}
+        >
+          <div className="mailing-form-grid">
+            <FormField
+              title="Название партии *"
+              full
+            >
+              <input
+                type="text"
+                name="name"
+                value={form.name}
+                onChange={onChange}
+                placeholder="Партия лидов"
+                autoFocus
+              />
+            </FormField>
+
+            <FormField title="Поставщик лидов *">
+              <input
+                type="text"
+                name="supplier"
+                value={form.supplier}
+                onChange={onChange}
+                placeholder="Поставщик"
+              />
+            </FormField>
+
+            <FormField title="Стоимость закупки, ₽ *">
+              <input
+                type="number"
+                name="purchase_cost"
+                min="0"
+                step="0.01"
+                value={
+                  form.purchase_cost
+                }
+                onChange={onChange}
+              />
+            </FormField>
+
+            <FormField title="Метод рассылки *">
+              <select
+                name="mailing_method"
+                value={
+                  form.mailing_method
+                }
+                onChange={onChange}
+              >
+                <option value="Telegram">
+                  Telegram
+                </option>
+                <option value="WhatsApp">
+                  WhatsApp
+                </option>
+                <option value="Ручная рассылка">
+                  Ручная рассылка
+                </option>
+                <option value="Telegram Bot">
+                  Telegram Bot
+                </option>
+                <option value="Другое">
+                  Другое
+                </option>
+              </select>
+            </FormField>
+
+            <FormField title="Статус партии">
+              <select
+                name="status"
+                value={form.status}
+                onChange={onChange}
+              >
+                {Object.entries(
+                  statusConfig
+                ).map(
+                  ([value, config]) => (
+                    <option
+                      key={value}
+                      value={value}
+                    >
+                      {config.title}
+                    </option>
+                  )
+                )}
+              </select>
+            </FormField>
+
+            <FormField
+              title="Дата начала работы"
+              full
+            >
+              <input
+                type="datetime-local"
+                name="started_at"
+                value={form.started_at}
+                onChange={onChange}
+              />
+            </FormField>
+
+            <FormField
+              title="Комментарий"
+              full
+            >
+              <textarea
+                name="comment"
+                value={form.comment}
+                onChange={onChange}
+                rows="5"
+                placeholder="Комментарий..."
+              />
+            </FormField>
+          </div>
+
+          {error && (
+            <div className="mailing-form-error">
+              {error}
+            </div>
+          )}
+
+          <div className="mailing-modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onClose}
+              disabled={isSaving}
+            >
+              Отмена
+            </button>
+
+            <button
+              className="primary-button button-with-icon"
+              type="submit"
+              disabled={isSaving}
+            >
+              {isEditing ? (
+                <FilePenLine
+                  size={17}
+                />
+              ) : (
+                <MailPlus size={17} />
+              )}
+
+              {isSaving
+                ? "Сохранение..."
+                : isEditing
+                  ? "Сохранить изменения"
+                  : "Создать партию"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  iconClass = "",
+  title,
+  value,
+  description,
+}) {
+  return (
+    <article className="mailings-summary-card">
+      <div
+        className={[
+          "mailings-summary-icon",
+          iconClass,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <Icon size={19} />
+      </div>
+
+      <div>
+        <span>{title}</span>
+        <strong>{value}</strong>
+        <small>{description}</small>
+      </div>
+    </article>
+  );
+}
+
+function FunnelStage({
+  title,
+  value,
+  percent,
+  accent = false,
+}) {
+  return (
+    <div
+      className={
+        accent
+          ? "mailings-funnel-stage mailings-funnel-stage--accent"
+          : "mailings-funnel-stage"
+      }
+    >
+      <span>{title}</span>
+      <strong>
+        {formatNumber(value)}
+      </strong>
+      <small>{percent}%</small>
+    </div>
+  );
+}
+
+function Stat({ title, value }) {
+  return (
+    <div>
+      <span>{title}</span>
+      <strong>
+        {formatNumber(value)}
+      </strong>
+    </div>
+  );
+}
+
+function ResultStat({
+  icon: Icon,
+  title,
+  value,
+  green = false,
+}) {
+  return (
+    <div>
+      <div
+        className={
+          green
+            ? "mailing-result-icon mailing-result-icon--green"
+            : "mailing-result-icon"
+        }
+      >
+        <Icon size={16} />
+      </div>
+
+      <div>
+        <span>{title}</span>
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function Conversion({ title, value }) {
+  return (
+    <div>
+      <span>{title}</span>
+      <strong>{value}%</strong>
+    </div>
+  );
+}
+
+function FormField({
+  title,
+  full = false,
+  children,
+}) {
+  return (
+    <label
+      className={
+        full
+          ? "mailing-form-field mailing-form-field--full"
+          : "mailing-form-field"
+      }
+    >
+      <span>{title}</span>
+      {children}
+    </label>
+  );
+}
+
+function getManagerName(manager) {
+  if (!manager) {
+    return "Не назначен";
+  }
+
+  return (
+    manager.full_name ||
+    manager.name ||
+    manager.email ||
+    "Не назначен"
+  );
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat(
+    "ru-RU"
+  ).format(toNumber(value));
+}
+
+function getConversion(value, total) {
+  const safeValue =
+    toNumber(value);
+
+  const safeTotal =
+    toNumber(total);
+
+  if (!safeTotal) {
+    return 0;
+  }
+
+  return Number(
+    (
+      (safeValue / safeTotal) *
+      100
+    ).toFixed(1)
+  );
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "Дата не указана";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return "Дата не указана";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ru-RU",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }
+  ).format(date);
+}
+
+function formatTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ru-RU",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  ).format(date);
+}
+
+function formatDateTimeLocal(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return "";
+  }
+
+  const offset =
+    date.getTimezoneOffset() *
+    60 *
+    1000;
+
+  return new Date(
+    date.getTime() - offset
+  )
+    .toISOString()
+    .slice(0, 16);
 }

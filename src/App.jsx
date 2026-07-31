@@ -6,12 +6,13 @@ import {
 } from "react-router-dom";
 
 import ProtectedRoute from "./components/auth/ProtectedRoute";
-import MailingContacts from "./pages/MailingContacts";
+
 import AppLayout from "./components/layout/AppLayout";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import ApplicationDetails from "./pages/ApplicationDetails";
+import MailingContacts from "./pages/MailingContacts";
 
-
+import MyContacts from "./pages/MyContacts.jsx";
 import ApplicationsPage from "./pages/ApplicationsPage.jsx";
 import Dashboard from "./pages/Dashboard";
 import Incoming from "./pages/Incoming";
@@ -45,10 +46,7 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route
-  path="/mailings/:mailingId"
-  element={<MailingContacts />}
-/>
+           
             <Route
               path="/"
               element={
@@ -62,9 +60,19 @@ export default function App() {
             />
 
             <Route
-              path="/incoming"
-              element={<Incoming />}
-            />
+  path="/incoming"
+  element={
+    <ProtectedRoute
+      allowedRoles={[
+        "manager",
+        "admin",
+        "head",
+      ]}
+    >
+      <Incoming />
+    </ProtectedRoute>
+  }
+/>
 
             <Route
               path="/applications"
@@ -85,6 +93,20 @@ export default function App() {
     </ProtectedRoute>
   }
 />
+<Route
+  path="/my-contacts"
+  element={
+    <ProtectedRoute
+      allowedRoles={[
+        "manager",
+        "admin",
+        "head",
+      ]}
+    >
+      <MyContacts />
+    </ProtectedRoute>
+  }
+/>
 
             <Route
   path="/managers/:managerId"
@@ -97,15 +119,38 @@ export default function App() {
   }
 />
 
-            <Route
-              path="/mailings"
-              element={<Mailings />}
-            />
+           <Route
+  path="/mailings"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <Mailings />
+    </ProtectedRoute>
+  }
+/>
 
-            <Route
-              path="/mailings/:mailingId"
-              element={<MailingDetails />}
-            />
+         <Route
+  path="/mailings/:mailingId"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <MailingDetails />
+    </ProtectedRoute>
+  }
+/>
+
+<Route
+  path="/mailings/:mailingId/contacts"
+  element={
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
+      <MailingContacts />
+    </ProtectedRoute>
+  }
+/>
 
            <Route
   path="/salaries"
@@ -132,7 +177,9 @@ export default function App() {
            <Route
   path="/users"
   element={
-    <ProtectedRoute allowedRoles={["admin"]}>
+    <ProtectedRoute
+      allowedRoles={["admin", "head"]}
+    >
       <Users />
     </ProtectedRoute>
   }

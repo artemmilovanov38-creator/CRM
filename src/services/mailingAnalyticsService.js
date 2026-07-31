@@ -95,12 +95,20 @@ function getContactStatus(contact, application) {
   }
 
   if (
-    contact.responded_at ||
-    contact.status === "responded"
-  ) {
-    return "replied";
-  }
+  contact.responded_at ||
+  contact.status === "responded"
+) {
+  return "responded";
+}
 
+
+if (
+  contact.sent_at &&
+  !contact.responded_at &&
+  contact.status === "sent"
+) {
+  return "no_reply";
+}
   if (
     contact.sent_at ||
     contact.status === "sent"
@@ -163,7 +171,7 @@ function getLastAction(
     return {
       title: "Клиент ответил",
       date: contact.responded_at,
-      type: "replied",
+      type: "responded",
     };
   }
 
@@ -227,7 +235,7 @@ function createActivity(
         title: "Получен ответ",
         description: username,
         date: contact.responded_at,
-        type: "replied",
+        type: "responded",
       });
     }
   });
@@ -475,12 +483,8 @@ function calculateMetrics(
   const responded = respondedContacts.length;
   const noReply = contacts.filter(
   (contact) =>
-    !contact.responded_at &&
-    ![
-      "responded",
-      "application",
-      "opened",
-    ].includes(contact.status)
+    Boolean(contact.sent_at) &&
+    !contact.responded_at
 ).length;
 
 const unassigned = contacts.filter(
@@ -793,11 +797,18 @@ export const mailingAnalyticsService = {
       };
     });
 
+
+  
     const metrics = calculateMetrics(
       mailing,
       contacts || [],
       applications
     );
+
+    const activity = createActivity(
+  contacts || [],
+  applications
+);
 
    const managerStats = createManagerStats(
   contacts || [],

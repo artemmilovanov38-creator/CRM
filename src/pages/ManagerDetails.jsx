@@ -24,7 +24,8 @@ import "../styles/ManagerDetails.css";
 import { profileService } from "../services/profileService";
 
 const roleLabels = {
-  leader: "Руководитель",
+  head: "Руководитель",
+  admin: "Администратор",
   manager: "Менеджер",
 };
 

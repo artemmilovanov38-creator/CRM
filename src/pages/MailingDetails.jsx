@@ -72,10 +72,10 @@ const contactStatusConfig = {
     className: "mailing-contact-status--gray",
   },
 
-  replied: {
-    title: "Ответил",
-    className: "mailing-contact-status--blue",
-  },
+  responded: {
+  title: "Ответил",
+  className: "mailing-contact-status--blue",
+},
 
   application: {
     title: "Заявка",
@@ -614,7 +614,7 @@ const totalConversion =
             <small>{openingConversion}% от заявок</small>
           </div>
         </article>
-      </section>
+      
       <article>
   <div className="mailing-details-stat-icon mailing-details-stat-icon--orange">
     <XCircle size={19} />
@@ -651,7 +651,9 @@ const totalConversion =
       Контакты без менеджера
     </small>
   </div>
+  
 </article>
+</section>
 
       <section className="mailing-details-funnel-card">
         <div className="mailing-details-section-heading">
@@ -943,8 +945,12 @@ const totalConversion =
   Отправлено
 </option>
 
-<option value="replied">
+<option value="responded">
   Ответили
+</option>
+
+<option value="no_reply">
+  Без ответа
 </option>
 
 <option value="application">

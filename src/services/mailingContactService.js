@@ -537,7 +537,62 @@ const autoAssignManagers = async (mailingId) => {
     error: null,
   };
 };
+
+const getMyContacts = async () => {
+  const {
+    data: userData,
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    return {
+      data: [],
+      error: userError,
+    };
+  }
+
+  const currentUser = userData?.user;
+
+  if (!currentUser?.id) {
+    return {
+      data: [],
+      error: new Error(
+        "Пользователь не авторизован."
+      ),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select(`
+      *,
+      manager:profiles (
+        id,
+        full_name,
+        email
+      ),
+      mailing:mailings (
+        id,
+        name,
+        title,
+        supplier,
+        status,
+        mailing_method,
+        created_at
+      )
+    `)
+    .eq("manager_id", currentUser.id)
+    .order("created_at", {
+      ascending: false,
+    });
+
+  return {
+    data: data || [],
+    error,
+  };
+};
 export const mailingContactService = {
+  getMyContacts,
   autoAssignManagers,
   normalizePhone,
   normalizeContact,
