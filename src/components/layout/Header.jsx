@@ -57,6 +57,7 @@ const navigation = [
   title: "Мои контакты",
   path: "/my-contacts",
   icon: ContactRound,
+  roles: ["manager"],
 },
   {
     title: "Менеджеры",
@@ -89,11 +90,7 @@ const navigation = [
   path: "/users",
   roles: ["admin", "head"],
 },
-{
-  title: "Входящий поток",
-  path: "/incoming",
-  icon: Send,
-},
+
   {
     title: "Настройки",
     icon: Settings,

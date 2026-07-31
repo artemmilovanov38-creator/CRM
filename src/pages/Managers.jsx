@@ -9,6 +9,7 @@ import {
   UserCheck,
   Users,
   X,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -59,6 +60,73 @@ export default function Managers() {
     loadManagers();
   }, []);
 
+
+  async function handleDeleteMailing(
+  mailing
+) {
+  if (!mailing?.id) {
+    return;
+  }
+
+  const mailingName =
+    mailing.name ||
+    mailing.title ||
+    "Без названия";
+
+  const confirmed = window.confirm(
+    `Удалить рассылку "${mailingName}"?\n\nБудут удалены сама рассылка и все её контакты.\n\nЭто действие нельзя отменить.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const confirmationText =
+    window.prompt(
+      `Для подтверждения напишите слово УДАЛИТЬ`
+    );
+
+  if (
+    confirmationText?.trim() !==
+    "УДАЛИТЬ"
+  ) {
+    window.alert(
+      "Удаление отменено."
+    );
+
+    return;
+  }
+
+  const result =
+    await mailingService.deleteMailing(
+      mailing.id
+    );
+
+  if (result.error) {
+    console.error(
+      "Ошибка удаления рассылки:",
+      result.error
+    );
+
+    window.alert(
+      result.error.message ||
+        "Не удалось удалить рассылку."
+    );
+
+    return;
+  }
+
+  setMailingsData((current) =>
+    current.filter(
+      (item) =>
+        item.id !== mailing.id
+    )
+  );
+
+  window.alert(
+    `Рассылка "${mailingName}" удалена.`
+  );
+}
   async function loadManagers() {
     setIsLoading(true);
     setError("");

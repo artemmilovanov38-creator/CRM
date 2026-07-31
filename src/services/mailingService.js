@@ -226,6 +226,87 @@ function mapMailingToDatabase(values = {}) {
       values.completed_at || null,
   };
 }
+const deleteMailing = async (mailingId) => {
+  if (!mailingId) {
+    return {
+      success: false,
+      error: new Error(
+        "Не передан ID рассылки"
+      ),
+    };
+  }
+
+  /*
+   * Сначала проверяем, есть ли заявки,
+   * связанные с этой рассылкой.
+   */
+  const {
+    count: applicationsCount,
+    error: applicationsError,
+  } = await supabase
+    .from("applications")
+    .select("id", {
+      count: "exact",
+      head: true,
+    })
+    .eq("mailing_id", mailingId);
+
+  if (applicationsError) {
+    return {
+      success: false,
+      error: applicationsError,
+    };
+  }
+
+  /*
+   * Если по рассылке уже есть заявки,
+   * полностью удалять её опасно.
+   */
+  if ((applicationsCount || 0) > 0) {
+    return {
+      success: false,
+      error: new Error(
+        `Нельзя удалить рассылку: с ней связано заявок — ${
+          applicationsCount || 0
+        }. Сначала архивируйте её.`
+      ),
+    };
+  }
+
+  const {
+    error: contactsDeleteError,
+  } = await supabase
+    .from("mailing_contacts")
+    .delete()
+    .eq("mailing_id", mailingId);
+
+  if (contactsDeleteError) {
+    return {
+      success: false,
+      error: contactsDeleteError,
+    };
+  }
+
+  const {
+    error: mailingDeleteError,
+  } = await supabase
+    .from("mailings")
+    .delete()
+    .eq("id", mailingId);
+
+  if (mailingDeleteError) {
+    return {
+      success: false,
+      error: mailingDeleteError,
+    };
+  }
+
+  return {
+    success: true,
+    error: null,
+  };
+};
+
 
 export const mailingService = {
   /**
@@ -261,21 +342,21 @@ export const mailingService = {
   );
 
   const {
-    data: contacts,
-    error: contactsError,
-  } = await supabase
-    .from("mailing_contacts")
-    .select(`
-      id,
-      mailing_id,
-      status,
-      telegram_found,
-      telegram_username,
-      sent_at,
-      responded_at,
-      application_created_at
-    `)
-    .in("mailing_id", mailingIds);
+  data: contacts,
+  error: contactsError,
+} = await supabase
+  .from("mailing_contacts")
+  .select(`
+    id,
+    mailing_id,
+    status,
+    telegram_found,
+    telegram_username,
+    sent_at,
+    responded_at,
+    application_created_at
+  `)
+  .in("mailing_id", mailingIds);
 
   if (contactsError) {
     return {
@@ -497,29 +578,7 @@ export const mailingService = {
     });
   },
 
-  /**
-   * Удалить партию.
-   */
-  async deleteMailing(mailingId) {
-    if (!mailingId) {
-      return {
-        success: false,
-        error: new Error(
-          "Не передан ID партии"
-        ),
-      };
-    }
-
-    const { error } = await supabase
-      .from("mailings")
-      .delete()
-      .eq("id", mailingId);
-
-    return {
-      success: !error,
-      error,
-    };
-  },
+deleteMailing,
 
   /**
    * Получить финансовые показатели.

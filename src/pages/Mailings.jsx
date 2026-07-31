@@ -23,6 +23,7 @@ import {
   Send,
   TrendingUp,
   Users,
+  Trash2,
 } from "lucide-react";
 
 import ImportContactsModal from "../components/mailings/ImportContactsModal";
@@ -312,6 +313,73 @@ export default function Mailings() {
     );
   }, [mailingsData]);
 
+
+  async function handleDeleteMailing(
+  mailing
+) {
+  if (!mailing?.id) {
+    return;
+  }
+
+  const mailingName =
+    mailing.name ||
+    mailing.title ||
+    "Без названия";
+
+  const confirmed = window.confirm(
+    `Удалить рассылку "${mailingName}"?\n\nБудут удалены сама рассылка и все её контакты.\n\nЭто действие нельзя отменить.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const confirmationText =
+    window.prompt(
+      `Для подтверждения напишите слово УДАЛИТЬ`
+    );
+
+  if (
+    confirmationText?.trim() !==
+    "УДАЛИТЬ"
+  ) {
+    window.alert(
+      "Удаление отменено."
+    );
+
+    return;
+  }
+
+  const result =
+    await mailingService.deleteMailing(
+      mailing.id
+    );
+
+  if (result.error) {
+    console.error(
+      "Ошибка удаления рассылки:",
+      result.error
+    );
+
+    window.alert(
+      result.error.message ||
+        "Не удалось удалить рассылку."
+    );
+
+    return;
+  }
+
+  setMailingsData((current) =>
+    current.filter(
+      (item) =>
+        item.id !== mailing.id
+    )
+  );
+
+  window.alert(
+    `Рассылка "${mailingName}" удалена.`
+  );
+}
   function openCreateModal() {
     setEditingMailing(null);
     setMailingForm(initialMailingForm);
@@ -835,6 +903,9 @@ export default function Mailings() {
         {preparedMailings.map(
           (mailing) => (
             <MailingCard
+            onDelete={() =>
+  handleDeleteMailing(mailing)
+}
               key={mailing.id}
               mailing={mailing}
               onImport={() =>
@@ -918,6 +989,7 @@ function MailingCard({
   onContacts,
   onAnalytics,
   onEdit,
+  onDelete,
 }) {
   const status =
     statusConfig[mailing.status] ||
@@ -1106,6 +1178,14 @@ function MailingCard({
           <Pencil size={16} />
           Редактировать
         </button>
+        <button
+  className="mailing-delete-button"
+  type="button"
+  onClick={onDelete}
+>
+  <Trash2 size={16} />
+  Удалить
+</button>
       </div>
     </article>
   );
