@@ -1,5 +1,8 @@
-import { useState } from "react";
-
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 import {
   Bell,
   Bot,
@@ -17,7 +20,14 @@ import {
   Upload,
   Users,
   WalletCards,
+  CirclePlus,
+Pencil,
+Power,
+Trash2,
+X,
 } from "lucide-react";
+
+import { productService } from "../services/productService";
 
 const settingsSections = [
   {
@@ -79,12 +89,7 @@ const initialSettings = {
     timezone: "Europe/Moscow",
   },
 
-  salaries: {
-    alfa: 1200,
-    receipt: 500,
-    otp: 300,
-    gazpromPremium: 400,
-  },
+  
 
   integrations: {
     telegramBotToken: "",
@@ -222,12 +227,41 @@ function Toggle({ checked, onChange, label }) {
     </button>
   );
 }
+const initialProductForm = {
+  name: "",
+  description: "",
+  opening_price: "",
+  is_active: true,
+};
 
 export default function Settings() {
   const [activeSection, setActiveSection] = useState("general");
   const [settings, setSettings] = useState(initialSettings);
   const [roles, setRoles] = useState(initialRoles);
   const [saved, setSaved] = useState(false);
+  const [products, setProducts] =
+  useState([]);
+
+const [productsLoading, setProductsLoading] =
+  useState(true);
+
+const [productsError, setProductsError] =
+  useState("");
+
+const [productModalOpen, setProductModalOpen] =
+  useState(false);
+
+const [editingProduct, setEditingProduct] =
+  useState(null);
+
+const [productForm, setProductForm] =
+  useState(initialProductForm);
+
+const [productSaving, setProductSaving] =
+  useState(false);
+
+const [productFormError, setProductFormError] =
+  useState("");
 
  
 
@@ -265,6 +299,234 @@ export default function Settings() {
     }, 2500);
   }
 
+
+  const loadProducts = useCallback(async () => {
+  setProductsLoading(true);
+  setProductsError("");
+
+  const { data, error } =
+    await productService.getProducts();
+
+  if (error) {
+    console.error(
+      "Ошибка загрузки продуктов:",
+      error
+    );
+
+    setProductsError(
+      error.message ||
+        "Не удалось загрузить продукты"
+    );
+
+    setProducts([]);
+    setProductsLoading(false);
+    return;
+  }
+
+  setProducts(data || []);
+  setProductsLoading(false);
+}, []);
+
+useEffect(() => {
+  loadProducts();
+}, [loadProducts]);
+
+function openCreateProductModal() {
+  setEditingProduct(null);
+
+  setProductForm(
+    initialProductForm
+  );
+
+  setProductFormError("");
+  setProductModalOpen(true);
+}
+
+function openEditProductModal(product) {
+  setEditingProduct(product);
+
+  setProductForm({
+    name: product.name || "",
+
+    description:
+      product.description || "",
+
+    opening_price:
+      product.opening_price ?? "",
+
+    is_active:
+      product.is_active !== false,
+  });
+
+  setProductFormError("");
+  setProductModalOpen(true);
+}
+
+function closeProductModal() {
+  if (productSaving) {
+    return;
+  }
+
+  setProductModalOpen(false);
+  setEditingProduct(null);
+  setProductForm(initialProductForm);
+  setProductFormError("");
+}
+
+function handleProductFormChange(event) {
+  const {
+    name,
+    value,
+    type,
+    checked,
+  } = event.target;
+
+  setProductForm((current) => ({
+    ...current,
+
+    [name]:
+      type === "checkbox"
+        ? checked
+        : value,
+  }));
+}
+
+async function handleSaveProduct(event) {
+  event.preventDefault();
+
+  const name =
+    productForm.name.trim();
+
+  const openingPrice = Number(
+    productForm.opening_price
+  );
+
+  if (!name) {
+    setProductFormError(
+      "Введите название продукта"
+    );
+
+    return;
+  }
+
+  if (
+    productForm.opening_price === "" ||
+    !Number.isFinite(openingPrice) ||
+    openingPrice < 0
+  ) {
+    setProductFormError(
+      "Стоимость открытия должна быть числом от 0"
+    );
+
+    return;
+  }
+
+  setProductSaving(true);
+  setProductFormError("");
+
+  const values = {
+    name,
+
+    description:
+      productForm.description.trim() ||
+      null,
+
+    opening_price: openingPrice,
+
+    is_active:
+      Boolean(productForm.is_active),
+  };
+
+  const result = editingProduct
+    ? await productService.updateProduct(
+        editingProduct.id,
+        values
+      )
+    : await productService.createProduct(
+        values
+      );
+
+  if (result.error) {
+    console.error(
+      "Ошибка сохранения продукта:",
+      result.error
+    );
+
+    setProductFormError(
+      result.error.message ||
+        "Не удалось сохранить продукт"
+    );
+
+    setProductSaving(false);
+    return;
+  }
+
+  await loadProducts();
+
+  setProductSaving(false);
+  closeProductModal();
+}
+
+async function handleToggleProduct(product) {
+  const result =
+    await productService.setProductActive(
+      product.id,
+      !product.is_active
+    );
+
+  if (result.error) {
+    window.alert(
+      result.error.message ||
+        "Не удалось изменить статус продукта"
+    );
+
+    return;
+  }
+
+  setProducts((current) =>
+    current.map((item) =>
+      item.id === product.id
+        ? result.data
+        : item
+    )
+  );
+}
+
+async function handleDeleteProduct(product) {
+  const confirmed = window.confirm(
+    `Удалить продукт "${product.name}"?\n\nЕсли он используется в заявках, Supabase может запретить удаление. В таком случае продукт лучше отключить.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const result =
+    await productService.deleteProduct(
+      product.id
+    );
+
+  if (result.error) {
+    console.error(
+      "Ошибка удаления продукта:",
+      result.error
+    );
+
+    window.alert(
+      result.error.message ||
+        "Не удалось удалить продукт. Возможно, он уже используется в заявках."
+    );
+
+    return;
+  }
+
+  setProducts((current) =>
+    current.filter(
+      (item) =>
+        item.id !== product.id
+    )
+  );
+}
   return (
     <main className="page">
       <div className="page-header">
@@ -445,112 +707,193 @@ export default function Settings() {
           )}
 
           {activeSection === "salaries" && (
-            <div className="settings-panel">
-              <div className="settings-panel-heading">
-                <div className="settings-panel-icon settings-panel-icon--green">
-                  <WalletCards size={20} />
-                </div>
+  <div className="settings-panel">
+    <div className="settings-panel-heading">
+      <div className="settings-panel-icon settings-panel-icon--green">
+        <WalletCards size={20} />
+      </div>
 
-                <div>
-                  <h2>Ставки по продуктам</h2>
-                  <p>
-                    Стоимость одного подтверждённого открытия
-                  </p>
-                </div>
+      <div>
+        <h2>
+          Продукты и ставки
+        </h2>
+
+        <p>
+          Стоимость одного успешного
+          открытия по каждому продукту
+        </p>
+      </div>
+    </div>
+
+    <div className="settings-products-toolbar">
+      <div>
+        <strong>
+          Список продуктов
+        </strong>
+
+        <span>
+          Активные продукты доступны
+          менеджерам при создании заявки
+        </span>
+      </div>
+
+      <button
+        className="primary-button button-with-icon"
+        type="button"
+        onClick={openCreateProductModal}
+      >
+        <CirclePlus size={17} />
+        Добавить продукт
+      </button>
+    </div>
+
+    {productsError && (
+      <div className="settings-products-error">
+        <span>{productsError}</span>
+
+        <button
+          type="button"
+          onClick={loadProducts}
+        >
+          Повторить
+        </button>
+      </div>
+    )}
+
+    {productsLoading ? (
+      <div className="settings-products-state">
+        Загружаем продукты...
+      </div>
+    ) : products.length === 0 ? (
+      <div className="settings-products-state">
+        <WalletCards size={32} />
+
+        <strong>
+          Продуктов пока нет
+        </strong>
+
+        <span>
+          Добавьте первый продукт и
+          укажите стоимость открытия.
+        </span>
+
+        <button
+          className="primary-button button-with-icon"
+          type="button"
+          onClick={openCreateProductModal}
+        >
+          <CirclePlus size={17} />
+          Добавить продукт
+        </button>
+      </div>
+    ) : (
+      <div className="settings-products-list">
+        {products.map((product) => (
+          <article
+            className={
+              product.is_active
+                ? "settings-product-card"
+                : "settings-product-card settings-product-card--inactive"
+            }
+            key={product.id}
+          >
+            <div className="settings-product-main">
+              <div className="settings-product-icon">
+                <WalletCards size={19} />
               </div>
 
-              <div className="settings-rates-grid">
-                <label className="settings-rate-card">
-                  <span>Альфа</span>
+              <div>
+                <div className="settings-product-title">
+                  <strong>
+                    {product.name}
+                  </strong>
 
-                  <div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={settings.salaries.alfa}
-                      onChange={(event) =>
-                        updateSetting(
-                          "salaries",
-                          "alfa",
-                          Number(event.target.value)
-                        )
-                      }
-                    />
+                  <span
+                    className={
+                      product.is_active
+                        ? "settings-product-status settings-product-status--active"
+                        : "settings-product-status"
+                    }
+                  >
+                    {product.is_active
+                      ? "Активен"
+                      : "Отключён"}
+                  </span>
+                </div>
 
-                    <small>₽</small>
-                  </div>
-                </label>
-
-                <label className="settings-rate-card">
-                  <span>Квитанция</span>
-
-                  <div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={settings.salaries.receipt}
-                      onChange={(event) =>
-                        updateSetting(
-                          "salaries",
-                          "receipt",
-                          Number(event.target.value)
-                        )
-                      }
-                    />
-
-                    <small>₽</small>
-                  </div>
-                </label>
-
-                <label className="settings-rate-card">
-                  <span>ОТП</span>
-
-                  <div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={settings.salaries.otp}
-                      onChange={(event) =>
-                        updateSetting(
-                          "salaries",
-                          "otp",
-                          Number(event.target.value)
-                        )
-                      }
-                    />
-
-                    <small>₽</small>
-                  </div>
-                </label>
-
-                <label className="settings-rate-card">
-                  <span>Газпром премиум</span>
-
-                  <div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={settings.salaries.gazpromPremium}
-                      onChange={(event) =>
-                        updateSetting(
-                          "salaries",
-                          "gazpromPremium",
-                          Number(event.target.value)
-                        )
-                      }
-                    />
-
-                    <small>₽</small>
-                  </div>
-                </label>
-              </div>
-
-              <div className="settings-info-box">
-                После подключения Supabase изменение ставок будет
-                автоматически влиять на расчёт зарплат и отчёты.
+                <p>
+                  {product.description ||
+                    "Описание не указано"}
+                </p>
               </div>
             </div>
-          )}
+
+            <div className="settings-product-price">
+              <span>
+                Стоимость открытия
+              </span>
+
+              <strong>
+                {formatProductMoney(
+                  product.opening_price
+                )}
+              </strong>
+            </div>
+
+            <div className="settings-product-actions">
+              <button
+                type="button"
+                onClick={() =>
+                  openEditProductModal(
+                    product
+                  )
+                }
+              >
+                <Pencil size={16} />
+                Изменить
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleToggleProduct(
+                    product
+                  )
+                }
+              >
+                <Power size={16} />
+
+                {product.is_active
+                  ? "Отключить"
+                  : "Включить"}
+              </button>
+
+              <button
+                className="settings-product-delete"
+                type="button"
+                onClick={() =>
+                  handleDeleteProduct(
+                    product
+                  )
+                }
+              >
+                <Trash2 size={16} />
+                Удалить
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    )}
+
+    <div className="settings-info-box">
+      Зарплата рассчитывается только по
+      заявкам со статусом "Успешно
+      открыта": количество открытий ×
+      стоимость выбранного продукта.
+    </div>
+  </div>
+)}
 
           {activeSection === "roles" && (
             <div className="settings-panel">
@@ -1183,6 +1526,170 @@ export default function Settings() {
           )}
         </section>
       </div>
+      {productModalOpen && (
+  <div
+    className="settings-product-modal-overlay"
+    onMouseDown={(event) => {
+      if (
+        event.target ===
+        event.currentTarget
+      ) {
+        closeProductModal();
+      }
+    }}
+  >
+    <section
+      className="settings-product-modal"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="settings-product-modal-header">
+        <div>
+          <h2>
+            {editingProduct
+              ? "Редактировать продукт"
+              : "Добавить продукт"}
+          </h2>
+
+          <p>
+            Название и стоимость одного
+            успешного открытия
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={closeProductModal}
+          disabled={productSaving}
+          aria-label="Закрыть"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <form
+        className="settings-product-form"
+        onSubmit={handleSaveProduct}
+      >
+        <label className="settings-field">
+          <span>
+            Название продукта *
+          </span>
+
+          <input
+            type="text"
+            name="name"
+            value={productForm.name}
+            onChange={
+              handleProductFormChange
+            }
+            placeholder="Например: Продукт А"
+            autoFocus
+            disabled={productSaving}
+          />
+        </label>
+
+        <label className="settings-field">
+          <span>
+            Стоимость открытия, ₽ *
+          </span>
+
+          <input
+            type="number"
+            name="opening_price"
+            min="0"
+            step="0.01"
+            value={
+              productForm.opening_price
+            }
+            onChange={
+              handleProductFormChange
+            }
+            placeholder="500"
+            disabled={productSaving}
+          />
+        </label>
+
+        <label className="settings-field">
+          <span>Описание</span>
+
+          <textarea
+            name="description"
+            rows="4"
+            value={
+              productForm.description
+            }
+            onChange={
+              handleProductFormChange
+            }
+            placeholder="Необязательное описание продукта"
+            disabled={productSaving}
+          />
+        </label>
+
+        <label className="settings-product-active-field">
+          <input
+            type="checkbox"
+            name="is_active"
+            checked={
+              productForm.is_active
+            }
+            onChange={
+              handleProductFormChange
+            }
+            disabled={productSaving}
+          />
+
+          <span>
+            Продукт активен и доступен
+            менеджерам
+          </span>
+        </label>
+
+        {productFormError && (
+          <div className="settings-products-error">
+            {productFormError}
+          </div>
+        )}
+
+        <div className="settings-product-modal-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={closeProductModal}
+            disabled={productSaving}
+          >
+            Отмена
+          </button>
+
+          <button
+            className="primary-button button-with-icon"
+            type="submit"
+            disabled={productSaving}
+          >
+            <Save size={17} />
+
+            {productSaving
+              ? "Сохранение..."
+              : editingProduct
+                ? "Сохранить изменения"
+                : "Добавить продукт"}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+)}
     </main>
   );
+}
+function formatProductMoney(value) {
+  return new Intl.NumberFormat(
+    "ru-RU",
+    {
+      style: "currency",
+      currency: "RUB",
+      maximumFractionDigits: 0,
+    }
+  ).format(Number(value || 0));
 }
