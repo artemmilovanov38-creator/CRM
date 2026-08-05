@@ -12,55 +12,73 @@ import {
 
 import {
   ArrowLeft,
+  CheckCircle2,
+  Download,
+  FilePlus2,
   Mail,
+  MessageCircle,
   Phone,
   RefreshCw,
   Search,
   Send,
   UserRound,
+  Users,
+  XCircle,
 } from "lucide-react";
 
 import ContactDrawer from "../components/mailings/ContactDrawer";
 
-import { applicationService } from "../services/applicationService";
+import {
+  applicationService,
+} from "../services/applicationService";
+
 import mailingContactService from "../services/mailingContactService";
-import { mailingService } from "../services/mailingService";
-import { productService } from "../services/productService";
+
+import {
+  mailingService,
+} from "../services/mailingService";
+
+import {
+  productService,
+} from "../services/productService";
 
 import "../styles/MailingContacts.css";
 
 const contactStatusConfig = {
-  new: "Новый",
+  new: "Не ответил",
   telegram_found: "Telegram найден",
   telegram_not_found: "Telegram не найден",
-  assigned: "Назначен менеджеру",
+  assigned: "Закреплён",
   sent: "Сообщение отправлено",
   responded: "Ответил",
-  application: "Создана заявка",
+  application: "Есть заявка",
   opened: "Открытие",
   rejected: "Отказ",
   duplicate: "Дубликат",
 };
 
-function getContactName(contact) {
-  return (
-    contact?.full_name ||
-    "Без имени"
-  );
-}
-
-function getManagerName(manager) {
-  if (!manager) {
-    return "Не назначен";
-  }
-
-  return (
-    manager.full_name ||
-    manager.name ||
-    manager.email ||
-    "Не назначен"
-  );
-}
+const processFilterOptions = [
+  {
+    value: "all",
+    title: "Все контакты",
+  },
+  {
+    value: "responded",
+    title: "Ответили",
+  },
+  {
+    value: "not_responded",
+    title: "Не ответили",
+  },
+  {
+    value: "with_application",
+    title: "Есть заявки",
+  },
+  {
+    value: "without_application",
+    title: "Без заявки",
+  },
+];
 
 export default function MailingContacts() {
   const navigate = useNavigate();
@@ -70,6 +88,9 @@ export default function MailingContacts() {
     useState(null);
 
   const [contacts, setContacts] =
+    useState([]);
+
+  const [applications, setApplications] =
     useState([]);
 
   const [managers, setManagers] =
@@ -83,21 +104,13 @@ export default function MailingContacts() {
     setSelectedContact,
   ] = useState(null);
 
-  const [
-    selectedContactIds,
-    setSelectedContactIds,
-  ] = useState([]);
-
-  const [
-    bulkManagerId,
-    setBulkManagerId,
-  ] = useState("");
-
   const [searchValue, setSearchValue] =
     useState("");
 
-  const [statusFilter, setStatusFilter] =
-    useState("all");
+  const [
+    processFilter,
+    setProcessFilter,
+  ] = useState("all");
 
   const [loading, setLoading] =
     useState(true);
@@ -110,23 +123,35 @@ export default function MailingContacts() {
   const [loadError, setLoadError] =
     useState("");
 
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState("");
+
   const loadPageData = useCallback(
-    async () => {
+    async ({
+      showLoader = true,
+    } = {}) => {
       if (!mailingId) {
         setLoadError(
-          "Не указан ID партии."
+          "Не указан ID рассылки."
         );
 
         setLoading(false);
         return;
       }
 
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      }
+
       setLoadError("");
+      setSuccessMessage("");
 
       const [
         mailingResult,
         contactsResult,
+        applicationsResult,
         managersResult,
         productsResult,
       ] = await Promise.all([
@@ -139,6 +164,9 @@ export default function MailingContacts() {
             mailingId
           ),
 
+        applicationService
+          .getApplications(),
+
         mailingContactService
           .getActiveManagers(),
 
@@ -148,13 +176,13 @@ export default function MailingContacts() {
 
       if (mailingResult.error) {
         console.error(
-          "Ошибка загрузки партии:",
+          "Ошибка загрузки рассылки:",
           mailingResult.error
         );
 
         setLoadError(
           mailingResult.error.message ||
-            "Не удалось загрузить партию."
+            "Не удалось загрузить рассылку."
         );
 
         setLoading(false);
@@ -174,6 +202,13 @@ export default function MailingContacts() {
 
         setLoading(false);
         return;
+      }
+
+      if (applicationsResult.error) {
+        console.error(
+          "Ошибка загрузки заявок:",
+          applicationsResult.error
+        );
       }
 
       if (managersResult.error) {
@@ -198,6 +233,16 @@ export default function MailingContacts() {
         contactsResult.data || []
       );
 
+      setApplications(
+        (
+          applicationsResult.data || []
+        ).filter(
+          (application) =>
+            application.mailing_id ===
+            mailingId
+        )
+      );
+
       setManagers(
         managersResult.data || []
       );
@@ -215,18 +260,88 @@ export default function MailingContacts() {
     loadPageData();
   }, [loadPageData]);
 
+  const applicationsByContact =
+    useMemo(() => {
+      return applications.reduce(
+        (result, application) => {
+          const contactId =
+            application.mailing_contact_id;
+
+          if (!contactId) {
+            return result;
+          }
+
+          if (!result[contactId]) {
+            result[contactId] = [];
+          }
+
+          result[contactId].push(
+            application
+          );
+
+          return result;
+        },
+        {}
+      );
+    }, [applications]);
+
+  const preparedContacts = useMemo(
+    () => {
+      return contacts.map(
+        (contact) => {
+          const contactApplications =
+            applicationsByContact[
+              contact.id
+            ] || [];
+
+          return {
+            ...contact,
+
+            applications:
+              contactApplications,
+
+            applications_count:
+              contactApplications.length,
+
+            has_responded:
+              Boolean(
+                contact.responded_at
+              ),
+
+            has_application:
+              contactApplications.length >
+              0,
+          };
+        }
+      );
+    },
+    [
+      contacts,
+      applicationsByContact,
+    ]
+  );
+
   const filteredContacts = useMemo(() => {
     const search = searchValue
       .trim()
       .toLowerCase();
 
-    return contacts.filter(
+    return preparedContacts.filter(
       (contact) => {
         const searchableValue = [
           contact.full_name,
           contact.phone,
           contact.email,
           contact.telegram_username,
+          contact.manager?.full_name,
+          contact.manager?.email,
+
+          ...contact.applications.map(
+            (application) =>
+              application
+                .product_data?.name ||
+              application.product
+          ),
         ]
           .filter(Boolean)
           .join(" ")
@@ -234,51 +349,110 @@ export default function MailingContacts() {
 
         const matchesSearch =
           !search ||
-          searchableValue.includes(search);
+          searchableValue.includes(
+            search
+          );
 
-        const matchesStatus =
-          statusFilter === "all" ||
-          contact.status === statusFilter;
+        let matchesProcess = true;
+
+        if (
+          processFilter ===
+          "responded"
+        ) {
+          matchesProcess =
+            contact.has_responded;
+        }
+
+        if (
+          processFilter ===
+          "not_responded"
+        ) {
+          matchesProcess =
+            !contact.has_responded;
+        }
+
+        if (
+          processFilter ===
+          "with_application"
+        ) {
+          matchesProcess =
+            contact.has_application;
+        }
+
+        if (
+          processFilter ===
+          "without_application"
+        ) {
+          matchesProcess =
+            !contact.has_application;
+        }
 
         return (
           matchesSearch &&
-          matchesStatus
+          matchesProcess
         );
       }
     );
   }, [
-    contacts,
+    preparedContacts,
     searchValue,
-    statusFilter,
+    processFilter,
   ]);
 
   const counters = useMemo(() => {
-    return contacts.reduce(
-      (result, contact) => {
-        result.total += 1;
+    const responded =
+      preparedContacts.filter(
+        (contact) =>
+          contact.has_responded
+      ).length;
 
-        if (contact.telegram_found) {
-          result.telegramFound += 1;
-        }
+    const notResponded =
+      preparedContacts.length -
+      responded;
 
-        if (contact.manager_id) {
-          result.assigned += 1;
-        }
+    const contactsWithApplications =
+      preparedContacts.filter(
+        (contact) =>
+          contact.has_application
+      ).length;
 
-        if (contact.responded_at) {
-          result.responded += 1;
-        }
+    const approved =
+      applications.filter(
+        (application) =>
+          application.status ===
+          "approved"
+      ).length;
 
-        return result;
-      },
-      {
-        total: 0,
-        telegramFound: 0,
-        assigned: 0,
-        responded: 0,
-      }
-    );
-  }, [contacts]);
+    const responseRate =
+      preparedContacts.length > 0
+        ? (
+            (responded /
+              preparedContacts.length) *
+            100
+          ).toFixed(1)
+        : "0.0";
+
+    return {
+      total:
+        preparedContacts.length,
+
+      responded,
+
+      notResponded,
+
+      applications:
+        applications.length,
+
+      contactsWithApplications,
+
+      approved,
+
+      responseRate,
+    };
+  }, [
+    preparedContacts,
+    applications,
+  ]);
 
   function updateContactOnPage(
     updatedContact
@@ -319,76 +493,6 @@ export default function MailingContacts() {
     );
   }
 
-  async function handleMarkSent(
-    contact
-  ) {
-    if (
-      !contact?.id ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
-      await mailingContactService
-        .markAsSent(contact.id);
-
-    if (result.error) {
-      console.error(
-        "Ошибка изменения статуса:",
-        result.error
-      );
-
-      window.alert(
-        result.error.message ||
-          "Не удалось отметить отправку."
-      );
-
-      setActionLoading(false);
-      return;
-    }
-
-    updateContactOnPage(result.data);
-    setActionLoading(false);
-  }
-
-  async function handleMarkResponded(
-    contact
-  ) {
-    if (
-      !contact?.id ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
-      await mailingContactService
-        .markAsResponded(contact.id);
-
-    if (result.error) {
-      console.error(
-        "Ошибка изменения статуса:",
-        result.error
-      );
-
-      window.alert(
-        result.error.message ||
-          "Не удалось отметить ответ."
-      );
-
-      setActionLoading(false);
-      return;
-    }
-
-    updateContactOnPage(result.data);
-    setActionLoading(false);
-  }
-
   async function handleSaveComment(
     contact,
     comment
@@ -410,11 +514,6 @@ export default function MailingContacts() {
         );
 
     if (result.error) {
-      console.error(
-        "Ошибка сохранения комментария:",
-        result.error
-      );
-
       window.alert(
         result.error.message ||
           "Не удалось сохранить комментарий."
@@ -425,6 +524,11 @@ export default function MailingContacts() {
     }
 
     updateContactOnPage(result.data);
+
+    setSuccessMessage(
+      "Комментарий сохранён"
+    );
+
     setActionLoading(false);
   }
 
@@ -451,7 +555,7 @@ export default function MailingContacts() {
     if (result.error) {
       window.alert(
         result.error.message ||
-          "Не удалось назначить менеджера."
+          "Не удалось изменить менеджера."
       );
 
       setActionLoading(false);
@@ -469,256 +573,146 @@ export default function MailingContacts() {
       manager,
     });
 
+    setSuccessMessage(
+      managerId
+        ? "Менеджер изменён"
+        : "Менеджер снят"
+    );
+
     setActionLoading(false);
   }
 
-  function toggleContactSelection(
-    contactId
+  async function handleContactChanged(
+    updatedContact
   ) {
-    setSelectedContactIds(
-      (currentIds) => {
-        if (
-          currentIds.includes(
-            contactId
-          )
-        ) {
-          return currentIds.filter(
-            (id) =>
-              id !== contactId
-          );
-        }
-
-        return [
-          ...currentIds,
-          contactId,
-        ];
-      }
-    );
-  }
-
-  const allFilteredSelected =
-    filteredContacts.length > 0 &&
-    filteredContacts.every(
-      (contact) =>
-        selectedContactIds.includes(
-          contact.id
-        )
-    );
-
-  function toggleSelectAllFiltered() {
-    const filteredIds =
-      filteredContacts.map(
-        (contact) => contact.id
-      );
-
-    setSelectedContactIds(
-      (currentIds) => {
-        if (allFilteredSelected) {
-          return currentIds.filter(
-            (id) =>
-              !filteredIds.includes(id)
-          );
-        }
-
-        return Array.from(
-          new Set([
-            ...currentIds,
-            ...filteredIds,
-          ])
-        );
-      }
-    );
-  }
-
-  function clearContactSelection() {
-    setSelectedContactIds([]);
-    setBulkManagerId("");
-  }
-
-  async function handleBulkAssignManager() {
-    if (
-      selectedContactIds.length === 0 ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const results =
-      await Promise.all(
-        selectedContactIds.map(
-          (contactId) =>
-            mailingContactService
-              .assignManager(
-                contactId,
-                bulkManagerId || null
-              )
-        )
-      );
-
-    const failedResults =
-      results.filter(
-        (result) =>
-          result.error
-      );
-
-    if (failedResults.length > 0) {
-      console.error(
-        "Ошибки массового назначения:",
-        failedResults
-      );
-
-      window.alert(
-        `Не удалось обновить контактов: ${failedResults.length}`
+    if (updatedContact?.id) {
+      updateContactOnPage(
+        updatedContact
       );
     }
 
-    await loadPageData();
-
-    setSelectedContactIds([]);
-    setBulkManagerId("");
-    setActionLoading(false);
-  }
-
-  async function handleAutoAssign() {
-    if (actionLoading) {
-      return;
-    }
-
-    if (
-      typeof mailingContactService
-        .autoAssignManagers !==
-      "function"
-    ) {
-      window.alert(
-        "Функция автораспределения пока не подключена."
-      );
-
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "Автоматически распределить все нераспределённые контакты между активными менеджерами?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
-      await mailingContactService
-        .autoAssignManagers(
-          mailingId
-        );
-
-    if (result.error) {
-      window.alert(
-        result.error.message ||
-          "Не удалось выполнить распределение."
-      );
-
-      setActionLoading(false);
-      return;
-    }
-
-    await loadPageData();
-
-    window.alert(
-      "Контакты успешно распределены."
-    );
-
-    setActionLoading(false);
-  }
-
-  async function handleCreateApplication(
-    contact,
-    productId
-  ) {
-    if (
-      !contact?.id ||
-      !productId ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
+    const applicationsResult =
       await applicationService
-        .createApplicationFromContact(
-          contact,
-          contact.manager_id || null,
-          productId
-        );
+        .getApplications();
 
-    if (result.error) {
+    if (applicationsResult.error) {
       console.error(
-        "Ошибка создания заявки:",
-        result.error
+        "Ошибка обновления заявок:",
+        applicationsResult.error
       );
 
-      window.alert(
-        result.error.message ||
-          "Не удалось создать заявку."
-      );
-
-      setActionLoading(false);
       return;
     }
 
-    if (result.contact) {
-      updateContactOnPage({
-        ...result.contact,
+    setApplications(
+      (
+        applicationsResult.data || []
+      ).filter(
+        (application) =>
+          application.mailing_id ===
+          mailingId
+      )
+    );
+  }
 
-        manager:
-          managers.find(
-            (manager) =>
-              manager.id ===
-              result.contact.manager_id
-          ) ||
-          contact.manager ||
-          null,
-      });
-    } else {
-      await loadPageData();
-    }
-
-    const product =
-      products.find(
-        (item) =>
-          item.id === productId
+  function handleExportUnanswered() {
+    const unansweredContacts =
+      preparedContacts.filter(
+        (contact) =>
+          !contact.has_responded
       );
 
-    window.alert(
-      result.alreadyExists
-        ? `Заявка по продукту "${
-            product?.name ||
-            "выбранный продукт"
-          }" уже существует.`
-        : `Заявка по продукту "${
-            product?.name ||
-            "выбранный продукт"
-          }" создана.`
+    if (
+      unansweredContacts.length === 0
+    ) {
+      window.alert(
+        "В этой рассылке нет неответивших контактов."
+      );
+
+      return;
+    }
+
+    const rows = [
+      [
+        "Имя",
+        "Телефон",
+        "Email",
+        "Telegram",
+        "Рассылка",
+      ],
+
+      ...unansweredContacts.map(
+        (contact) => [
+          contact.full_name || "",
+          contact.phone || "",
+          contact.email || "",
+          formatTelegram(
+            contact.telegram_username
+          ),
+          mailing?.name ||
+            mailing?.title ||
+            "",
+        ]
+      ),
+    ];
+
+    const csv = rows
+      .map((row) =>
+        row
+          .map(escapeCsvValue)
+          .join(";")
+      )
+      .join("\n");
+
+    const blob = new Blob(
+      [`\uFEFF${csv}`],
+      {
+        type:
+          "text/csv;charset=utf-8;",
+      }
     );
 
-    setActionLoading(false);
+    const downloadUrl =
+      URL.createObjectURL(blob);
+
+    const link =
+      document.createElement("a");
+
+    link.href = downloadUrl;
+
+    link.download =
+      `Неответившие-${sanitizeFileName(
+        mailing?.name ||
+          mailing?.title ||
+          mailingId
+      )}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(
+      downloadUrl
+    );
+
+    setSuccessMessage(
+      `Выгружено контактов: ${unansweredContacts.length}`
+    );
   }
 
   if (loading) {
     return (
       <main className="page">
         <div className="mailing-contacts-state">
+          <div className="mailing-contacts-loader" />
+
           <h2>
             Загружаем контакты...
           </h2>
 
           <p>
-            Получаем данные из Supabase.
+            Получаем актуальные данные
+            из CRM.
           </p>
         </div>
       </main>
@@ -729,8 +723,10 @@ export default function MailingContacts() {
     return (
       <main className="page">
         <div className="mailing-contacts-state">
+          <XCircle size={34} />
+
           <h2>
-            Не удалось открыть партию
+            Не удалось открыть рассылку
           </h2>
 
           <p>{loadError}</p>
@@ -738,7 +734,9 @@ export default function MailingContacts() {
           <button
             type="button"
             className="primary-button"
-            onClick={loadPageData}
+            onClick={() =>
+              loadPageData()
+            }
           >
             Повторить
           </button>
@@ -748,8 +746,8 @@ export default function MailingContacts() {
   }
 
   return (
-    <main className="page">
-      <div className="mailing-contacts-header">
+    <main className="page mailing-contacts-page">
+      <header className="mailing-contacts-header">
         <div>
           <button
             type="button"
@@ -759,19 +757,20 @@ export default function MailingContacts() {
             }
           >
             <ArrowLeft size={17} />
-            Назад к партиям
+            Назад к рассылкам
           </button>
 
           <h1>
             {mailing?.name ||
               mailing?.title ||
-              "Контакты партии"}
+              "Контакты рассылки"}
           </h1>
 
           <p>
-            {mailing?.supplier ||
-              mailing?.source ||
-              "Поставщик не указан"}
+            Общая база пользователей,
+            которым выполнялась рассылка.
+            Менеджеры самостоятельно
+            отмечают тех, кто им написал.
           </p>
         </div>
 
@@ -779,7 +778,9 @@ export default function MailingContacts() {
           <button
             type="button"
             className="secondary-button button-with-icon"
-            onClick={loadPageData}
+            onClick={() =>
+              loadPageData()
+            }
             disabled={
               loading ||
               actionLoading
@@ -792,58 +793,66 @@ export default function MailingContacts() {
           <button
             type="button"
             className="primary-button button-with-icon"
-            onClick={handleAutoAssign}
-            disabled={actionLoading}
+            onClick={
+              handleExportUnanswered
+            }
           >
-            <UserRound size={16} />
-
-            {actionLoading
-              ? "Распределяем..."
-              : "Автораспределение"}
+            <Download size={16} />
+            Выгрузить неответивших
           </button>
         </div>
-      </div>
+      </header>
 
-      <section className="mailing-contacts-summary">
-        <article>
+      {successMessage && (
+        <div className="mailing-contacts-alert mailing-contacts-alert--success">
+          <CheckCircle2 size={17} />
           <span>
-            Всего контактов
+            {successMessage}
           </span>
+        </div>
+      )}
 
-          <strong>
-            {counters.total}
-          </strong>
-        </article>
+      <section className="mailing-contacts-summary mailing-contacts-summary--extended">
+        <SummaryCard
+          icon={Users}
+          title="Всего в рассылке"
+          value={counters.total}
+        />
 
-        <article>
-          <span>
-            Telegram найден
-          </span>
+        <SummaryCard
+          icon={MessageCircle}
+          title="Ответили"
+          value={counters.responded}
+          variant="success"
+        />
 
-          <strong>
-            {counters.telegramFound}
-          </strong>
-        </article>
+        <SummaryCard
+          icon={XCircle}
+          title="Не ответили"
+          value={counters.notResponded}
+          variant="danger"
+        />
 
-        <article>
-          <span>
-            Распределено
-          </span>
+        <SummaryCard
+          icon={FilePlus2}
+          title="Создано заявок"
+          value={counters.applications}
+          variant="warning"
+        />
 
-          <strong>
-            {counters.assigned}
-          </strong>
-        </article>
+        <SummaryCard
+          icon={CheckCircle2}
+          title="Успешно открыто"
+          value={counters.approved}
+          variant="success"
+        />
 
-        <article>
-          <span>
-            Ответили
-          </span>
-
-          <strong>
-            {counters.responded}
-          </strong>
-        </article>
+        <SummaryCard
+          icon={Send}
+          title="Конверсия в ответ"
+          value={`${counters.responseRate}%`}
+          variant="blue"
+        />
       </section>
 
       <section className="mailing-contacts-toolbar">
@@ -851,127 +860,38 @@ export default function MailingContacts() {
           <Search size={18} />
 
           <input
-            type="text"
+            type="search"
             value={searchValue}
             onChange={(event) =>
               setSearchValue(
                 event.target.value
               )
             }
-            placeholder="Поиск по имени, телефону, email или Telegram"
+            placeholder="Имя, телефон, email, Telegram, менеджер или продукт"
           />
         </div>
 
         <div className="toolbar-filter">
           <select
-            value={statusFilter}
+            value={processFilter}
             onChange={(event) =>
-              setStatusFilter(
+              setProcessFilter(
                 event.target.value
               )
             }
           >
-            <option value="all">
-              Все статусы
-            </option>
-
-            {Object.entries(
-              contactStatusConfig
-            ).map(
-              ([value, title]) => (
+            {processFilterOptions.map(
+              (option) => (
                 <option
-                  key={value}
-                  value={value}
+                  key={option.value}
+                  value={option.value}
                 >
-                  {title}
+                  {option.title}
                 </option>
               )
             )}
           </select>
         </div>
-      </section>
-
-      <section className="mailing-contacts-bulk">
-        <label className="mailing-contacts-select-all">
-          <input
-            type="checkbox"
-            checked={
-              allFilteredSelected
-            }
-            onChange={
-              toggleSelectAllFiltered
-            }
-          />
-
-          <span>
-            Выбрать все найденные
-          </span>
-        </label>
-
-        {selectedContactIds.length >
-          0 && (
-          <div className="mailing-contacts-bulk-actions">
-            <strong>
-              Выбрано:{" "}
-              {
-                selectedContactIds.length
-              }
-            </strong>
-
-            <select
-              value={bulkManagerId}
-              disabled={actionLoading}
-              onChange={(event) =>
-                setBulkManagerId(
-                  event.target.value
-                )
-              }
-            >
-              <option value="">
-                Снять менеджера
-              </option>
-
-              {managers.map(
-                (manager) => (
-                  <option
-                    key={manager.id}
-                    value={manager.id}
-                  >
-                    {manager.full_name ||
-                      manager.email ||
-                      "Без имени"}
-                  </option>
-                )
-              )}
-            </select>
-
-            <button
-              type="button"
-              className="primary-button"
-              disabled={actionLoading}
-              onClick={
-                handleBulkAssignManager
-              }
-            >
-              {actionLoading
-                ? "Сохраняем..."
-                : bulkManagerId
-                  ? "Назначить менеджера"
-                  : "Снять назначение"}
-            </button>
-
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={actionLoading}
-              onClick={
-                clearContactSelection
-              }
-            >
-              Отменить выбор
-            </button>
-          </div>
-        )}
       </section>
 
       <div className="mailing-contacts-result">
@@ -981,149 +901,35 @@ export default function MailingContacts() {
         </strong>
       </div>
 
-      <section className="mailing-contacts-list">
-        {filteredContacts.map(
-          (contact) => (
-            <article
-              className="mailing-contact-card"
-              key={contact.id}
-              role="button"
-              tabIndex={0}
-              onClick={() =>
-                setSelectedContact(
-                  contact
-                )
-              }
-              onKeyDown={(event) => {
-                if (
-                  event.key ===
-                    "Enter" ||
-                  event.key === " "
-                ) {
-                  event.preventDefault();
-
-                  setSelectedContact(
-                    contact
-                  );
-                }
-              }}
-            >
-              <label
-                className="mailing-contact-checkbox"
-                onClick={(event) =>
-                  event.stopPropagation()
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedContactIds.includes(
-                    contact.id
-                  )}
-                  onChange={() =>
-                    toggleContactSelection(
-                      contact.id
-                    )
-                  }
-                  aria-label={`Выбрать ${getContactName(
-                    contact
-                  )}`}
-                />
-              </label>
-
-              <div className="mailing-contact-avatar">
-                <UserRound size={20} />
-              </div>
-
-              <div className="mailing-contact-main">
-                <div className="mailing-contact-heading">
-                  <div>
-                    <h2>
-                      {getContactName(
-                        contact
-                      )}
-                    </h2>
-
-                    <span
-                      className={`mailing-contact-status mailing-contact-status--${
-                        contact.status ||
-                        "new"
-                      }`}
-                    >
-                      {contactStatusConfig[
-                        contact.status
-                      ] ||
-                        contact.status ||
-                        "Новый"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mailing-contact-details">
-                  <div>
-                    <Phone size={15} />
-
-                    <span>
-                      {contact.phone ||
-                        "Телефон не указан"}
-                    </span>
-                  </div>
-
-                  <div>
-                    <Mail size={15} />
-
-                    <span>
-                      {contact.email ||
-                        "Email не указан"}
-                    </span>
-                  </div>
-
-                  <div>
-                    <Send size={15} />
-
-                    <span>
-                      {contact.telegram_username
-                        ? `@${String(
-                            contact.telegram_username
-                          ).replace(
-                            /^@/,
-                            ""
-                          )}`
-                        : "Telegram не найден"}
-                    </span>
-                  </div>
-
-                  <div>
-                    <UserRound
-                      size={15}
-                    />
-
-                    <span>
-                      Менеджер:{" "}
-                      {getManagerName(
-                        contact.manager
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </article>
-          )
-        )}
-      </section>
-
-      {filteredContacts.length === 0 && (
+      {filteredContacts.length === 0 ? (
         <div className="mailing-contacts-state">
-          <Search size={28} />
+          <Search size={30} />
 
           <h2>
             Контакты не найдены
           </h2>
 
           <p>
-            Измени поисковый запрос или
-            фильтр.
+            Измените поисковый запрос
+            или выбранный фильтр.
           </p>
         </div>
+      ) : (
+        <section className="mailing-contacts-list">
+          {filteredContacts.map(
+            (contact) => (
+              <ContactCard
+                key={contact.id}
+                contact={contact}
+                onOpen={() =>
+                  setSelectedContact(
+                    contact
+                  )
+                }
+              />
+            )
+          )}
+        </section>
       )}
 
       <ContactDrawer
@@ -1139,15 +945,11 @@ export default function MailingContacts() {
         onAssignManager={
           handleAssignManager
         }
-        onMarkSent={handleMarkSent}
-        onMarkResponded={
-          handleMarkResponded
-        }
         onSaveComment={
           handleSaveComment
         }
-        onCreateApplication={
-          handleCreateApplication
+        onContactChanged={
+          handleContactChanged
         }
         actionLoading={
           actionLoading
@@ -1155,4 +957,284 @@ export default function MailingContacts() {
       />
     </main>
   );
+}
+
+function ContactCard({
+  contact,
+  onOpen,
+}) {
+  const latestApplication =
+    contact.applications?.[0] ||
+    null;
+
+  return (
+    <article
+      className={[
+        "mailing-contact-card",
+        contact.has_responded
+          ? "mailing-contact-card--responded"
+          : "mailing-contact-card--unanswered",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (
+          event.key === "Enter" ||
+          event.key === " "
+        ) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <div className="mailing-contact-avatar">
+        <UserRound size={20} />
+      </div>
+
+      <div className="mailing-contact-main">
+        <div className="mailing-contact-heading">
+          <div>
+            <h2>
+              {getContactName(contact)}
+            </h2>
+
+            <div className="mailing-contact-badges">
+              <span
+                className={
+                  contact.has_responded
+                    ? "mailing-contact-response mailing-contact-response--yes"
+                    : "mailing-contact-response mailing-contact-response--no"
+                }
+              >
+                {contact.has_responded
+                  ? "Ответил"
+                  : "Не ответил"}
+              </span>
+
+              {contact.has_application && (
+                <span className="mailing-contact-application-count">
+                  {contact.applications_count}{" "}
+                  {getApplicationsWord(
+                    contact.applications_count
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mailing-contact-details">
+          <ContactDetail
+            icon={Phone}
+            value={
+              contact.phone ||
+              "Телефон не указан"
+            }
+          />
+
+          <ContactDetail
+            icon={Mail}
+            value={
+              contact.email ||
+              "Email не указан"
+            }
+          />
+
+          <ContactDetail
+            icon={Send}
+            value={
+              formatTelegram(
+                contact.telegram_username
+              ) ||
+              "Telegram не указан"
+            }
+          />
+
+          <ContactDetail
+            icon={UserRound}
+            value={`Менеджер: ${getManagerName(
+              contact.manager
+            )}`}
+          />
+        </div>
+
+        {latestApplication && (
+          <div className="mailing-contact-latest-application">
+            <div>
+              <span>
+                Последняя заявка
+              </span>
+
+              <strong>
+                {latestApplication
+                  .product_data?.name ||
+                  latestApplication.product ||
+                  "Продукт не указан"}
+              </strong>
+            </div>
+
+            <span
+              className={`mailing-contact-application-status mailing-contact-application-status--${latestApplication.status}`}
+            >
+              {getApplicationStatusName(
+                latestApplication.status
+              )}
+            </span>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  title,
+  value,
+  variant = "",
+}) {
+  return (
+    <article
+      className={[
+        "mailing-contacts-summary-card",
+        variant
+          ? `mailing-contacts-summary-card--${variant}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="mailing-contacts-summary-card__icon">
+        <Icon size={19} />
+      </div>
+
+      <div>
+        <span>{title}</span>
+        <strong>{value}</strong>
+      </div>
+    </article>
+  );
+}
+
+function ContactDetail({
+  icon: Icon,
+  value,
+}) {
+  return (
+    <div>
+      <Icon size={15} />
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function getContactName(contact) {
+  return (
+    contact?.full_name ||
+    formatTelegram(
+      contact?.telegram_username
+    ) ||
+    contact?.phone ||
+    "Без имени"
+  );
+}
+
+function getManagerName(manager) {
+  if (!manager) {
+    return "Не закреплён";
+  }
+
+  return (
+    manager.full_name ||
+    manager.name ||
+    manager.email ||
+    "Не закреплён"
+  );
+}
+
+function formatTelegram(value) {
+  if (!value) {
+    return "";
+  }
+
+  const username = String(value)
+    .trim()
+    .replace(
+      /^https?:\/\/t\.me\//i,
+      ""
+    )
+    .replace(/^t\.me\//i, "")
+    .replace(/^@+/, "");
+
+  return username
+    ? `@${username}`
+    : "";
+}
+
+function getApplicationStatusName(
+  status
+) {
+  const labels = {
+    new: "Новая",
+    in_progress: "В работе",
+    approved: "Успешно открыта",
+    rejected: "Отказ",
+  };
+
+  return (
+    labels[status] ||
+    status ||
+    "Не указан"
+  );
+}
+
+function getApplicationsWord(value) {
+  const number =
+    Math.abs(Number(value || 0));
+
+  const lastTwoDigits =
+    number % 100;
+
+  const lastDigit =
+    number % 10;
+
+  if (
+    lastTwoDigits >= 11 &&
+    lastTwoDigits <= 19
+  ) {
+    return "заявок";
+  }
+
+  if (lastDigit === 1) {
+    return "заявка";
+  }
+
+  if (
+    lastDigit >= 2 &&
+    lastDigit <= 4
+  ) {
+    return "заявки";
+  }
+
+  return "заявок";
+}
+
+function escapeCsvValue(value) {
+  const normalizedValue = String(
+    value ?? ""
+  ).replaceAll('"', '""');
+
+  return `"${normalizedValue}"`;
+}
+
+function sanitizeFileName(value) {
+  return String(value || "рассылка")
+    .replace(
+      /[\\/:*?"<>|]+/g,
+      "-"
+    )
+    .trim();
 }

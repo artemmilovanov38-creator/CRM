@@ -1,27 +1,32 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
 
 import {
+  AlertTriangle,
   CheckCircle2,
+  ClipboardPaste,
   Clock3,
   Inbox,
-  Phone,
-  Plus,
+  ListChecks,
   RefreshCw,
   Search,
   Send,
   UserRound,
+  Users,
   X,
+  XCircle,
 } from "lucide-react";
 
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
-import { incomingResponseService } from "../services/incomingResponseService";
-import { applicationService } from "../services/applicationService";
+import {
+  incomingResponseService,
+} from "../services/incomingResponseService";
 
 import "../styles/Incoming.css";
 
@@ -30,15 +35,14 @@ export default function Incoming() {
 
   const currentProfile = profile || user;
 
-  const [responses, setResponses] = useState([]);
-  const [search, setSearch] = useState("");
+  const [responses, setResponses] =
+    useState([]);
 
-  const [
-    telegramUsername,
-    setTelegramUsername,
-  ] = useState("");
+  const [search, setSearch] =
+    useState("");
 
-  const [phone, setPhone] = useState("");
+  const [identifiersValue, setIdentifiersValue] =
+    useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -46,32 +50,82 @@ export default function Incoming() {
   const [saving, setSaving] =
     useState(false);
 
-  const [
-    creatingApplicationId,
-    setCreatingApplicationId,
-  ] = useState(null);
-
   const [modalOpen, setModalOpen] =
     useState(false);
 
-  const [error, setError] = useState("");
+  const [error, setError] =
+    useState("");
+
   const [formError, setFormError] =
     useState("");
 
-  const [
-    successMessage,
-    setSuccessMessage,
-  ] = useState("");
+  const [result, setResult] =
+    useState(null);
+
+  const isManager =
+    currentProfile?.role === "manager";
+
+  const loadResponses = useCallback(
+    async (showLoader = true) => {
+      if (!currentProfile?.id) {
+        return;
+      }
+
+      if (showLoader) {
+        setLoading(true);
+      }
+
+      setError("");
+
+      const responseResult =
+        await incomingResponseService
+          .getResponses({
+            managerId: isManager
+              ? currentProfile.id
+              : null,
+          });
+
+      if (responseResult.error) {
+        console.error(
+          "Ошибка загрузки откликов:",
+          responseResult.error
+        );
+
+        setError(
+          responseResult.error.message ||
+            "Не удалось загрузить отклики"
+        );
+
+        setResponses([]);
+      } else {
+        setResponses(
+          responseResult.data || []
+        );
+      }
+
+      if (showLoader) {
+        setLoading(false);
+      }
+    },
+    [
+      currentProfile?.id,
+      isManager,
+    ]
+  );
 
   useEffect(() => {
     loadResponses();
-  }, []);
+  }, [loadResponses]);
 
   useEffect(() => {
     let reloadTimer = null;
 
     const channel = supabase
-      .channel("incoming-responses-realtime")
+      .channel(
+        `incoming-responses-${
+          currentProfile?.id || "anonymous"
+        }`
+      )
       .on(
         "postgres_changes",
         {
@@ -82,55 +136,32 @@ export default function Incoming() {
         () => {
           clearTimeout(reloadTimer);
 
-          reloadTimer = setTimeout(() => {
-            loadResponses(false);
-          }, 300);
+          reloadTimer = window.setTimeout(
+            () => {
+              loadResponses(false);
+            },
+            350
+          );
         }
       )
       .subscribe();
 
     return () => {
       clearTimeout(reloadTimer);
-      supabase.removeChannel(channel);
+
+      supabase.removeChannel(
+        channel
+      );
     };
-  }, []);
-
-  async function loadResponses(
-    showLoader = true
-  ) {
-    if (showLoader) {
-      setLoading(true);
-    }
-
-    setError("");
-
-    const result =
-      await incomingResponseService.getResponses();
-
-    if (result.error) {
-      console.error(
-        "Ошибка загрузки откликов:",
-        result.error
-      );
-
-      setError(
-        result.error.message ||
-          "Не удалось загрузить отклики"
-      );
-    } else {
-      setResponses(result.data || []);
-    }
-
-    if (showLoader) {
-      setLoading(false);
-    }
-  }
+  }, [
+    currentProfile?.id,
+    loadResponses,
+  ]);
 
   function openModal() {
-    setTelegramUsername("");
-    setPhone("");
+    setIdentifiersValue("");
     setFormError("");
-    setSuccessMessage("");
+    setResult(null);
     setModalOpen(true);
   }
 
@@ -140,38 +171,16 @@ export default function Incoming() {
     }
 
     setModalOpen(false);
-    setTelegramUsername("");
-    setPhone("");
+    setIdentifiersValue("");
     setFormError("");
+    setResult(null);
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
     setFormError("");
-    setSuccessMessage("");
-
-    const normalizedUsername =
-      incomingResponseService
-        .normalizeTelegramUsername(
-          telegramUsername
-        );
-
-    const normalizedPhone =
-      incomingResponseService.normalizePhone(
-        phone
-      );
-
-    if (
-      !normalizedUsername &&
-      !normalizedPhone
-    ) {
-      setFormError(
-        "Введите Telegram-ник или номер телефона"
-      );
-
-      return;
-    }
+    setResult(null);
 
     if (!currentProfile?.id) {
       setFormError(
@@ -181,191 +190,119 @@ export default function Incoming() {
       return;
     }
 
+    const parsedIdentifiers =
+      incomingResponseService
+        .parseIdentifiers(
+          identifiersValue
+        );
+
+    if (
+      parsedIdentifiers.length === 0
+    ) {
+      setFormError(
+        "Введите хотя бы один Telegram-ник или номер телефона"
+      );
+
+      return;
+    }
+
     setSaving(true);
 
-    const result =
-      await incomingResponseService.registerResponse({
-        telegram: normalizedUsername,
-        phone: normalizedPhone,
-        managerId: currentProfile.id,
-      });
+    const registerResult =
+      await incomingResponseService
+        .registerResponses({
+          value: identifiersValue,
+          managerId:
+            currentProfile.id,
+        });
 
-    if (result.error) {
+    if (registerResult.error) {
       console.error(
-        "Ошибка регистрации отклика:",
-        result.error
+        "Ошибка регистрации откликов:",
+        registerResult.error
       );
 
       setFormError(
-        result.error.message ||
-          "Не удалось сохранить отклик"
+        registerResult.error.message ||
+          "Не удалось обработать список"
       );
 
       setSaving(false);
       return;
     }
 
-    const identifier =
-      normalizedUsername ||
-      formatPhone(normalizedPhone);
-
-    if (!result.data?.matched) {
-      setFormError(
-        `${identifier} не найден среди контактов, которым была отправлена рассылка`
-      );
-
-      setSaving(false);
-      return;
-    }
-
-    if (result.data.alreadyResponded) {
-      setFormError(
-        `${identifier} уже был отмечен как ответивший`
-      );
-
-      setSaving(false);
-      return;
-    }
-
-    setSuccessMessage(
-      `${identifier} отмечен как ответивший`
-    );
-
-    setTelegramUsername("");
-    setPhone("");
+    setResult(registerResult.data);
 
     await loadResponses(false);
 
     setSaving(false);
-
-    setTimeout(() => {
-      setModalOpen(false);
-      setSuccessMessage("");
-    }, 1000);
   }
 
-  async function handleCreateApplication(
-    contact
-  ) {
-    if (!contact?.id) {
-      setError(
-        "Не удалось определить контакт для создания заявки"
-      );
-
-      return;
-    }
-
-    if (creatingApplicationId) {
-      return;
-    }
-
-    setError("");
-    setSuccessMessage("");
-    setCreatingApplicationId(contact.id);
-
-    const result =
-      await applicationService
-        .createApplicationFromContact(
-          contact,
-          currentProfile?.id || null
-        );
-
-    if (result.error) {
-      console.error(
-        "Ошибка создания заявки:",
-        result.error
-      );
-
-      setError(
-        result.error.message ||
-          "Не удалось создать заявку"
-      );
-
-      setCreatingApplicationId(null);
-      return;
-    }
-
-    const identifier =
-      getContactIdentifier(contact);
-
-    if (result.alreadyExists) {
-      setSuccessMessage(
-        `Заявка для ${identifier} уже существует`
-      );
-    } else {
-      setSuccessMessage(
-        `Заявка для ${identifier} создана`
-      );
-    }
-
-    await loadResponses(false);
-
-    setCreatingApplicationId(null);
-  }
-
-  const filteredResponses = useMemo(() => {
-    const normalizedSearch = search
-      .trim()
-      .toLowerCase();
-
-    if (!normalizedSearch) {
-      return responses;
-    }
-
-    return responses.filter((response) => {
-      const searchableValue = [
-        response.telegram_username,
-        response.full_name,
-        response.phone,
-        response.status,
-      ]
-        .filter(Boolean)
-        .join(" ")
+  const filteredResponses = useMemo(
+    () => {
+      const normalizedSearch = search
+        .trim()
         .toLowerCase();
 
-      return searchableValue.includes(
-        normalizedSearch
+      if (!normalizedSearch) {
+        return responses;
+      }
+
+      return responses.filter(
+        (response) => {
+          const searchableValue = [
+            response.telegram_username,
+            response.full_name,
+            response.phone,
+            response.status,
+            response.mailing?.name,
+            response.manager?.full_name,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          return searchableValue.includes(
+            normalizedSearch
+          );
+        }
       );
-    });
-  }, [responses, search]);
+    },
+    [responses, search]
+  );
 
   const stats = useMemo(() => {
-    const delays = responses
-      .map((response) =>
-        getDaysBetween(
-          response.sent_at,
-          response.responded_at
-        )
-      )
-      .filter(
-        (value) =>
-          typeof value === "number" &&
-          value >= 0
-      );
-
-    const averageDelay = delays.length
-      ? delays.reduce(
-          (sum, value) => sum + value,
-          0
-        ) / delays.length
-      : 0;
-
-    const respondedToday = responses.filter(
-      (response) =>
-        isToday(response.responded_at)
-    ).length;
+    const respondedToday =
+      responses.filter(
+        (response) =>
+          isToday(
+            response.responded_at
+          )
+      ).length;
 
     const withApplications =
       responses.filter(
         (response) =>
-          response.application_created_at
+          Boolean(
+            response
+              .application_created_at
+          )
       ).length;
+
+    const uniqueManagers = new Set(
+      responses
+        .map(
+          (response) =>
+            response.manager_id
+        )
+        .filter(Boolean)
+    ).size;
 
     return {
       total: responses.length,
       today: respondedToday,
-      averageDelay,
       withApplications,
+      managers: uniqueManagers,
     };
   }, [responses]);
 
@@ -374,17 +311,19 @@ export default function Incoming() {
       <section className="incoming-heading">
         <div>
           <span className="incoming-heading__eyebrow">
-            Отклики на рассылки
+            Отклики на рассылку
           </span>
 
-          <h1>Входящий поток</h1>
+          <h1>
+            {isManager
+              ? "Отметить написавших"
+              : "Входящий поток"}
+          </h1>
 
           <p>
-            Добавьте Telegram-ник или номер
-            человека, который ответил на
-            рассылку. CRM автоматически найдёт
-            контакт и отметит его как
-            ответившего.
+            {isManager
+              ? "Вставьте Telegram-ники или номера пользователей, которые вам написали. CRM найдёт их в общей базе рассылки и закрепит за вами."
+              : "Здесь отображаются пользователи, которых менеджеры отметили как ответивших на рассылку."}
           </p>
         </div>
 
@@ -392,7 +331,9 @@ export default function Incoming() {
           <button
             className="incoming-refresh-button"
             type="button"
-            onClick={() => loadResponses()}
+            onClick={() =>
+              loadResponses()
+            }
             disabled={loading}
           >
             <RefreshCw
@@ -407,21 +348,28 @@ export default function Incoming() {
             <span>Обновить</span>
           </button>
 
-          <button
-            className="incoming-add-button"
-            type="button"
-            onClick={openModal}
-          >
-            <Plus size={19} />
-            <span>Добавить отклик</span>
-          </button>
+          {isManager && (
+            <button
+              className="incoming-add-button"
+              type="button"
+              onClick={openModal}
+            >
+              <ClipboardPaste
+                size={19}
+              />
+
+              <span>
+                Занести написавших
+              </span>
+            </button>
+          )}
         </div>
       </section>
 
       <section className="incoming-stats">
         <StatCard
           icon={Inbox}
-          title="Всего откликов"
+          title="Всего ответивших"
           value={stats.total}
         />
 
@@ -433,18 +381,24 @@ export default function Incoming() {
         />
 
         <StatCard
-          icon={Clock3}
-          title="Среднее время"
-          value={formatAverageDays(
-            stats.averageDelay
-          )}
+          icon={ListChecks}
+          title="Создано заявок"
+          value={stats.withApplications}
           variant="warning"
         />
 
         <StatCard
-          icon={UserRound}
-          title="Создано заявок"
-          value={stats.withApplications}
+          icon={Users}
+          title={
+            isManager
+              ? "Моя база"
+              : "Менеджеров"
+          }
+          value={
+            isManager
+              ? stats.total
+              : stats.managers
+          }
           variant="blue"
         />
       </section>
@@ -455,10 +409,12 @@ export default function Incoming() {
 
           <input
             type="search"
-            placeholder="Telegram, имя или телефон"
+            placeholder="Telegram, имя, телефон или рассылка"
             value={search}
             onChange={(event) =>
-              setSearch(event.target.value)
+              setSearch(
+                event.target.value
+              )
             }
           />
 
@@ -466,7 +422,9 @@ export default function Incoming() {
             <button
               type="button"
               aria-label="Очистить поиск"
-              onClick={() => setSearch("")}
+              onClick={() =>
+                setSearch("")
+              }
             >
               <X size={17} />
             </button>
@@ -476,14 +434,8 @@ export default function Incoming() {
 
       {error && (
         <div className="incoming-alert incoming-alert--error">
-          {error}
-        </div>
-      )}
-
-      {successMessage && !modalOpen && (
-        <div className="incoming-alert incoming-alert--success">
-          <CheckCircle2 size={18} />
-          <span>{successMessage}</span>
+          <XCircle size={18} />
+          <span>{error}</span>
         </div>
       )}
 
@@ -492,14 +444,16 @@ export default function Incoming() {
           <div className="incoming-loader" />
 
           <strong>
-            Загружаем входящий поток
+            Загружаем отклики
           </strong>
 
           <span>
-            Получаем актуальные данные из CRM.
+            Получаем актуальные данные
+            из CRM.
           </span>
         </div>
-      ) : filteredResponses.length === 0 ? (
+      ) : filteredResponses.length ===
+        0 ? (
         <div className="incoming-state">
           <Inbox size={42} />
 
@@ -512,17 +466,22 @@ export default function Incoming() {
           <span>
             {search
               ? "Измените поисковый запрос."
-              : "Добавьте первый отклик по номеру телефона или Telegram."}
+              : isManager
+                ? "Нажмите \"Занести написавших\" и вставьте ники или номера пользователей."
+                : "Менеджеры ещё не отметили ответивших пользователей."}
           </span>
 
-          {!search && (
+          {!search && isManager && (
             <button
               className="incoming-state__button"
               type="button"
               onClick={openModal}
             >
-              <Plus size={18} />
-              Добавить отклик
+              <ClipboardPaste
+                size={18}
+              />
+
+              Занести написавших
             </button>
           )}
         </div>
@@ -531,143 +490,156 @@ export default function Incoming() {
           <div className="incoming-results">
             Найдено:{" "}
             <strong>
-              {filteredResponses.length}
+              {
+                filteredResponses.length
+              }
             </strong>
           </div>
 
           <section className="incoming-grid">
             {filteredResponses.map(
-              (response) => {
-                const delay = getDaysBetween(
-                  response.sent_at,
-                  response.responded_at
-                );
-
-                const isCreating =
-                  creatingApplicationId ===
-                  response.id;
-
-                return (
-                  <article
-                    className="incoming-card"
-                    key={response.id}
-                  >
-                    <div className="incoming-card__top">
-                      <div className="incoming-card__identity">
-                        <div className="incoming-card__avatar">
-                          {response.telegram_username ? (
-                            <Send size={20} />
-                          ) : (
-                            <Phone size={20} />
-                          )}
-                        </div>
-
-                        <div>
-                          <span>Ответивший контакт</span>
-
-                          <h2>
-                            {getContactIdentifier(
-                              response
-                            )}
-                          </h2>
-
-                          {response.full_name && (
-                            <p>
-                              {response.full_name}
-                            </p>
-                          )}
-                        </div>
+              (response) => (
+                <article
+                  className="incoming-card"
+                  key={response.id}
+                >
+                  <div className="incoming-card__top">
+                    <div className="incoming-card__identity">
+                      <div className="incoming-card__avatar">
+                        {response.telegram_username ? (
+                          <Send size={20} />
+                        ) : (
+                          <UserRound
+                            size={20}
+                          />
+                        )}
                       </div>
 
-                      <span className="incoming-card__status">
-                        <CheckCircle2 size={14} />
-                        Ответил
-                      </span>
+                      <div>
+                        <span>
+                          Ответивший
+                          пользователь
+                        </span>
+
+                        <h2>
+                          {getContactIdentifier(
+                            response
+                          )}
+                        </h2>
+
+                        {response.full_name && (
+                          <p>
+                            {
+                              response.full_name
+                            }
+                          </p>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="incoming-card__details">
-                      <DetailItem
-                        label="Отправлено"
-                        value={formatDate(
-                          response.sent_at
-                        )}
+                    <span className="incoming-card__status">
+                      <CheckCircle2
+                        size={14}
                       />
+                      Ответил
+                    </span>
+                  </div>
 
-                      <DetailItem
-                        label="Получен ответ"
-                        value={formatDate(
-                          response.responded_at
-                        )}
-                      />
-
-                      <DetailItem
-                        label="Время до ответа"
-                        value={formatDays(delay)}
-                      />
-
-                      <DetailItem
-                        label="Телефон"
-                        value={
-                          response.phone
-                            ? formatPhone(
-                                response.phone
-                              )
-                            : "Не указан"
-                        }
-                      />
-                    </div>
-
-                    <div className="incoming-card__actions">
-                      {response.application_created_at ? (
-                        <div className="incoming-application-created">
-                          <CheckCircle2 size={17} />
-
-                          <div>
-                            <strong>
-                              Заявка создана
-                            </strong>
-
-                            <span>
-                              Контакт уже перенесён
-                              в заявки
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          className="incoming-create-application"
-                          type="button"
-                          onClick={() =>
-                            handleCreateApplication(
-                              response
-                            )
-                          }
-                          disabled={isCreating}
-                        >
-                          <Plus size={18} />
-
-                          {isCreating
-                            ? "Создаём заявку..."
-                            : "Создать заявку"}
-                        </button>
+                  <div className="incoming-card__details">
+                    <DetailItem
+                      label="Получен ответ"
+                      value={formatDate(
+                        response.responded_at
                       )}
-                    </div>
-                  </article>
-                );
-              }
+                    />
+
+                    <DetailItem
+                      label="Телефон"
+                      value={
+                        response.phone
+                          ? formatPhone(
+                              response.phone
+                            )
+                          : "Не указан"
+                      }
+                    />
+
+                    <DetailItem
+                      label="Рассылка"
+                      value={
+                        response.mailing
+                          ?.name ||
+                        "Не указана"
+                      }
+                    />
+
+                    <DetailItem
+                      label="Менеджер"
+                      value={
+                        response.manager
+                          ?.full_name ||
+                        (isManager
+                          ? "Вы"
+                          : "Не указан")
+                      }
+                    />
+                  </div>
+
+                  <div className="incoming-card__actions">
+                    {response.application_created_at ? (
+                      <div className="incoming-application-created">
+                        <CheckCircle2
+                          size={17}
+                        />
+
+                        <div>
+                          <strong>
+                            Есть заявка
+                          </strong>
+
+                          <span>
+                            По контакту уже
+                            создана заявка
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="incoming-application-created incoming-application-created--pending">
+                        <Clock3 size={17} />
+
+                        <div>
+                          <strong>
+                            Заявка не создана
+                          </strong>
+
+                          <span>
+                            Создать её можно
+                            в разделе "Мои
+                            контакты"
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              )
             )}
           </section>
         </>
       )}
 
-      <button
-        className="incoming-floating-button"
-        type="button"
-        aria-label="Добавить отклик"
-        onClick={openModal}
-      >
-        <Plus size={26} />
-      </button>
+      {isManager && (
+        <button
+          className="incoming-floating-button"
+          type="button"
+          aria-label="Занести написавших"
+          onClick={openModal}
+        >
+          <ClipboardPaste
+            size={24}
+          />
+        </button>
+      )}
 
       {modalOpen && (
         <div
@@ -682,22 +654,25 @@ export default function Incoming() {
           }}
         >
           <section
-            className="incoming-modal"
+            className="incoming-modal incoming-modal--bulk"
             role="dialog"
             aria-modal="true"
             aria-labelledby="incoming-modal-title"
           >
             <div className="incoming-modal__header">
               <div>
-                <span>Новый отклик</span>
+                <span>
+                  Массовое добавление
+                </span>
 
                 <h2 id="incoming-modal-title">
-                  Кто вам написал?
+                  Занести написавших
                 </h2>
 
                 <p>
-                  Заполните одно поле: Telegram
-                  или номер телефона.
+                  Вставьте Telegram-ники
+                  или номера пользователей,
+                  которые вам написали.
                 </p>
               </div>
 
@@ -717,72 +692,56 @@ export default function Incoming() {
               onSubmit={handleSubmit}
             >
               <label className="incoming-modal__field">
-                <span>Telegram-ник</span>
+                <span>
+                  Ники и номера
+                </span>
 
-                <div className="incoming-input">
-                  <Send size={18} />
+                <div className="incoming-textarea">
+                  <ClipboardPaste
+                    size={19}
+                  />
 
-                  <input
-                    type="text"
-                    value={telegramUsername}
+                  <textarea
+                    value={
+                      identifiersValue
+                    }
                     onChange={(event) => {
-                      setTelegramUsername(
+                      setIdentifiersValue(
                         event.target.value
                       );
 
                       setFormError("");
+                      setResult(null);
                     }}
-                    placeholder="@username"
+                    placeholder={`@username_one
+@username_two
++79991234567
+79997654321`}
+                    rows={9}
                     autoFocus
                     disabled={saving}
                   />
                 </div>
               </label>
 
-              <div className="incoming-response-form__divider">
-                <span>или</span>
-              </div>
-
-              <label className="incoming-modal__field">
-                <span>Номер телефона</span>
-
-                <div className="incoming-input">
-                  <Phone size={18} />
-
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    value={phone}
-                    onChange={(event) => {
-                      setPhone(
-                        event.target.value
-                      );
-
-                      setFormError("");
-                    }}
-                    placeholder="+7 999 123-45-67"
-                    disabled={saving}
-                  />
-                </div>
-              </label>
-
               <div className="incoming-response-form__hint">
-                CRM выполнит поиск только среди
-                контактов, которым была отправлена
-                рассылка.
+                Каждый ник или номер
+                вводите с новой строки.
+                Также поддерживаются
+                запятые и точки с запятой.
               </div>
 
               {formError && (
                 <div className="incoming-modal__error">
-                  {formError}
+                  <XCircle size={18} />
+                  <span>{formError}</span>
                 </div>
               )}
 
-              {successMessage && (
-                <div className="incoming-modal__success">
-                  <CheckCircle2 size={18} />
-                  <span>{successMessage}</span>
-                </div>
+              {result && (
+                <BulkResult
+                  result={result}
+                />
               )}
 
               <div className="incoming-modal__actions">
@@ -792,19 +751,28 @@ export default function Incoming() {
                   onClick={closeModal}
                   disabled={saving}
                 >
-                  Отмена
+                  {result
+                    ? "Закрыть"
+                    : "Отмена"}
                 </button>
 
                 <button
                   className="incoming-modal__submit"
                   type="submit"
-                  disabled={saving}
+                  disabled={
+                    saving ||
+                    !identifiersValue.trim()
+                  }
                 >
-                  <CheckCircle2 size={18} />
+                  <CheckCircle2
+                    size={18}
+                  />
 
                   {saving
                     ? "Проверяем..."
-                    : "Отметить ответ"}
+                    : result
+                      ? "Проверить ещё раз"
+                      : "Занести написавших"}
                 </button>
               </div>
             </form>
@@ -812,6 +780,151 @@ export default function Incoming() {
         </div>
       )}
     </main>
+  );
+}
+
+function BulkResult({ result }) {
+  const summary =
+    result?.summary || {};
+
+  return (
+    <div className="incoming-bulk-result">
+      <div className="incoming-bulk-result__heading">
+        <CheckCircle2 size={20} />
+
+        <div>
+          <strong>
+            Обработка завершена
+          </strong>
+
+          <span>
+            Проверено:{" "}
+            {summary.total || 0}
+          </span>
+        </div>
+      </div>
+
+      <div className="incoming-bulk-result__grid">
+        <ResultItem
+          title="Найдено"
+          value={summary.found || 0}
+          variant="success"
+        />
+
+        <ResultItem
+          title="Уже внесено вами"
+          value={
+            summary.alreadyResponded ||
+            0
+          }
+        />
+
+        <ResultItem
+          title="У другого менеджера"
+          value={
+            summary.conflicts || 0
+          }
+          variant="warning"
+        />
+
+        <ResultItem
+          title="Не найдено"
+          value={summary.notFound || 0}
+          variant="error"
+        />
+
+        <ResultItem
+          title="Ошибки"
+          value={summary.failed || 0}
+          variant="error"
+        />
+      </div>
+
+      {result.notFound?.length >
+        0 && (
+        <ResultList
+          icon={Search}
+          title="Не найдены в базе"
+          items={result.notFound.map(
+            (item) =>
+              item.identifier
+          )}
+        />
+      )}
+
+      {result.conflicts?.length >
+        0 && (
+        <ResultList
+          icon={AlertTriangle}
+          title="Уже закреплены за другим менеджером"
+          items={result.conflicts.map(
+            (item) =>
+              item.identifier
+          )}
+        />
+      )}
+
+      {result.failed?.length >
+        0 && (
+        <ResultList
+          icon={XCircle}
+          title="Не удалось обработать"
+          items={result.failed.map(
+            (item) =>
+              `${item.identifier}: ${item.error}`
+          )}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResultItem({
+  title,
+  value,
+  variant = "",
+}) {
+  return (
+    <div
+      className={[
+        "incoming-bulk-result__item",
+        variant
+          ? `incoming-bulk-result__item--${variant}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span>{title}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ResultList({
+  icon: Icon,
+  title,
+  items,
+}) {
+  return (
+    <div className="incoming-bulk-result__list">
+      <div>
+        <Icon size={16} />
+        <strong>{title}</strong>
+      </div>
+
+      <ul>
+        {items.map(
+          (item, index) => (
+            <li
+              key={`${item}-${index}`}
+            >
+              {item}
+            </li>
+          )
+        )}
+      </ul>
+    </div>
   );
 }
 
@@ -844,7 +957,10 @@ function StatCard({
   );
 }
 
-function DetailItem({ label, value }) {
+function DetailItem({
+  label,
+  value,
+}) {
   return (
     <div className="incoming-card__detail">
       <span>{label}</span>
@@ -861,10 +977,15 @@ function getContactIdentifier(contact) {
   }
 
   if (contact?.phone) {
-    return formatPhone(contact.phone);
+    return formatPhone(
+      contact.phone
+    );
   }
 
-  return contact?.full_name || "Без данных";
+  return (
+    contact?.full_name ||
+    "Без данных"
+  );
 }
 
 function formatTelegramUsername(value) {
@@ -872,7 +993,8 @@ function formatTelegramUsername(value) {
     return "Telegram не указан";
   }
 
-  const username = String(value).trim();
+  const username =
+    String(value).trim();
 
   return username.startsWith("@")
     ? username
@@ -880,10 +1002,9 @@ function formatTelegramUsername(value) {
 }
 
 function formatPhone(value) {
-  const digits = String(value || "").replace(
-    /\D/g,
-    ""
-  );
+  const digits = String(
+    value || ""
+  ).replace(/\D/g, "");
 
   if (
     digits.length === 11 &&
@@ -910,7 +1031,10 @@ function formatPhone(value) {
     )}-${digits.slice(9)}`;
   }
 
-  return value || "Номер не указан";
+  return (
+    value ||
+    "Номер не указан"
+  );
 }
 
 function formatDate(value) {
@@ -918,9 +1042,14 @@ function formatDate(value) {
     return "Не указано";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return "Не указано";
   }
 
@@ -936,87 +1065,16 @@ function formatDate(value) {
   ).format(date);
 }
 
-function getDaysBetween(
-  startValue,
-  endValue
-) {
-  if (!startValue || !endValue) {
-    return null;
-  }
-
-  const startDate = new Date(startValue);
-  const endDate = new Date(endValue);
-
-  if (
-    Number.isNaN(startDate.getTime()) ||
-    Number.isNaN(endDate.getTime())
-  ) {
-    return null;
-  }
-
-  const milliseconds =
-    endDate.getTime() -
-    startDate.getTime();
-
-  if (milliseconds < 0) {
-    return 0;
-  }
-
-  return milliseconds / 86400000;
-}
-
-function formatDays(value) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return "Не рассчитано";
-  }
-
-  if (value < 1 / 24) {
-    return "Меньше часа";
-  }
-
-  if (value < 1) {
-    const hours = Math.max(
-      1,
-      Math.round(value * 24)
-    );
-
-    return `${hours} ${getWordForm(
-      hours,
-      "час",
-      "часа",
-      "часов"
-    )}`;
-  }
-
-  const days =
-    Math.round(value * 10) / 10;
-
-  return `${days} ${getWordForm(
-    Math.floor(days),
-    "день",
-    "дня",
-    "дней"
-  )}`;
-}
-
-function formatAverageDays(value) {
-  if (!value) {
-    return "Нет данных";
-  }
-
-  return formatDays(value);
-}
-
 function isToday(value) {
   if (!value) {
     return false;
   }
 
-  const date = new Date(value);
-  const today = new Date();
+  const date =
+    new Date(value);
+
+  const today =
+    new Date();
 
   return (
     date.getFullYear() ===
@@ -1026,37 +1084,4 @@ function isToday(value) {
     date.getDate() ===
       today.getDate()
   );
-}
-
-function getWordForm(
-  value,
-  one,
-  few,
-  many
-) {
-  const normalizedValue =
-    Math.abs(value) % 100;
-
-  const lastDigit =
-    normalizedValue % 10;
-
-  if (
-    normalizedValue > 10 &&
-    normalizedValue < 20
-  ) {
-    return many;
-  }
-
-  if (lastDigit === 1) {
-    return one;
-  }
-
-  if (
-    lastDigit >= 2 &&
-    lastDigit <= 4
-  ) {
-    return few;
-  }
-
-  return many;
 }

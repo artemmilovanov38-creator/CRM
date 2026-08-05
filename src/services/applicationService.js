@@ -15,6 +15,8 @@ const APPLICATION_FIELDS = `
   mailing_contact_id,
   amount,
   comment,
+  opening_price_snapshot,
+  approved_at,
   created_at,
   updated_at,
 
@@ -30,6 +32,7 @@ const APPLICATION_FIELDS = `
     mailing_id,
     full_name,
     phone,
+    email,
     telegram_username,
     manager_id,
     status,
@@ -48,6 +51,17 @@ const APPLICATION_FIELDS = `
   )
 `;
 
+const ALLOWED_APPLICATION_STATUSES = [
+  "new",
+  "in_progress",
+  "approved",
+  "rejected",
+];
+
+function createServiceError(message) {
+  return new Error(message);
+}
+
 function normalizeText(value) {
   const normalizedValue = String(
     value ?? ""
@@ -57,19 +71,27 @@ function normalizeText(value) {
 }
 
 function normalizeTelegram(value) {
-  const normalizedValue = normalizeText(
-    value
-  );
+  const normalizedValue =
+    normalizeText(value);
 
   if (!normalizedValue) {
     return null;
   }
 
-  return normalizedValue.replace(/^@/, "");
+  return normalizedValue
+    .replace(
+      /^https?:\/\/t\.me\//i,
+      ""
+    )
+    .replace(/^t\.me\//i, "")
+    .replace(/^@+/, "")
+    .split(/[/?#]/)[0]
+    .trim()
+    .toLowerCase();
 }
 
 function normalizePhone(value) {
-  const digits = String(
+  let digits = String(
     value ?? ""
   ).replace(/\D/g, "");
 
@@ -81,11 +103,11 @@ function normalizePhone(value) {
     digits.length === 11 &&
     digits.startsWith("8")
   ) {
-    return `7${digits.slice(1)}`;
+    digits = `7${digits.slice(1)}`;
   }
 
   if (digits.length === 10) {
-    return `7${digits}`;
+    digits = `7${digits}`;
   }
 
   return digits;
@@ -107,8 +129,34 @@ function normalizeAmount(value) {
     : null;
 }
 
-function createServiceError(message) {
-  return new Error(message);
+function normalizeStatus(
+  value,
+  fallback = "new"
+) {
+  const normalizedValue =
+    normalizeText(value);
+
+  if (!normalizedValue) {
+    return fallback;
+  }
+
+  if (
+    !ALLOWED_APPLICATION_STATUSES.includes(
+      normalizedValue
+    )
+  ) {
+    return fallback;
+  }
+
+  return normalizedValue;
+}
+
+function normalizePrice(value) {
+  const price = Number(value);
+
+  return Number.isFinite(price)
+    ? price
+    : 0;
 }
 
 async function getProduct(productId) {
@@ -136,24 +184,71 @@ async function getProduct(productId) {
   };
 }
 
+async function validateProduct({
+  productId,
+  requireActive = true,
+}) {
+  if (!productId) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Выберите продукт"
+      ),
+    };
+  }
+
+  const {
+    data: product,
+    error,
+  } = await getProduct(productId);
+
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  if (!product) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Выбранный продукт не найден"
+      ),
+    };
+  }
+
+  if (
+    requireActive &&
+    !product.is_active
+  ) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Выбранный продукт отключён"
+      ),
+    };
+  }
+
+  return {
+    data: product,
+    error: null,
+  };
+}
+
 async function findExistingApplication({
   contact,
   productId,
   telegram,
   phone,
+  excludeApplicationId = null,
 }) {
   let query = supabase
     .from("applications")
     .select(APPLICATION_FIELDS)
+    .eq("product_id", productId)
     .limit(1);
 
-  /*
-   * Главная проверка:
-   * один контакт + один продукт.
-   *
-   * Заявки этого же контакта по другим
-   * продуктам не блокируются.
-   */
   if (contact?.id) {
     query = query.eq(
       "mailing_contact_id",
@@ -181,21 +276,16 @@ async function findExistingApplication({
       return {
         data: null,
         error: createServiceError(
-          "Не удалось определить контакт для проверки заявки"
+          "Не удалось определить контакт для проверки дубля"
         ),
       };
     }
   }
 
-  if (productId) {
-    query = query.eq(
-      "product_id",
-      productId
-    );
-  } else {
-    query = query.is(
-      "product_id",
-      null
+  if (excludeApplicationId) {
+    query = query.neq(
+      "id",
+      excludeApplicationId
     );
   }
 
@@ -212,7 +302,16 @@ async function updateMailingContactAfterCreation({
   applicationCreatedAt,
   managerId,
 }) {
-  let query = supabase
+  if (!contact?.id) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Не удалось определить контакт рассылки"
+      ),
+    };
+  }
+
+  const { data, error } = await supabase
     .from("mailing_contacts")
     .update({
       status: "application",
@@ -222,76 +321,49 @@ async function updateMailingContactAfterCreation({
 
       manager_id:
         managerId ||
-        contact?.manager_id ||
+        contact.manager_id ||
         null,
 
       updated_at:
         new Date().toISOString(),
-    });
+    })
+    .eq("id", contact.id)
+    .select(`
+      id,
+      mailing_id,
+      full_name,
+      phone,
+      email,
+      telegram_username,
+      telegram_user_id,
+      telegram_found,
+      manager_id,
+      status,
+      sent_at,
+      responded_at,
+      application_created_at,
+      comment,
+      created_at,
+      updated_at,
 
-  if (contact?.id) {
-    query = query.eq(
-      "id",
-      contact.id
-    );
-  } else {
-    const telegram =
-      normalizeTelegram(
-        contact?.telegram_username
-      );
-
-    const phone = normalizePhone(
-      contact?.phone
-    );
-
-    if (contact?.mailing_id) {
-      query = query.eq(
-        "mailing_id",
-        contact.mailing_id
-      );
-    }
-
-    if (telegram) {
-      query = query.ilike(
-        "telegram_username",
-        telegram
-      );
-    } else if (phone) {
-      query = query.eq(
-        "phone",
-        phone
-      );
-    } else {
-      return {
-        data: null,
-        error: createServiceError(
-          "Не удалось определить контакт рассылки"
-        ),
-      };
-    }
-  }
-
-  const { data, error } =
-    await query
-      .select(`
+      mailing:mailings (
         id,
-        mailing_id,
-        full_name,
-        phone,
-        email,
-        telegram_username,
-        telegram_user_id,
-        telegram_found,
-        manager_id,
+        name,
+        supplier,
+        mailing_method,
         status,
-        sent_at,
-        responded_at,
-        application_created_at,
-        comment,
-        created_at,
-        updated_at
-      `)
-      .maybeSingle();
+        created_at
+      ),
+
+      manager:profiles (
+        id,
+        full_name,
+        email,
+        role,
+        status
+      )
+    `)
+    .single();
 
   return {
     data,
@@ -321,7 +393,227 @@ function getContactStatusWithoutApplications(
   return "new";
 }
 
+async function refreshMailingContactApplicationState(
+  mailingContactId
+) {
+  if (!mailingContactId) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
+  const {
+    data: remainingApplications,
+    error: applicationsError,
+  } = await supabase
+    .from("applications")
+    .select(`
+      id,
+      created_at
+    `)
+    .eq(
+      "mailing_contact_id",
+      mailingContactId
+    )
+    .order("created_at", {
+      ascending: false,
+    });
+
+  if (applicationsError) {
+    return {
+      data: null,
+      error: applicationsError,
+    };
+  }
+
+  if (remainingApplications?.length) {
+    const latestApplication =
+      remainingApplications[0];
+
+    const { data, error } = await supabase
+      .from("mailing_contacts")
+      .update({
+        status: "application",
+
+        application_created_at:
+          latestApplication.created_at,
+
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq("id", mailingContactId)
+      .select(`
+        id,
+        mailing_id,
+        full_name,
+        phone,
+        email,
+        telegram_username,
+        telegram_user_id,
+        telegram_found,
+        manager_id,
+        status,
+        sent_at,
+        responded_at,
+        application_created_at,
+        comment,
+        created_at,
+        updated_at
+      `)
+      .single();
+
+    return {
+      data,
+      error,
+    };
+  }
+
+  const {
+    data: contact,
+    error: contactError,
+  } = await supabase
+    .from("mailing_contacts")
+    .select(`
+      id,
+      manager_id,
+      telegram_found,
+      sent_at,
+      responded_at
+    `)
+    .eq("id", mailingContactId)
+    .maybeSingle();
+
+  if (contactError) {
+    return {
+      data: null,
+      error: contactError,
+    };
+  }
+
+  if (!contact) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .update({
+      status:
+        getContactStatusWithoutApplications(
+          contact
+        ),
+
+      application_created_at: null,
+
+      updated_at:
+        new Date().toISOString(),
+    })
+    .eq("id", mailingContactId)
+    .select(`
+      id,
+      mailing_id,
+      full_name,
+      phone,
+      email,
+      telegram_username,
+      telegram_user_id,
+      telegram_found,
+      manager_id,
+      status,
+      sent_at,
+      responded_at,
+      application_created_at,
+      comment,
+      created_at,
+      updated_at
+    `)
+    .single();
+
+  return {
+    data,
+    error,
+  };
+}
+
+async function prepareApprovalFields({
+  nextStatus,
+  currentApplication = null,
+  productId,
+}) {
+  if (nextStatus !== "approved") {
+    return {
+      data: {},
+      error: null,
+    };
+  }
+
+  const result = {};
+
+  /*
+   * Дата успешного открытия фиксируется
+   * только при первом переходе в approved.
+   */
+  if (!currentApplication?.approved_at) {
+    result.approved_at =
+      new Date().toISOString();
+  }
+
+  /*
+   * Ставка также фиксируется только один раз.
+   * Последующее изменение цены продукта
+   * не изменит старую зарплату.
+   */
+  if (
+    currentApplication
+      ?.opening_price_snapshot !== null &&
+    currentApplication
+      ?.opening_price_snapshot !== undefined
+  ) {
+    return {
+      data: result,
+      error: null,
+    };
+  }
+
+  const {
+    data: product,
+    error: productError,
+  } = await getProduct(productId);
+
+  if (productError) {
+    return {
+      data: null,
+      error: productError,
+    };
+  }
+
+  if (!product) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Не удалось определить продукт для фиксации ставки"
+      ),
+    };
+  }
+
+  result.opening_price_snapshot =
+    normalizePrice(
+      product.opening_price
+    );
+
+  return {
+    data: result,
+    error: null,
+  };
+}
+
 export const applicationService = {
+  /**
+   * Получить все заявки.
+   */
   async getApplications() {
     const { data, error } = await supabase
       .from("applications")
@@ -336,6 +628,42 @@ export const applicationService = {
     };
   },
 
+  /**
+   * Получить заявки одного контакта.
+   */
+  async getApplicationsByContactId(
+    mailingContactId
+  ) {
+    if (!mailingContactId) {
+      return {
+        data: [],
+        error: createServiceError(
+          "Не передан ID контакта"
+        ),
+      };
+    }
+
+    const { data, error } = await supabase
+      .from("applications")
+      .select(APPLICATION_FIELDS)
+      .eq(
+        "mailing_contact_id",
+        mailingContactId
+      )
+      .order("created_at", {
+        ascending: false,
+      });
+
+    return {
+      data: data || [],
+      error,
+    };
+  },
+
+  /**
+   * Получить заявки по дате создания.
+   * Используется для общих отчётов.
+   */
   async getApplicationsByPeriod(
     dateFrom,
     dateTo
@@ -370,6 +698,51 @@ export const applicationService = {
     };
   },
 
+  /**
+   * Получить только успешные открытия
+   * по дате перехода заявки в approved.
+   *
+   * Этот метод используется для зарплаты.
+   */
+  async getApprovedApplicationsByPeriod(
+    dateFrom,
+    dateTo
+  ) {
+    let query = supabase
+      .from("applications")
+      .select(APPLICATION_FIELDS)
+      .eq("status", "approved")
+      .not("approved_at", "is", null)
+      .order("approved_at", {
+        ascending: false,
+      });
+
+    if (dateFrom) {
+      query = query.gte(
+        "approved_at",
+        `${dateFrom}T00:00:00`
+      );
+    }
+
+    if (dateTo) {
+      query = query.lte(
+        "approved_at",
+        `${dateTo}T23:59:59.999`
+      );
+    }
+
+    const { data, error } =
+      await query;
+
+    return {
+      data: data || [],
+      error,
+    };
+  },
+
+  /**
+   * Получить одну заявку.
+   */
   async getApplicationById(
     applicationId
   ) {
@@ -394,6 +767,9 @@ export const applicationService = {
     };
   },
 
+  /**
+   * Создать заявку из произвольных данных.
+   */
   async createApplication(values) {
     const fullName = normalizeText(
       values?.full_name
@@ -411,46 +787,39 @@ export const applicationService = {
     const productId =
       values?.product_id || null;
 
-    let productName = normalizeText(
-      values?.product
+    const {
+      data: product,
+      error: productError,
+    } = await validateProduct({
+      productId,
+      requireActive: true,
+    });
+
+    if (productError) {
+      return {
+        data: null,
+        error: productError,
+      };
+    }
+
+    const status = normalizeStatus(
+      values?.status,
+      "new"
     );
 
-    /*
-     * Если передан product_id, получаем
-     * актуальное название продукта из базы.
-     */
-    if (productId) {
-      const {
-        data: product,
-        error: productError,
-      } = await getProduct(productId);
+    const {
+      data: approvalFields,
+      error: approvalError,
+    } = await prepareApprovalFields({
+      nextStatus: status,
+      productId: product.id,
+    });
 
-      if (productError) {
-        return {
-          data: null,
-          error: productError,
-        };
-      }
-
-      if (!product) {
-        return {
-          data: null,
-          error: createServiceError(
-            "Выбранный продукт не найден"
-          ),
-        };
-      }
-
-      if (!product.is_active) {
-        return {
-          data: null,
-          error: createServiceError(
-            "Выбранный продукт отключён"
-          ),
-        };
-      }
-
-      productName = product.name;
+    if (approvalError) {
+      return {
+        data: null,
+        error: approvalError,
+      };
     }
 
     const payload = {
@@ -461,9 +830,9 @@ export const applicationService = {
         values?.mailing_contact_id ||
         null,
 
-      product_id: productId,
+      product_id: product.id,
 
-      product: productName,
+      product: product.name,
 
       full_name: fullName,
 
@@ -479,8 +848,7 @@ export const applicationService = {
         normalizeText(values?.source) ||
         "manual",
 
-      status:
-        values?.status || "new",
+      status,
 
       assigned_manager_id:
         values?.assigned_manager_id ||
@@ -493,6 +861,8 @@ export const applicationService = {
       comment: normalizeText(
         values?.comment
       ),
+
+      ...approvalFields,
     };
 
     const { data, error } = await supabase
@@ -507,26 +877,21 @@ export const applicationService = {
     };
   },
 
-  /*
-   * Поддерживаем несколько заявок одного
-   * контакта по разным продуктам.
+  /**
+   * Создать заявку из контакта рассылки.
    *
-   * Параметры:
-   * contact — контакт рассылки;
-   * managerId — назначенный менеджер;
-   * productId — выбранный продукт.
+   * Один контакт может иметь заявки
+   * по разным продуктам.
    *
-   * productId пока необязательный, чтобы
-   * старые места вызова не упали. После
-   * добавления выбора продукта в интерфейс
-   * сюда будет передаваться его ID.
+   * По одному продукту дубль запрещён.
    */
   async createApplicationFromContact(
     contact,
     managerId = null,
-    productId = null
+    productId = null,
+    options = {}
   ) {
-    if (!contact) {
+    if (!contact?.id) {
       return {
         data: null,
         error: createServiceError(
@@ -541,9 +906,8 @@ export const applicationService = {
           contact.telegram
       );
 
-    const phone = normalizePhone(
-      contact.phone
-    );
+    const phone =
+      normalizePhone(contact.phone);
 
     if (!telegram && !phone) {
       return {
@@ -559,42 +923,19 @@ export const applicationService = {
       contact.product_id ||
       null;
 
-    let selectedProduct = null;
+    const {
+      data: selectedProduct,
+      error: productError,
+    } = await validateProduct({
+      productId: selectedProductId,
+      requireActive: true,
+    });
 
-    if (selectedProductId) {
-      const {
-        data,
+    if (productError) {
+      return {
+        data: null,
         error: productError,
-      } = await getProduct(
-        selectedProductId
-      );
-
-      if (productError) {
-        return {
-          data: null,
-          error: productError,
-        };
-      }
-
-      if (!data) {
-        return {
-          data: null,
-          error: createServiceError(
-            "Выбранный продукт не найден"
-          ),
-        };
-      }
-
-      if (!data.is_active) {
-        return {
-          data: null,
-          error: createServiceError(
-            "Выбранный продукт отключён"
-          ),
-        };
-      }
-
-      selectedProduct = data;
+      };
     }
 
     const {
@@ -602,7 +943,8 @@ export const applicationService = {
       error: duplicateError,
     } = await findExistingApplication({
       contact,
-      productId: selectedProductId,
+      productId:
+        selectedProduct.id,
       telegram,
       phone,
     });
@@ -628,66 +970,68 @@ export const applicationService = {
       contact.manager_id ||
       null;
 
-    const applicationPayload = {
-      mailing_id:
-        contact.mailing_id || null,
-
-      mailing_contact_id:
-        contact.id || null,
-
-      product_id:
-        selectedProductId,
-
-      product:
-        selectedProduct?.name ||
-        normalizeText(
-          contact.product
-        ),
-
-      full_name:
-        normalizeText(
-          contact.full_name
-        ) ||
-        telegram ||
-        phone,
-
-      phone,
-
-      telegram,
-
-      source: "mailing",
-
-      status: "new",
-
-      assigned_manager_id:
-        assignedManagerId,
-
-      amount: null,
-
-      comment:
-        normalizeText(
-          contact.comment
-        ) ||
-        "Заявка создана из входящего отклика",
-    };
-
-    const {
-      data: application,
-      error: createError,
-    } = await this.createApplication(
-      applicationPayload
-    );
-
-    if (createError) {
+    if (!assignedManagerId) {
       return {
         data: null,
-        error: createError,
+        error: createServiceError(
+          "Не удалось определить менеджера заявки"
+        ),
       };
     }
 
-    const applicationCreatedAt =
-      application.created_at ||
-      new Date().toISOString();
+    const result =
+      await this.createApplication({
+        mailing_id:
+          contact.mailing_id || null,
+
+        mailing_contact_id:
+          contact.id,
+
+        product_id:
+          selectedProduct.id,
+
+        full_name:
+          normalizeText(
+            contact.full_name
+          ) ||
+          telegram ||
+          phone,
+
+        phone,
+
+        telegram,
+
+        source: "mailing",
+
+        status:
+          normalizeStatus(
+            options?.status,
+            "new"
+          ),
+
+        assigned_manager_id:
+          assignedManagerId,
+
+        amount: null,
+
+        comment:
+          normalizeText(
+            options?.comment
+          ) ||
+          normalizeText(
+            contact.comment
+          ) ||
+          "Заявка создана из входящего отклика",
+      });
+
+    if (result.error) {
+      return {
+        data: null,
+        error: result.error,
+      };
+    }
+
+    const application = result.data;
 
     const {
       data: updatedContact,
@@ -695,16 +1039,16 @@ export const applicationService = {
     } =
       await updateMailingContactAfterCreation({
         contact,
-        applicationCreatedAt,
+
+        applicationCreatedAt:
+          application.created_at ||
+          new Date().toISOString(),
+
         managerId:
           assignedManagerId,
       });
 
     if (contactUpdateError) {
-      /*
-       * Если контакт не обновился,
-       * удаляем только что созданную заявку.
-       */
       await supabase
         .from("applications")
         .delete()
@@ -718,13 +1062,19 @@ export const applicationService = {
 
     return {
       data: application,
+
       contact:
         updatedContact || contact,
+
       error: null,
+
       alreadyExists: false,
     };
   },
 
+  /**
+   * Изменить заявку.
+   */
   async updateApplication(
     applicationId,
     values
@@ -734,6 +1084,41 @@ export const applicationService = {
         data: null,
         error: createServiceError(
           "Не передан ID заявки"
+        ),
+      };
+    }
+
+    const {
+      data: currentApplication,
+      error: loadError,
+    } = await supabase
+      .from("applications")
+      .select(`
+        id,
+        mailing_contact_id,
+        product_id,
+        telegram,
+        phone,
+        mailing_id,
+        status,
+        approved_at,
+        opening_price_snapshot
+      `)
+      .eq("id", applicationId)
+      .maybeSingle();
+
+    if (loadError) {
+      return {
+        data: null,
+        error: loadError,
+      };
+    }
+
+    if (!currentApplication) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Заявка не найдена"
         ),
       };
     }
@@ -788,54 +1173,6 @@ export const applicationService = {
         );
     }
 
-    if ("product" in payload) {
-      payload.product =
-        normalizeText(
-          payload.product
-        );
-    }
-
-    if ("product_id" in payload) {
-      payload.product_id =
-        payload.product_id || null;
-
-      if (payload.product_id) {
-        const {
-          data: product,
-          error: productError,
-        } = await getProduct(
-          payload.product_id
-        );
-
-        if (productError) {
-          return {
-            data: null,
-            error: productError,
-          };
-        }
-
-        if (!product) {
-          return {
-            data: null,
-            error: createServiceError(
-              "Выбранный продукт не найден"
-            ),
-          };
-        }
-
-        payload.product =
-          product.name;
-      }
-    }
-
-    if (
-      "assigned_manager_id" in payload
-    ) {
-      payload.assigned_manager_id =
-        payload.assigned_manager_id ||
-        null;
-    }
-
     if ("amount" in payload) {
       payload.amount =
         normalizeAmount(
@@ -850,6 +1187,14 @@ export const applicationService = {
         );
     }
 
+    if (
+      "assigned_manager_id" in payload
+    ) {
+      payload.assigned_manager_id =
+        payload.assigned_manager_id ||
+        null;
+    }
+
     if ("mailing_id" in payload) {
       payload.mailing_id =
         payload.mailing_id || null;
@@ -862,6 +1207,125 @@ export const applicationService = {
         payload.mailing_contact_id ||
         null;
     }
+
+    const nextStatus =
+      "status" in payload
+        ? normalizeStatus(
+            payload.status,
+            currentApplication.status
+          )
+        : currentApplication.status;
+
+    if ("status" in payload) {
+      payload.status = nextStatus;
+    }
+
+    let finalProductId =
+      currentApplication.product_id;
+
+    if ("product_id" in payload) {
+      const {
+        data: nextProduct,
+        error: productError,
+      } = await validateProduct({
+        productId:
+          payload.product_id,
+        requireActive: false,
+      });
+
+      if (productError) {
+        return {
+          data: null,
+          error: productError,
+        };
+      }
+
+      const {
+        data: duplicateApplication,
+        error: duplicateError,
+      } = await findExistingApplication({
+        contact: {
+          id:
+            payload.mailing_contact_id ||
+            currentApplication
+              .mailing_contact_id,
+
+          mailing_id:
+            payload.mailing_id ||
+            currentApplication.mailing_id,
+        },
+
+        productId:
+          nextProduct.id,
+
+        telegram:
+          "telegram" in payload
+            ? payload.telegram
+            : currentApplication.telegram,
+
+        phone:
+          "phone" in payload
+            ? payload.phone
+            : currentApplication.phone,
+
+        excludeApplicationId:
+          applicationId,
+      });
+
+      if (duplicateError) {
+        return {
+          data: null,
+          error: duplicateError,
+        };
+      }
+
+      if (duplicateApplication) {
+        return {
+          data: null,
+          error: createServiceError(
+            `По продукту "${nextProduct.name}" у этого контакта уже есть заявка`
+          ),
+        };
+      }
+
+      finalProductId =
+        nextProduct.id;
+
+      payload.product_id =
+        nextProduct.id;
+
+      payload.product =
+        nextProduct.name;
+    } else if ("product" in payload) {
+      payload.product =
+        normalizeText(
+          payload.product
+        );
+    }
+
+    const {
+      data: approvalFields,
+      error: approvalError,
+    } = await prepareApprovalFields({
+      nextStatus,
+
+      currentApplication,
+
+      productId:
+        finalProductId,
+    });
+
+    if (approvalError) {
+      return {
+        data: null,
+        error: approvalError,
+      };
+    }
+
+    Object.assign(
+      payload,
+      approvalFields
+    );
 
     if (
       Object.keys(payload).length === 0
@@ -887,18 +1351,70 @@ export const applicationService = {
     };
   },
 
+  /**
+   * Изменить статус.
+   */
   async updateStatus(
     applicationId,
     status
   ) {
+    const normalizedStatus =
+      normalizeStatus(status, "");
+
+    if (!normalizedStatus) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Передан некорректный статус заявки"
+        ),
+      };
+    }
+
     return this.updateApplication(
       applicationId,
       {
-        status,
+        status:
+          normalizedStatus,
       }
     );
   },
 
+  /**
+   * Изменить продукт, статус
+   * и комментарий заявки.
+   */
+  async updateApplicationProgress(
+    applicationId,
+    {
+      status,
+      comment,
+      productId,
+    } = {}
+  ) {
+    const values = {};
+
+    if (status) {
+      values.status = status;
+    }
+
+    if (comment !== undefined) {
+      values.comment = comment;
+    }
+
+    if (productId) {
+      values.product_id =
+        productId;
+    }
+
+    return this.updateApplication(
+      applicationId,
+      values
+    );
+  },
+
+  /**
+   * Назначить менеджера.
+   */
   async assignManager(
     applicationId,
     managerId
@@ -912,6 +1428,9 @@ export const applicationService = {
     );
   },
 
+  /**
+   * Удалить заявку.
+   */
   async deleteApplication(
     applicationId
   ) {
@@ -924,13 +1443,9 @@ export const applicationService = {
       };
     }
 
-    /*
-     * Получаем заявку до удаления, чтобы
-     * узнать связанный контакт.
-     */
     const {
       data: application,
-      error: applicationError,
+      error: loadError,
     } = await supabase
       .from("applications")
       .select(`
@@ -940,10 +1455,10 @@ export const applicationService = {
       .eq("id", applicationId)
       .maybeSingle();
 
-    if (applicationError) {
+    if (loadError) {
       return {
         success: false,
-        error: applicationError,
+        error: loadError,
       };
     }
 
@@ -969,148 +1484,21 @@ export const applicationService = {
       };
     }
 
-    if (
-      !application.mailing_contact_id
-    ) {
-      return {
-        success: true,
-        error: null,
-      };
-    }
-
-    /*
-     * Проверяем, остались ли у контакта
-     * другие заявки.
-     */
     const {
-      data: remainingApplications,
-      error: remainingError,
-    } = await supabase
-      .from("applications")
-      .select(`
-        id,
-        created_at
-      `)
-      .eq(
-        "mailing_contact_id",
+      error: contactRefreshError,
+    } =
+      await refreshMailingContactApplicationState(
         application.mailing_contact_id
-      )
-      .order("created_at", {
-        ascending: false,
-      });
-
-    if (remainingError) {
-      return {
-        success: true,
-        warning:
-          "Заявка удалена, но не удалось проверить остальные заявки контакта",
-        error: remainingError,
-      };
-    }
-
-    if (
-      remainingApplications?.length
-    ) {
-      /*
-       * Другие заявки остались:
-       * контакт сохраняет статус application.
-       */
-      const latestApplication =
-        remainingApplications[0];
-
-      const { error: contactError } =
-        await supabase
-          .from("mailing_contacts")
-          .update({
-            status: "application",
-
-            application_created_at:
-              latestApplication.created_at,
-
-            updated_at:
-              new Date().toISOString(),
-          })
-          .eq(
-            "id",
-            application.mailing_contact_id
-          );
-
-      return {
-        success: true,
-        warning: contactError
-          ? "Заявка удалена, но не удалось обновить контакт"
-          : null,
-        error: contactError,
-      };
-    }
-
-    /*
-     * Других заявок нет. Получаем контакт,
-     * чтобы восстановить правильный статус.
-     */
-    const {
-      data: contact,
-      error: contactLoadError,
-    } = await supabase
-      .from("mailing_contacts")
-      .select(`
-        id,
-        manager_id,
-        telegram_found,
-        sent_at,
-        responded_at
-      `)
-      .eq(
-        "id",
-        application.mailing_contact_id
-      )
-      .maybeSingle();
-
-    if (contactLoadError) {
-      return {
-        success: true,
-        warning:
-          "Заявка удалена, но не удалось получить связанный контакт",
-        error: contactLoadError,
-      };
-    }
-
-    if (!contact) {
-      return {
-        success: true,
-        warning:
-          "Заявка удалена, связанный контакт не найден",
-        error: null,
-      };
-    }
-
-    const restoredStatus =
-      getContactStatusWithoutApplications(
-        contact
       );
-
-    const { error: contactError } =
-      await supabase
-        .from("mailing_contacts")
-        .update({
-          status: restoredStatus,
-
-          application_created_at: null,
-
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          application.mailing_contact_id
-        );
 
     return {
       success: true,
-      warning: contactError
-        ? "Заявка удалена, но не удалось восстановить статус контакта"
+
+      warning: contactRefreshError
+        ? "Заявка удалена, но не удалось обновить статус контакта"
         : null,
-      error: contactError,
+
+      error: contactRefreshError,
     };
   },
 };

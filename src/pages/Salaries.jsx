@@ -19,12 +19,21 @@ import {
   WalletCards,
 } from "lucide-react";
 
-import { applicationService } from "../services/applicationService";
-import { productService } from "../services/productService";
-import { profileService } from "../services/profileService";
+import {
+  applicationService,
+} from "../services/applicationService";
+
+import {
+  productService,
+} from "../services/productService";
+
+import {
+  profileService,
+} from "../services/profileService";
 
 export default function Salaries() {
-  const defaultPeriod = getCurrentMonthPeriod();
+  const defaultPeriod =
+    getCurrentMonthPeriod();
 
   const [applications, setApplications] =
     useState([]);
@@ -44,14 +53,18 @@ export default function Salaries() {
   const [searchValue, setSearchValue] =
     useState("");
 
-  const [selectedProductId, setSelectedProductId] =
-    useState("all");
+  const [
+    selectedProductId,
+    setSelectedProductId,
+  ] = useState("all");
 
   const [sortValue, setSortValue] =
     useState("salary");
 
-  const [expandedManagerId, setExpandedManagerId] =
-    useState(null);
+  const [
+    expandedManagerId,
+    setExpandedManagerId,
+  ] = useState(null);
 
   const [isLoading, setIsLoading] =
     useState(true);
@@ -84,10 +97,11 @@ export default function Salaries() {
       managersResult,
       productsResult,
     ] = await Promise.all([
-      applicationService.getApplicationsByPeriod(
-        dateFrom,
-        dateTo
-      ),
+      applicationService
+        .getApprovedApplicationsByPeriod(
+          dateFrom,
+          dateTo
+        ),
 
       profileService.getManagers(),
 
@@ -96,12 +110,13 @@ export default function Salaries() {
 
     if (applicationsResult.error) {
       console.error(
-        "Ошибка загрузки заявок:",
+        "Ошибка загрузки успешных открытий:",
         applicationsResult.error
       );
 
       setError(
-        "Не удалось загрузить заявки для расчёта зарплаты"
+        applicationsResult.error.message ||
+          "Не удалось загрузить успешные открытия для расчёта зарплаты"
       );
     }
 
@@ -112,7 +127,8 @@ export default function Salaries() {
       );
 
       setError(
-        "Не удалось загрузить список менеджеров"
+        managersResult.error.message ||
+          "Не удалось загрузить список менеджеров"
       );
     }
 
@@ -123,7 +139,8 @@ export default function Salaries() {
       );
 
       setError(
-        "Не удалось загрузить продукты и ставки"
+        productsResult.error.message ||
+          "Не удалось загрузить продукты и ставки"
       );
     }
 
@@ -142,15 +159,6 @@ export default function Salaries() {
     setIsLoading(false);
   }
 
-  const successfulApplications = useMemo(
-    () =>
-      applications.filter(
-        (application) =>
-          application.status === "approved"
-      ),
-    [applications]
-  );
-
   const productMap = useMemo(() => {
     return new Map(
       products.map((product) => [
@@ -163,7 +171,7 @@ export default function Salaries() {
   const salaryData = useMemo(() => {
     return managers.map((manager) => {
       const managerApplications =
-        successfulApplications.filter(
+        applications.filter(
           (application) =>
             application.assigned_manager_id ===
             manager.id
@@ -175,11 +183,14 @@ export default function Salaries() {
         productStats[product.id] = {
           productId: product.id,
           name: product.name,
-          rate: toSafeNumber(
+
+          currentRate: toSafeNumber(
             product.opening_price
           ),
+
           openings: 0,
           salary: 0,
+          rateGroups: {},
         };
       });
 
@@ -192,10 +203,9 @@ export default function Salaries() {
             application.product_data?.id ||
             null;
 
-          const product =
-            productId
-              ? productMap.get(productId)
-              : null;
+          const product = productId
+            ? productMap.get(productId)
+            : null;
 
           if (
             !product ||
@@ -205,16 +215,57 @@ export default function Salaries() {
             return;
           }
 
-          const rate = toSafeNumber(
-            product.opening_price
-          );
+          const hasSnapshot =
+            application
+              .opening_price_snapshot !==
+              null &&
+            application
+              .opening_price_snapshot !==
+              undefined;
 
-          productStats[
-            product.id
+          const rate = hasSnapshot
+            ? toSafeNumber(
+                application
+                  .opening_price_snapshot
+              )
+            : toSafeNumber(
+                product.opening_price
+              );
+
+          /*
+           * Если у старой успешной заявки
+           * снимок ставки отсутствует,
+           * временно используем текущую
+           * ставку продукта и показываем
+           * предупреждение.
+           */
+          if (!hasSnapshot) {
+            unpricedOpenings += 1;
+          }
+
+          const stats =
+            productStats[product.id];
+
+          stats.openings += 1;
+          stats.salary += rate;
+
+          const rateKey =
+            String(rate);
+
+          if (!stats.rateGroups[rateKey]) {
+            stats.rateGroups[rateKey] = {
+              rate,
+              openings: 0,
+              salary: 0,
+            };
+          }
+
+          stats.rateGroups[
+            rateKey
           ].openings += 1;
 
-          productStats[
-            product.id
+          stats.rateGroups[
+            rateKey
           ].salary += rate;
         }
       );
@@ -265,17 +316,16 @@ export default function Salaries() {
     managers,
     products,
     productMap,
-    successfulApplications,
+    applications,
   ]);
 
   const preparedManagers = useMemo(() => {
-    const search =
-      searchValue
-        .trim()
-        .toLowerCase();
+    const search = searchValue
+      .trim()
+      .toLowerCase();
 
-    const filtered =
-      salaryData.filter((manager) => {
+    const filtered = salaryData.filter(
+      (manager) => {
         const matchesSearch =
           !search ||
           manager.name
@@ -297,7 +347,8 @@ export default function Salaries() {
           matchesSearch &&
           matchesProduct
         );
-      });
+      }
+    );
 
     return [...filtered].sort(
       (first, second) => {
@@ -338,7 +389,7 @@ export default function Salaries() {
       };
     });
 
-    const result = salaryData.reduce(
+    return salaryData.reduce(
       (total, manager) => {
         total.openings +=
           manager.totalOpenings;
@@ -351,7 +402,9 @@ export default function Salaries() {
 
         products.forEach((product) => {
           const managerProduct =
-            manager.products[product.id];
+            manager.products[
+              product.id
+            ];
 
           if (!managerProduct) {
             return;
@@ -377,15 +430,19 @@ export default function Salaries() {
         products: productTotals,
       }
     );
-
-    return result;
   }, [salaryData, products]);
 
+  const managersWithOpenings =
+    salaryData.filter(
+      (manager) =>
+        manager.totalOpenings > 0
+    ).length;
+
   const averageSalary =
-    managers.length > 0
+    managersWithOpenings > 0
       ? Math.round(
           totals.salary /
-            managers.length
+            managersWithOpenings
         )
       : 0;
 
@@ -403,7 +460,7 @@ export default function Salaries() {
   }, [salaryData]);
 
   const unassignedSuccessful =
-    successfulApplications.filter(
+    applications.filter(
       (application) =>
         !application.assigned_manager_id
     ).length;
@@ -510,19 +567,37 @@ export default function Salaries() {
                 product.id
               ];
 
-            rows.push({
-              Менеджер: manager.name,
-              Email: manager.email,
-              Продукт: product.name,
-              Открытий:
-                productStats.openings,
-              Ставка:
-                productStats.rate,
-              Сумма:
-                productStats.salary,
-              "Итого менеджеру":
-                manager.salary,
-            });
+            const rateGroups =
+              Object.values(
+                productStats.rateGroups
+              );
+
+            rateGroups.forEach(
+              (rateGroup) => {
+                rows.push({
+                  Менеджер:
+                    manager.name,
+
+                  Email:
+                    manager.email,
+
+                  Продукт:
+                    product.name,
+
+                  Открытий:
+                    rateGroup.openings,
+
+                  Ставка:
+                    rateGroup.rate,
+
+                  Сумма:
+                    rateGroup.salary,
+
+                  "Итого менеджеру":
+                    manager.salary,
+                });
+              }
+            );
           }
         );
       }
@@ -590,6 +665,7 @@ export default function Salaries() {
 
           <span>
             Загружаем успешные открытия
+            за выбранный период
           </span>
         </div>
       </main>
@@ -597,7 +673,7 @@ export default function Salaries() {
   }
 
   return (
-    <main className="page">
+    <main className="page salaries-page">
       <div className="page-header">
         <div>
           <h1 className="page-title">
@@ -606,8 +682,10 @@ export default function Salaries() {
 
           <p className="page-description">
             Зарплата рассчитывается по
-            успешным открытиям и ставкам
-            продуктов.
+            дате успешного открытия и
+            ставке, зафиксированной в момент
+            перевода заявки в статус
+            "Успешно открыта".
           </p>
         </div>
 
@@ -616,6 +694,7 @@ export default function Salaries() {
             className="secondary-button button-with-icon"
             type="button"
             onClick={loadSalaryData}
+            disabled={isLoading}
           >
             <RefreshCw size={17} />
             Обновить
@@ -626,6 +705,10 @@ export default function Salaries() {
             type="button"
             onClick={
               downloadSalaryReport
+            }
+            disabled={
+              preparedManagers.length ===
+              0
             }
           >
             <Download size={17} />
@@ -652,11 +735,13 @@ export default function Salaries() {
 
       {totals.unpricedOpenings > 0 && (
         <div className="inline-notice">
-          Успешных заявок без выбранного
-          продукта или ставки:{" "}
+          Успешных заявок без сохранённого
+          снимка ставки:{" "}
           <strong>
             {totals.unpricedOpenings}
           </strong>
+          . Для них временно используется
+          текущая ставка продукта.
         </div>
       )}
 
@@ -687,7 +772,7 @@ export default function Salaries() {
           value={formatMoney(
             averageSalary
           )}
-          description="На одного менеджера"
+          description="Среди менеджеров с открытиями"
         />
 
         <SalarySummaryCard
@@ -712,12 +797,15 @@ export default function Salaries() {
         <div className="salary-section-heading">
           <div>
             <h2>
-              Ставки по продуктам
+              Текущие ставки продуктов
             </h2>
 
             <p>
-              Актуальная стоимость одного
-              успешного открытия.
+              Они применяются только к
+              будущим успешным открытиям.
+              Старые начисления используют
+              сохранённые исторические
+              ставки.
             </p>
           </div>
 
@@ -740,7 +828,7 @@ export default function Salaries() {
               </div>
 
               <small>
-                Открытий:{" "}
+                Открытий за период:{" "}
                 {
                   totals.products[
                     product.id
@@ -847,8 +935,11 @@ export default function Salaries() {
           className="primary-button"
           type="button"
           onClick={loadSalaryData}
+          disabled={isLoading}
         >
-          Рассчитать
+          {isLoading
+            ? "Считаем..."
+            : "Рассчитать"}
         </button>
       </section>
 
@@ -879,7 +970,7 @@ export default function Salaries() {
         </button>
 
         <span>
-          Период:{" "}
+          Период успешных открытий:{" "}
           <strong>
             {formatPeriodTitle(
               dateFrom,
@@ -895,10 +986,13 @@ export default function Salaries() {
             <thead>
               <tr>
                 <th>Менеджер</th>
+
                 <th>
                   Успешных открытий
                 </th>
+
                 <th>Зарплата</th>
+
                 <th />
               </tr>
             </thead>
@@ -968,6 +1062,11 @@ export default function Salaries() {
                                 manager.id
                               )
                             }
+                            aria-label={
+                              isExpanded
+                                ? "Скрыть детализацию"
+                                : "Показать детализацию"
+                            }
                           >
                             <ChevronDown
                               size={17}
@@ -1020,6 +1119,13 @@ export default function Salaries() {
                                       stats?.openings ||
                                       0;
 
+                                    const rateGroups =
+                                      Object.values(
+                                        stats
+                                          ?.rateGroups ||
+                                          {}
+                                      );
+
                                     return (
                                       <article
                                         key={
@@ -1034,11 +1140,29 @@ export default function Salaries() {
                                           </span>
 
                                           <strong>
-                                            {openings} ×{" "}
-                                            {formatMoney(
-                                              product.opening_price
+                                            {openings}{" "}
+                                            {getOpeningsWord(
+                                              openings
                                             )}
                                           </strong>
+
+                                          {rateGroups.length >
+                                            0 && (
+                                            <small>
+                                              {rateGroups
+                                                .map(
+                                                  (
+                                                    group
+                                                  ) =>
+                                                    `${group.openings} × ${formatMoney(
+                                                      group.rate
+                                                    )}`
+                                                )
+                                                .join(
+                                                  " · "
+                                                )}
+                                            </small>
+                                          )}
                                         </div>
 
                                         <strong>
@@ -1074,9 +1198,10 @@ export default function Salaries() {
             </h2>
 
             <p>
-              Проверьте период, назначение
-              менеджеров, продукты и статусы
-              заявок.
+              Проверьте период успешных
+              открытий, назначение
+              менеджеров, продукты и
+              статусы заявок.
             </p>
           </div>
         )}
@@ -1180,13 +1305,45 @@ function getInitials(value) {
     return "М";
   }
 
-  return value
+  return String(value)
     .trim()
     .split(/\s+/)
     .slice(0, 2)
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function getOpeningsWord(value) {
+  const number = Math.abs(
+    Number(value || 0)
+  );
+
+  const lastTwoDigits =
+    number % 100;
+
+  const lastDigit =
+    number % 10;
+
+  if (
+    lastTwoDigits >= 11 &&
+    lastTwoDigits <= 19
+  ) {
+    return "открытий";
+  }
+
+  if (lastDigit === 1) {
+    return "открытие";
+  }
+
+  if (
+    lastDigit >= 2 &&
+    lastDigit <= 4
+  ) {
+    return "открытия";
+  }
+
+  return "открытий";
 }
 
 function toSafeNumber(value) {

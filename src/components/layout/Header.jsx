@@ -42,12 +42,19 @@ const navigation = [
     roles: ["admin", "head", "manager"],
   },
   {
-    title: "Входящий поток",
-    icon: Send,
-    path: "/incoming",
-    roles: ["admin", "head"],
-  },
-  {
+  title: "Входящий поток",
+  icon: Send,
+  path: "/incoming",
+  roles: ["admin", "head"],
+},
+{
+  title: "Отметить написавших",
+  icon: Send,
+  path: "/incoming",
+  roles: ["manager"],
+},
+{
+ 
     title: "Заявки",
     icon: FileText,
     path: "/applications",
@@ -419,7 +426,7 @@ export default function Header() {
 
               return (
                 <NavLink
-                  key={item.path}
+                  key={`${item.path}-${item.title}`}
                   to={item.path}
                   className={({ isActive }) =>
                     [

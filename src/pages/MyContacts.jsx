@@ -8,6 +8,7 @@ import {
 import {
   CheckCircle2,
   Clock3,
+  FilePlus2,
   Mail,
   MessageCircle,
   Phone,
@@ -25,21 +26,31 @@ import { productService } from "../services/productService";
 
 import "../styles/MyContacts.css";
 
-const statusConfig = {
+const contactStatusConfig = {
   new: "Новый",
   telegram_found: "Telegram найден",
   telegram_not_found: "Telegram не найден",
-  assigned: "Назначен",
+  assigned: "Закреплён",
   sent: "Сообщение отправлено",
   responded: "Ответил",
-  application: "Создана заявка",
+  application: "Есть заявка",
   opened: "Открытие",
   rejected: "Отказ",
   duplicate: "Дубликат",
 };
 
+const applicationStatusConfig = {
+  new: "Новая",
+  in_progress: "В работе",
+  approved: "Успешно открыта",
+  rejected: "Отказ",
+};
+
 export default function MyContacts() {
   const [contacts, setContacts] =
+    useState([]);
+
+  const [applications, setApplications] =
     useState([]);
 
   const [products, setProducts] =
@@ -75,12 +86,16 @@ export default function MyContacts() {
       const [
         contactsResult,
         productsResult,
+        applicationsResult,
       ] = await Promise.all([
         mailingContactService
           .getMyContacts(),
 
         productService
           .getActiveProducts(),
+
+        applicationService
+          .getApplications(),
       ]);
 
       if (contactsResult.error) {
@@ -114,6 +129,19 @@ export default function MyContacts() {
         );
       }
 
+      if (applicationsResult.error) {
+        console.error(
+          "Ошибка загрузки заявок:",
+          applicationsResult.error
+        );
+
+        setApplications([]);
+      } else {
+        setApplications(
+          applicationsResult.data || []
+        );
+      }
+
       setLoading(false);
     },
     []
@@ -123,12 +151,65 @@ export default function MyContacts() {
     loadData();
   }, [loadData]);
 
+  const applicationsByContact =
+    useMemo(() => {
+      return applications.reduce(
+        (result, application) => {
+          const contactId =
+            application.mailing_contact_id;
+
+          if (!contactId) {
+            return result;
+          }
+
+          if (!result[contactId]) {
+            result[contactId] = [];
+          }
+
+          result[contactId].push(
+            application
+          );
+
+          return result;
+        },
+        {}
+      );
+    }, [applications]);
+
+  const preparedContacts = useMemo(() => {
+    return contacts.map((contact) => {
+      const contactApplications =
+        applicationsByContact[
+          contact.id
+        ] || [];
+
+      const latestApplication =
+        contactApplications[0] || null;
+
+      return {
+        ...contact,
+
+        applications:
+          contactApplications,
+
+        applications_count:
+          contactApplications.length,
+
+        latest_application:
+          latestApplication,
+      };
+    });
+  }, [
+    contacts,
+    applicationsByContact,
+  ]);
+
   const filteredContacts = useMemo(() => {
     const search = searchValue
       .trim()
       .toLowerCase();
 
-    return contacts.filter(
+    return preparedContacts.filter(
       (contact) => {
         const searchableValue = [
           contact.full_name,
@@ -137,6 +218,14 @@ export default function MyContacts() {
           contact.telegram_username,
           contact.mailing?.name,
           contact.mailing?.title,
+          contact.latest_application
+            ?.product_data?.name,
+          contact.latest_application
+            ?.product,
+          applicationStatusConfig[
+            contact.latest_application
+              ?.status
+          ],
         ]
           .filter(Boolean)
           .join(" ")
@@ -160,40 +249,38 @@ export default function MyContacts() {
       }
     );
   }, [
-    contacts,
+    preparedContacts,
     searchValue,
     statusFilter,
   ]);
 
   const stats = useMemo(() => {
-    return contacts.reduce(
-      (result, contact) => {
-        result.total += 1;
+    return {
+      totalContacts:
+        preparedContacts.length,
 
-        if (contact.sent_at) {
-          result.sent += 1;
-        }
+      responded:
+        preparedContacts.filter(
+          (contact) =>
+            Boolean(
+              contact.responded_at
+            )
+        ).length,
 
-        if (contact.responded_at) {
-          result.responded += 1;
-        }
+      applications:
+        applications.length,
 
-        if (
-          contact.application_created_at
-        ) {
-          result.applications += 1;
-        }
-
-        return result;
-      },
-      {
-        total: 0,
-        sent: 0,
-        responded: 0,
-        applications: 0,
-      }
-    );
-  }, [contacts]);
+      approved:
+        applications.filter(
+          (application) =>
+            application.status ===
+            "approved"
+        ).length,
+    };
+  }, [
+    preparedContacts,
+    applications,
+  ]);
 
   function updateContactOnPage(
     updatedContact
@@ -234,66 +321,6 @@ export default function MyContacts() {
     );
   }
 
-  async function handleMarkSent(
-    contact
-  ) {
-    if (
-      !contact?.id ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
-      await mailingContactService
-        .markAsSent(contact.id);
-
-    if (result.error) {
-      window.alert(
-        result.error.message ||
-          "Не удалось отметить отправку."
-      );
-
-      setActionLoading(false);
-      return;
-    }
-
-    updateContactOnPage(result.data);
-    setActionLoading(false);
-  }
-
-  async function handleMarkResponded(
-    contact
-  ) {
-    if (
-      !contact?.id ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
-      await mailingContactService
-        .markAsResponded(contact.id);
-
-    if (result.error) {
-      window.alert(
-        result.error.message ||
-          "Не удалось отметить ответ."
-      );
-
-      setActionLoading(false);
-      return;
-    }
-
-    updateContactOnPage(result.data);
-    setActionLoading(false);
-  }
-
   async function handleSaveComment(
     contact,
     comment
@@ -328,65 +355,33 @@ export default function MyContacts() {
     setActionLoading(false);
   }
 
-  async function handleCreateApplication(
-    contact,
-    productId
+  async function handleContactChanged(
+    updatedContact
   ) {
-    if (
-      !contact?.id ||
-      !productId ||
-      actionLoading
-    ) {
-      return;
-    }
-
-    setActionLoading(true);
-
-    const result =
-      await applicationService
-        .createApplicationFromContact(
-          contact,
-          contact.manager_id || null,
-          productId
-        );
-
-    if (result.error) {
-      window.alert(
-        result.error.message ||
-          "Не удалось создать заявку."
-      );
-
-      setActionLoading(false);
-      return;
-    }
-
-    if (result.contact) {
+    if (updatedContact?.id) {
       updateContactOnPage(
-        result.contact
+        updatedContact
+      );
+    }
+
+    const applicationsResult =
+      await applicationService
+        .getApplications();
+
+    if (applicationsResult.error) {
+      console.error(
+        "Ошибка обновления заявок:",
+        applicationsResult.error
       );
     } else {
-      await loadData();
-    }
-
-    const product =
-      products.find(
-        (item) =>
-          item.id === productId
+      setApplications(
+        applicationsResult.data || []
       );
+    }
+  }
 
-    window.alert(
-      result.alreadyExists
-        ? `Заявка по продукту "${
-            product?.name ||
-            "выбранный продукт"
-          }" уже существует.`
-        : `Заявка по продукту "${
-            product?.name ||
-            "выбранный продукт"
-          }" создана.`
-    );
-
-    setActionLoading(false);
+  function openContact(contact) {
+    setSelectedContact(contact);
   }
 
   if (loading) {
@@ -414,9 +409,10 @@ export default function MyContacts() {
           <h1>Мои контакты</h1>
 
           <p>
-            Здесь находятся только
-            контакты, назначенные вам
-            администратором.
+            Здесь отображаются пользователи,
+            которых вы отметили как ответивших.
+            Откройте контакт, чтобы создать или
+            изменить заявку.
           </p>
         </div>
 
@@ -424,6 +420,7 @@ export default function MyContacts() {
           className="secondary-button button-with-icon"
           type="button"
           onClick={loadData}
+          disabled={loading}
         >
           <RefreshCw size={17} />
           Обновить
@@ -439,14 +436,10 @@ export default function MyContacts() {
       <section className="my-contacts-stats">
         <StatCard
           icon={UserRound}
-          title="Всего контактов"
-          value={stats.total}
-        />
-
-        <StatCard
-          icon={Send}
-          title="Сообщение отправлено"
-          value={stats.sent}
+          title="Мои контакты"
+          value={
+            stats.totalContacts
+          }
         />
 
         <StatCard
@@ -456,9 +449,15 @@ export default function MyContacts() {
         />
 
         <StatCard
-          icon={CheckCircle2}
-          title="Создано заявок"
+          icon={FilePlus2}
+          title="Всего заявок"
           value={stats.applications}
+        />
+
+        <StatCard
+          icon={CheckCircle2}
+          title="Успешно открыто"
+          value={stats.approved}
         />
       </section>
 
@@ -474,7 +473,7 @@ export default function MyContacts() {
                 event.target.value
               )
             }
-            placeholder="Поиск по имени, телефону или Telegram"
+            placeholder="Имя, телефон, Telegram или продукт"
           />
         </div>
 
@@ -487,21 +486,16 @@ export default function MyContacts() {
           }
         >
           <option value="all">
-            Все статусы
+            Все контакты
           </option>
 
-          {Object.entries(
-            statusConfig
-          ).map(
-            ([value, title]) => (
-              <option
-                key={value}
-                value={value}
-              >
-                {title}
-              </option>
-            )
-          )}
+          <option value="responded">
+            Без заявки
+          </option>
+
+          <option value="application">
+            Есть заявки
+          </option>
         </select>
       </section>
 
@@ -521,115 +515,166 @@ export default function MyContacts() {
           </strong>
 
           <span>
-            Администратор ещё не
-            назначил вам контакты или
-            они не подходят под фильтр.
+            Вы ещё не занесли ответивших
+            пользователей или контакты не
+            подходят под выбранный фильтр.
           </span>
         </div>
       ) : (
         <section className="my-contacts-grid">
           {filteredContacts.map(
-            (contact) => (
-              <article
-                className="my-contact-card"
-                key={contact.id}
-                onClick={() =>
-                  setSelectedContact(
-                    contact
-                  )
-                }
-              >
-                <div className="my-contact-card__top">
-                  <div className="my-contact-card__avatar">
-                    <UserRound
-                      size={19}
-                    />
-                  </div>
+            (contact) => {
+              const latestApplication =
+                contact.latest_application;
 
-                  <div className="my-contact-card__identity">
-                    <strong>
-                      {contact.full_name ||
-                        "Без имени"}
-                    </strong>
+              return (
+                <article
+                  className="my-contact-card"
+                  key={contact.id}
+                >
+                  <div className="my-contact-card__top">
+                    <div className="my-contact-card__avatar">
+                      <UserRound
+                        size={19}
+                      />
+                    </div>
 
-                    <span>
-                      {contact.mailing
-                        ?.name ||
-                        contact.mailing
-                          ?.title ||
-                        "Рассылка не указана"}
+                    <div className="my-contact-card__identity">
+                      <strong>
+                        {contact.full_name ||
+                          contact.telegram_username ||
+                          contact.phone ||
+                          "Без имени"}
+                      </strong>
+
+                      <span>
+                        {contact.mailing
+                          ?.name ||
+                          contact.mailing
+                            ?.title ||
+                          "Рассылка не указана"}
+                      </span>
+                    </div>
+
+                    <span
+                      className={`my-contact-status my-contact-status--${
+                        contact.status ||
+                        "responded"
+                      }`}
+                    >
+                      {contact
+                        .applications_count >
+                      0
+                        ? `${
+                            contact
+                              .applications_count
+                          } ${getApplicationsWord(
+                            contact
+                              .applications_count
+                          )}`
+                        : "Без заявки"}
                     </span>
                   </div>
 
-                  <span
-                    className={`my-contact-status my-contact-status--${
-                      contact.status ||
-                      "new"
-                    }`}
-                  >
-                    {statusConfig[
-                      contact.status
-                    ] ||
-                      contact.status ||
-                      "Новый"}
-                  </span>
-                </div>
+                  <div className="my-contact-card__details">
+                    <DetailRow
+                      icon={Phone}
+                      value={
+                        contact.phone ||
+                        "Телефон не указан"
+                      }
+                    />
 
-                <div className="my-contact-card__details">
-                  <DetailRow
-                    icon={Phone}
-                    value={
-                      contact.phone ||
-                      "Телефон не указан"
-                    }
-                  />
-
-                  <DetailRow
-                    icon={Send}
-                    value={
-                      contact.telegram_username
-                        ? `@${String(
-                            contact.telegram_username
-                          ).replace(
-                            /^@/,
-                            ""
-                          )}`
-                        : "Telegram не найден"
-                    }
-                  />
-
-                  <DetailRow
-                    icon={Mail}
-                    value={
-                      contact.email ||
-                      "Email не указан"
-                    }
-                  />
-
-                  <DetailRow
-                    icon={Clock3}
-                    value={
-                      contact.responded_at
-                        ? `Ответил: ${formatDate(
-                            contact.responded_at
-                          )}`
-                        : contact.sent_at
-                          ? `Отправлено: ${formatDate(
-                              contact.sent_at
+                    <DetailRow
+                      icon={Send}
+                      value={
+                        contact.telegram_username
+                          ? `@${String(
+                              contact.telegram_username
+                            ).replace(
+                              /^@/,
+                              ""
                             )}`
-                          : "Сообщение не отправлено"
-                    }
-                  />
-                </div>
+                          : "Telegram не найден"
+                      }
+                    />
 
-                <button
-                  className="my-contact-card__button"
-                  type="button"
-                >
-                  Открыть контакт
-                </button>
-              </article>
-            )
+                    <DetailRow
+                      icon={Mail}
+                      value={
+                        contact.email ||
+                        "Email не указан"
+                      }
+                    />
+
+                    <DetailRow
+                      icon={Clock3}
+                      value={
+                        contact.responded_at
+                          ? `Ответил: ${formatDate(
+                              contact.responded_at
+                            )}`
+                          : "Дата ответа не указана"
+                      }
+                    />
+                  </div>
+
+                  {latestApplication ? (
+                    <div className="my-contact-application-preview">
+                      <div>
+                        <span>
+                          Последняя заявка
+                        </span>
+
+                        <strong>
+                          {latestApplication
+                            .product_data
+                            ?.name ||
+                            latestApplication
+                              .product ||
+                            "Без продукта"}
+                        </strong>
+                      </div>
+
+                      <span
+                        className={`my-contact-application-status my-contact-application-status--${latestApplication.status}`}
+                      >
+                        {applicationStatusConfig[
+                          latestApplication
+                            .status
+                        ] ||
+                          latestApplication
+                            .status}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="my-contact-no-application">
+                      <FilePlus2 size={17} />
+
+                      <span>
+                        Заявка ещё не создана
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="my-contact-card__actions">
+                    <button
+                      className="my-contact-card__button"
+                      type="button"
+                      onClick={() =>
+                        openContact(contact)
+                      }
+                    >
+                      {contact
+                        .applications_count >
+                      0
+                        ? "Открыть и редактировать"
+                        : "Создать заявку"}
+                    </button>
+                  </div>
+                </article>
+              );
+            }
           )}
         </section>
       )}
@@ -644,15 +689,11 @@ export default function MyContacts() {
         }
         managers={[]}
         products={products}
-        onMarkSent={handleMarkSent}
-        onMarkResponded={
-          handleMarkResponded
-        }
         onSaveComment={
           handleSaveComment
         }
-        onCreateApplication={
-          handleCreateApplication
+        onContactChanged={
+          handleContactChanged
         }
         actionLoading={
           actionLoading
@@ -689,6 +730,37 @@ function DetailRow({
       <span>{value}</span>
     </div>
   );
+}
+
+function getApplicationsWord(value) {
+  const number =
+    Math.abs(Number(value || 0));
+
+  const lastTwoDigits =
+    number % 100;
+
+  const lastDigit =
+    number % 10;
+
+  if (
+    lastTwoDigits >= 11 &&
+    lastTwoDigits <= 19
+  ) {
+    return "заявок";
+  }
+
+  if (lastDigit === 1) {
+    return "заявка";
+  }
+
+  if (
+    lastDigit >= 2 &&
+    lastDigit <= 4
+  ) {
+    return "заявки";
+  }
+
+  return "заявок";
 }
 
 function formatDate(value) {

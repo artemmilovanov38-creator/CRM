@@ -13,6 +13,9 @@ const APPLICATION_REPORT_FIELDS = `
   mailing_id,
   mailing_contact_id,
   amount,
+  comment,
+  approved_at,
+  opening_price_snapshot,
   created_at,
   updated_at,
 
@@ -111,10 +114,45 @@ function getProductName(application) {
   );
 }
 
-function getProductRate(
+function hasOpeningPriceSnapshot(
+  application
+) {
+  return (
+    application
+      ?.opening_price_snapshot !==
+      null &&
+    application
+      ?.opening_price_snapshot !==
+      undefined
+  );
+}
+
+/**
+ * Возвращает ставку, которая должна
+ * использоваться для расчёта выплаты.
+ *
+ * Для успешной заявки сначала берётся
+ * ставка, сохранённая в момент открытия.
+ *
+ * Текущая ставка продукта используется
+ * только как запасной вариант для старых
+ * заявок без снимка ставки.
+ */
+function getApplicationOpeningRate(
   application,
   productMap
 ) {
+  if (
+    hasOpeningPriceSnapshot(
+      application
+    )
+  ) {
+    return toSafeNumber(
+      application
+        .opening_price_snapshot
+    );
+  }
+
   const productId =
     getProductId(application);
 
@@ -167,15 +205,82 @@ function calculateApplicationSalary(
     return 0;
   }
 
-  return getProductRate(
+  return getApplicationOpeningRate(
     application,
     productMap
   );
 }
 
-function getStartOfDayISOString(
+/**
+ * Дата, по которой заявка попадает
+ * в отчёт.
+ *
+ * Для успешной заявки используется
+ * approved_at.
+ *
+ * Для остальных статусов используется
+ * created_at.
+ */
+function getApplicationReportDate(
+  application
+) {
+  if (
+    application?.status === "approved"
+  ) {
+    return (
+      application.approved_at ||
+      application.updated_at ||
+      application.created_at ||
+      null
+    );
+  }
+
+  return (
+    application?.created_at ||
+    null
+  );
+}
+
+function getApplicationReportDateKey(
+  application
+) {
+  const value =
+    getApplicationReportDate(
+      application
+    );
+
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return "";
+  }
+
+  return [
+    date.getFullYear(),
+
+    String(
+      date.getMonth() + 1
+    ).padStart(2, "0"),
+
+    String(
+      date.getDate()
+    ).padStart(2, "0"),
+  ].join("-");
+}
+
+function getStartOfDayTimestamp(
   dateValue
 ) {
+  if (!dateValue) {
+    return null;
+  }
+
   const date = new Date(
     `${dateValue}T00:00:00`
   );
@@ -186,12 +291,16 @@ function getStartOfDayISOString(
     return null;
   }
 
-  return date.toISOString();
+  return date.getTime();
 }
 
-function getEndOfDayISOString(
+function getEndOfDayTimestamp(
   dateValue
 ) {
+  if (!dateValue) {
+    return null;
+  }
+
   const date = new Date(
     `${dateValue}T23:59:59.999`
   );
@@ -202,10 +311,80 @@ function getEndOfDayISOString(
     return null;
   }
 
-  return date.toISOString();
+  return date.getTime();
+}
+
+function isApplicationInsidePeriod(
+  application,
+  dateFrom,
+  dateTo
+) {
+  if (!dateFrom && !dateTo) {
+    return true;
+  }
+
+  const reportDate =
+    getApplicationReportDate(
+      application
+    );
+
+  if (!reportDate) {
+    return false;
+  }
+
+  const timestamp =
+    new Date(reportDate).getTime();
+
+  if (
+    Number.isNaN(timestamp)
+  ) {
+    return false;
+  }
+
+  if (dateFrom) {
+    const startTimestamp =
+      getStartOfDayTimestamp(
+        dateFrom
+      );
+
+    if (
+      startTimestamp === null ||
+      timestamp < startTimestamp
+    ) {
+      return false;
+    }
+  }
+
+  if (dateTo) {
+    const endTimestamp =
+      getEndOfDayTimestamp(
+        dateTo
+      );
+
+    if (
+      endTimestamp === null ||
+      timestamp > endTimestamp
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export const reportService = {
+  /**
+   * Получить заявки для отчёта.
+   *
+   * Фильтры по менеджеру, продукту,
+   * источнику и статусу применяются
+   * в Supabase.
+   *
+   * Период применяется после загрузки,
+   * потому что для successful-заявок
+   * используется approved_at, а для
+   * остальных — created_at.
+   */
   async getApplications({
     dateFrom = null,
     dateTo = null,
@@ -216,6 +395,47 @@ export const reportService = {
     status = null,
     mailingId = null,
   } = {}) {
+    if (
+      dateFrom &&
+      getStartOfDayTimestamp(
+        dateFrom
+      ) === null
+    ) {
+      return {
+        data: [],
+        error: createServiceError(
+          "Некорректная начальная дата"
+        ),
+      };
+    }
+
+    if (
+      dateTo &&
+      getEndOfDayTimestamp(
+        dateTo
+      ) === null
+    ) {
+      return {
+        data: [],
+        error: createServiceError(
+          "Некорректная конечная дата"
+        ),
+      };
+    }
+
+    if (
+      dateFrom &&
+      dateTo &&
+      dateFrom > dateTo
+    ) {
+      return {
+        data: [],
+        error: createServiceError(
+          "Начальная дата не может быть позже конечной"
+        ),
+      };
+    }
+
     let query = supabase
       .from("applications")
       .select(
@@ -225,48 +445,6 @@ export const reportService = {
         ascending: true,
       });
 
-    if (dateFrom) {
-      const dateFromISOString =
-        getStartOfDayISOString(
-          dateFrom
-        );
-
-      if (!dateFromISOString) {
-        return {
-          data: [],
-          error: createServiceError(
-            "Некорректная начальная дата"
-          ),
-        };
-      }
-
-      query = query.gte(
-        "created_at",
-        dateFromISOString
-      );
-    }
-
-    if (dateTo) {
-      const dateToISOString =
-        getEndOfDayISOString(
-          dateTo
-        );
-
-      if (!dateToISOString) {
-        return {
-          data: [],
-          error: createServiceError(
-            "Некорректная конечная дата"
-          ),
-        };
-      }
-
-      query = query.lte(
-        "created_at",
-        dateToISOString
-      );
-    }
-
     if (managerId) {
       query = query.eq(
         "assigned_manager_id",
@@ -274,20 +452,12 @@ export const reportService = {
       );
     }
 
-    /*
-     * Основной фильтр — по product_id.
-     */
     if (productId) {
       query = query.eq(
         "product_id",
         productId
       );
     } else if (product) {
-      /*
-       * Оставляем поддержку старого
-       * текстового фильтра, чтобы текущая
-       * страница отчётов не сломалась.
-       */
       query = query.eq(
         "product",
         product
@@ -318,9 +488,49 @@ export const reportService = {
     const { data, error } =
       await query;
 
+    if (error) {
+      return {
+        data: [],
+        error,
+      };
+    }
+
+    const applications =
+      (data || []).filter(
+        (application) =>
+          isApplicationInsidePeriod(
+            application,
+            dateFrom,
+            dateTo
+          )
+      );
+
+    applications.sort(
+      (
+        firstApplication,
+        secondApplication
+      ) => {
+        const firstDate =
+          new Date(
+            getApplicationReportDate(
+              firstApplication
+            ) || 0
+          ).getTime();
+
+        const secondDate =
+          new Date(
+            getApplicationReportDate(
+              secondApplication
+            ) || 0
+          ).getTime();
+
+        return firstDate - secondDate;
+      }
+    );
+
     return {
-      data: data || [],
-      error,
+      data: applications,
+      error: null,
     };
   },
 
@@ -421,10 +631,11 @@ export const reportService = {
         managers,
         products,
 
-        metrics: calculateMetrics(
-          applications,
-          productMap
-        ),
+        metrics:
+          calculateMetrics(
+            applications,
+            productMap
+          ),
 
         statusStats:
           calculateStatusStats(
@@ -440,7 +651,8 @@ export const reportService = {
 
         sourceStats:
           calculateSourceStats(
-            applications
+            applications,
+            productMap
           ),
 
         managerStats:
@@ -551,7 +763,7 @@ function calculateMetrics(
         calculateApplicationSalary(
           application,
           productMap
-        ) === 0
+        ) <= 0
     ).length;
 
   const conversion =
@@ -582,11 +794,6 @@ function calculateMetrics(
     inProgress:
       inProgressApplications.length,
 
-    /*
-     * Поле оставлено только для
-     * совместимости со старой вёрсткой.
-     * Статуса waiting больше нет.
-     */
     waiting: 0,
 
     conversion,
@@ -658,11 +865,18 @@ function calculateProductStats(
       productId: product.id,
       title: product.name,
       name: product.name,
+
       rate: toSafeNumber(
         product.opening_price
       ),
+
+      currentRate: toSafeNumber(
+        product.opening_price
+      ),
+
       isActive:
         Boolean(product.is_active),
+
       applications: 0,
       approved: 0,
       rejected: 0,
@@ -670,6 +884,7 @@ function calculateProductStats(
       amount: 0,
       approvedAmount: 0,
       salary: 0,
+      rateGroups: {},
     });
   });
 
@@ -695,19 +910,31 @@ function calculateProductStats(
           key: mapKey,
           id: productId,
           productId,
+
           title:
             product?.name ||
-            getProductName(application),
+            getProductName(
+              application
+            ),
+
           name:
             product?.name ||
-            getProductName(application),
-          rate: getProductRate(
-            application,
-            productMap
+            getProductName(
+              application
+            ),
+
+          rate: toSafeNumber(
+            product?.opening_price
           ),
+
+          currentRate: toSafeNumber(
+            product?.opening_price
+          ),
+
           isActive:
             product?.is_active ??
             false,
+
           applications: 0,
           approved: 0,
           rejected: 0,
@@ -715,6 +942,7 @@ function calculateProductStats(
           amount: 0,
           approvedAmount: 0,
           salary: 0,
+          rateGroups: {},
         });
       }
 
@@ -743,6 +971,12 @@ function calculateProductStats(
         application.status ===
         "approved"
       ) {
+        const rate =
+          calculateApplicationSalary(
+            application,
+            productMap
+          );
+
         item.approved += 1;
 
         item.approvedAmount +=
@@ -750,11 +984,26 @@ function calculateProductStats(
             application.amount
           );
 
-        item.salary +=
-          calculateApplicationSalary(
-            application,
-            productMap
-          );
+        item.salary += rate;
+
+        const rateKey =
+          String(rate);
+
+        if (!item.rateGroups[rateKey]) {
+          item.rateGroups[rateKey] = {
+            rate,
+            openings: 0,
+            salary: 0,
+          };
+        }
+
+        item.rateGroups[
+          rateKey
+        ].openings += 1;
+
+        item.rateGroups[
+          rateKey
+        ].salary += rate;
       }
 
       if (
@@ -769,19 +1018,35 @@ function calculateProductStats(
   return Array.from(
     statsMap.values()
   )
-    .map((product) => ({
-      ...product,
+    .map((product) => {
+      const rateGroups =
+        Object.values(
+          product.rateGroups
+        );
 
-      conversion:
-        product.applications > 0
-          ? roundNumber(
-              (
-                product.approved /
-                product.applications
-              ) * 100
-            )
-          : 0,
-    }))
+      const displayRate =
+        rateGroups.length === 1
+          ? rateGroups[0].rate
+          : product.currentRate;
+
+      return {
+        ...product,
+
+        rate: displayRate,
+
+        rateGroups,
+
+        conversion:
+          product.applications > 0
+            ? roundNumber(
+                (
+                  product.approved /
+                  product.applications
+                ) * 100
+              )
+            : 0,
+      };
+    })
     .filter(
       (product) =>
         product.applications > 0 ||
@@ -801,7 +1066,8 @@ function calculateProductStats(
 }
 
 function calculateSourceStats(
-  applications
+  applications,
+  productMap
 ) {
   const sourceMap = new Map();
 
@@ -815,15 +1081,17 @@ function calculateSourceStats(
       if (!sourceMap.has(source)) {
         sourceMap.set(source, {
           key: source,
-          title: formatSource(
-            source
-          ),
+
+          title:
+            formatSource(source),
+
           applications: 0,
           approved: 0,
           rejected: 0,
           active: 0,
           amount: 0,
           approvedAmount: 0,
+          salary: 0,
         });
       }
 
@@ -857,6 +1125,12 @@ function calculateSourceStats(
         sourceItem.approvedAmount +=
           toSafeNumber(
             application.amount
+          );
+
+        sourceItem.salary +=
+          calculateApplicationSalary(
+            application,
+            productMap
           );
       }
 
@@ -1083,10 +1357,10 @@ function calculateManagerStats(
               application
             ),
 
-          rate: getProductRate(
-            application,
-            productMap
-          ),
+          currentRate:
+            toSafeNumber(
+              product?.opening_price
+            ),
 
           applications: 0,
           approved: 0,
@@ -1094,6 +1368,7 @@ function calculateManagerStats(
           active: 0,
           salary: 0,
           amount: 0,
+          rateGroups: {},
         };
       }
 
@@ -1125,13 +1400,39 @@ function calculateManagerStats(
         application.status ===
         "approved"
       ) {
-        managerProduct.approved += 1;
-
-        managerProduct.salary +=
+        const rate =
           calculateApplicationSalary(
             application,
             productMap
           );
+
+        managerProduct.approved += 1;
+        managerProduct.salary += rate;
+
+        const rateKey =
+          String(rate);
+
+        if (
+          !managerProduct
+            .rateGroups[rateKey]
+        ) {
+          managerProduct
+            .rateGroups[rateKey] = {
+            rate,
+            openings: 0,
+            salary: 0,
+          };
+        }
+
+        managerProduct
+          .rateGroups[
+            rateKey
+          ].openings += 1;
+
+        managerProduct
+          .rateGroups[
+            rateKey
+          ].salary += rate;
       }
 
       if (
@@ -1143,11 +1444,6 @@ function calculateManagerStats(
     }
   );
 
-  /*
-   * Добавляем продукты без заявок
-   * в детализацию менеджера, чтобы
-   * интерфейс мог показать нулевые значения.
-   */
   managerMap.forEach(
     (manager) => {
       products.forEach((product) => {
@@ -1168,9 +1464,10 @@ function calculateManagerStats(
           title: product.name,
           name: product.name,
 
-          rate: toSafeNumber(
-            product.opening_price
-          ),
+          currentRate:
+            toSafeNumber(
+              product.opening_price
+            ),
 
           applications: 0,
           approved: 0,
@@ -1178,6 +1475,7 @@ function calculateManagerStats(
           active: 0,
           salary: 0,
           amount: 0,
+          rateGroups: {},
         };
       });
     }
@@ -1192,7 +1490,23 @@ function calculateManagerStats(
       products:
         Object.values(
           manager.products
-        ),
+        ).map((product) => ({
+          ...product,
+
+          rateGroups:
+            Object.values(
+              product.rateGroups
+            ),
+
+          rate:
+            Object.values(
+              product.rateGroups
+            ).length === 1
+              ? Object.values(
+                  product.rateGroups
+                )[0].rate
+              : product.currentRate,
+        })),
 
       conversion:
         manager.applications > 0
@@ -1227,17 +1541,14 @@ function calculateDailyStats(
 
   applications.forEach(
     (application) => {
-      if (
-        !application.created_at
-      ) {
+      const dateKey =
+        getApplicationReportDateKey(
+          application
+        );
+
+      if (!dateKey) {
         return;
       }
-
-      const dateKey =
-        application.created_at.slice(
-          0,
-          10
-        );
 
       if (!dailyMap.has(dateKey)) {
         dailyMap.set(dateKey, {

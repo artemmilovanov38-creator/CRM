@@ -532,3 +532,129 @@
 .mailing-contact-checkbox {
   flex: 0 0 auto;
 }
+/* ==========================================================
+   NEW CRM FLOW
+========================================================== */
+
+.mailing-contacts-summary--extended {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.mailing-contacts-summary-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.mailing-contacts-summary-card__icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 13px;
+  background: rgba(99,102,241,.12);
+  color: #98a5ff;
+}
+
+.mailing-contacts-summary-card strong{
+  display:block;
+  margin-top:6px;
+}
+
+.mailing-contact-badges{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:6px;
+}
+
+.mailing-contact-response{
+  display:inline-flex;
+  align-items:center;
+  padding:5px 10px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+}
+
+.mailing-contact-response--yes{
+  background:rgba(34,197,94,.15);
+  color:#86efac;
+}
+
+.mailing-contact-response--no{
+  background:rgba(239,68,68,.15);
+  color:#fca5a5;
+}
+
+.mailing-contact-application-count{
+  display:inline-flex;
+  align-items:center;
+  padding:5px 10px;
+  border-radius:999px;
+  background:rgba(99,102,241,.14);
+  color:#c7d2fe;
+  font-size:11px;
+  font-weight:700;
+}
+
+.mailing-contact-latest-application{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-top:16px;
+  padding-top:16px;
+  border-top:1px solid #243044;
+}
+
+.mailing-contact-latest-application span{
+  color:#7b889f;
+  font-size:11px;
+}
+
+.mailing-contact-latest-application strong{
+  display:block;
+  margin-top:5px;
+  color:#f3f6fd;
+}
+
+.mailing-contact-application-status{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:92px;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:700;
+}
+
+.mailing-contact-application-status--new{
+  background:#334155;
+  color:#e2e8f0;
+}
+
+.mailing-contact-application-status--in_progress{
+  background:rgba(59,130,246,.15);
+  color:#93c5fd;
+}
+
+.mailing-contact-application-status--approved{
+  background:rgba(34,197,94,.15);
+  color:#86efac;
+}
+
+.mailing-contact-application-status--rejected{
+  background:rgba(239,68,68,.15);
+  color:#fca5a5;
+}
+
+.mailing-contact-card--responded{
+  border-left:4px solid #22c55e;
+}
+
+.mailing-contact-card--unanswered{
+  border-left:4px solid #ef4444;
+}

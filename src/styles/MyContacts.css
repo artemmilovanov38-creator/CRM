@@ -16,6 +16,7 @@
   color: #7c6cff;
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -23,12 +24,15 @@
   margin: 0;
   color: #f4f6fb;
   font-size: 30px;
+  line-height: 1.15;
 }
 
 .my-contacts-header p {
+  max-width: 720px;
   margin: 9px 0 0;
   color: #818b9f;
   font-size: 13px;
+  line-height: 1.55;
 }
 
 .my-contacts-stats {
@@ -40,10 +44,18 @@
 }
 
 .my-contacts-stat {
+  position: relative;
+  overflow: hidden;
   padding: 17px;
   border: 1px solid #252d3b;
   border-radius: 14px;
-  background: #111720;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(124, 108, 255, 0.08),
+      transparent 42%
+    ),
+    #111720;
 }
 
 .my-contacts-stat > div {
@@ -67,6 +79,7 @@
 .my-contacts-stat strong {
   color: #f2f4f8;
   font-size: 24px;
+  line-height: 1;
 }
 
 .my-contacts-toolbar {
@@ -87,15 +100,28 @@
   border-radius: 11px;
   background: #0d131c;
   color: #6f7a8d;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.my-contacts-search:focus-within {
+  border-color: #7162e8;
+  box-shadow: 0 0 0 3px rgba(113, 98, 232, 0.11);
 }
 
 .my-contacts-search input {
   width: 100%;
+  min-width: 0;
   border: 0;
   outline: 0;
   background: transparent;
   color: #edf0f5;
   font: inherit;
+}
+
+.my-contacts-search input::placeholder {
+  color: #657086;
 }
 
 .my-contacts-toolbar select {
@@ -116,6 +142,10 @@
   font-size: 12px;
 }
 
+.my-contacts-result strong {
+  color: #d7dce6;
+}
+
 .my-contacts-grid {
   display: grid;
   grid-template-columns:
@@ -124,12 +154,33 @@
 }
 
 .my-contact-card {
+  display: flex;
   min-width: 0;
+  flex-direction: column;
   padding: 16px;
   border: 1px solid #252e3d;
   border-radius: 15px;
-  background: #101620;
-  cursor: pointer;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(16, 22, 32, 0.98),
+      rgba(11, 16, 24, 0.98)
+    );
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.my-contact-card:hover {
+  transform: translateY(-2px);
+  border-color: #364156;
+  box-shadow:
+    0 18px 38px rgba(0, 0, 0, 0.23),
+    0 0 0 1px rgba(113, 98, 232, 0.04);
 }
 
 .my-contact-card__top {
@@ -144,6 +195,7 @@
   height: 40px;
   place-items: center;
   flex: 0 0 40px;
+  border: 1px solid rgba(113, 98, 232, 0.18);
   border-radius: 11px;
   background: rgba(113, 98, 232, 0.14);
   color: #a69eff;
@@ -175,21 +227,18 @@
 
 .my-contact-status {
   display: inline-flex;
-  max-width: 120px;
+  max-width: 130px;
   min-height: 24px;
   align-items: center;
+  justify-content: center;
   padding: 0 8px;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.1);
   color: #cbd5e1;
   font-size: 8px;
   font-weight: 700;
+  line-height: 1.2;
   text-align: center;
-}
-
-.my-contact-status--sent {
-  background: rgba(6, 182, 212, 0.12);
-  color: #67e8f9;
 }
 
 .my-contact-status--responded {
@@ -229,17 +278,129 @@
   white-space: nowrap;
 }
 
+.my-contact-application-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 15px;
+  padding: 12px;
+  border: 1px solid #2a3344;
+  border-radius: 11px;
+  background: rgba(8, 12, 19, 0.45);
+}
+
+.my-contact-application-preview > div {
+  min-width: 0;
+}
+
+.my-contact-application-preview span,
+.my-contact-application-preview strong {
+  display: block;
+}
+
+.my-contact-application-preview > div > span {
+  margin-bottom: 5px;
+  color: #6f7a8f;
+  font-size: 9px;
+}
+
+.my-contact-application-preview strong {
+  overflow: hidden;
+  color: #e7ebf2;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-contact-application-status {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.my-contact-application-status--new {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+}
+
+.my-contact-application-status--in_progress {
+  background: rgba(167, 139, 250, 0.12);
+  color: #c4b5fd;
+}
+
+.my-contact-application-status--approved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+}
+
+.my-contact-application-status--rejected {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+}
+
+.my-contact-no-application {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 15px;
+  padding: 0 12px;
+  border: 1px dashed #30394a;
+  border-radius: 11px;
+  background: rgba(8, 12, 19, 0.28);
+  color: #7c8799;
+  font-size: 10px;
+}
+
+.my-contact-no-application svg {
+  color: #8a7ff0;
+}
+
+.my-contact-card__actions {
+  margin-top: auto;
+  padding-top: 15px;
+}
+
 .my-contact-card__button {
   width: 100%;
-  min-height: 40px;
-  margin-top: 15px;
-  border: 1px solid #323b4d;
+  min-height: 42px;
+  border: 1px solid #3b4660;
   border-radius: 9px;
-  background: #171d27;
-  color: #dfe3ea;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(92, 79, 208, 0.22),
+      rgba(129, 116, 239, 0.14)
+    );
+  color: #e8e5ff;
   font: inherit;
   font-size: 11px;
+  font-weight: 700;
   cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.my-contact-card__button:hover {
+  transform: translateY(-1px);
+  border-color: #7162e8;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(92, 79, 208, 0.34),
+      rgba(129, 116, 239, 0.24)
+    );
 }
 
 .my-contacts-state {
@@ -259,6 +420,11 @@
 
 .my-contacts-state strong {
   color: #e3e7ed;
+}
+
+.my-contacts-state span {
+  max-width: 360px;
+  line-height: 1.55;
 }
 
 .my-contacts-spinner {
@@ -285,11 +451,10 @@
   }
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .my-contacts-stats,
   .my-contacts-grid {
     grid-template-columns:
       repeat(2, minmax(0, 1fr));
   }
 }
-

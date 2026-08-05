@@ -1809,6 +1809,20 @@ function getApplicationProductName(
 function getApplicationProductRate(
   application
 ) {
+  if (
+    application
+      ?.opening_price_snapshot !==
+      null &&
+    application
+      ?.opening_price_snapshot !==
+      undefined
+  ) {
+    return Number(
+      application
+        .opening_price_snapshot || 0
+    );
+  }
+
   return Number(
     application?.product_data
       ?.opening_price || 0
