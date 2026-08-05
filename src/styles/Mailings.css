@@ -1123,3 +1123,71 @@
   .mailing-delete-button {
   grid-column: 1 / -1;
 }
+/* ==========================
+   ЭТАПЫ ОБРАБОТКИ
+========================== */
+
+.mailing-stage-summary {
+  margin-top: 20px;
+  padding: 22px;
+  background: #131a26;
+  border: 1px solid #252f42;
+  border-radius: 18px;
+}
+
+.mailing-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.mailing-stage-grid article {
+  padding: 18px;
+  background: #0f1622;
+  border: 1px solid #283245;
+  border-radius: 14px;
+  transition: .2s;
+}
+
+.mailing-stage-grid article:hover {
+  border-color: #4f6cff;
+  transform: translateY(-2px);
+}
+
+.mailing-stage-grid span {
+  display: block;
+  margin-bottom: 8px;
+  color: #8b97ad;
+  font-size: 12px;
+}
+
+.mailing-stage-grid strong {
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+/* ==========================
+   МОБИЛЬНАЯ ВЕРСИЯ
+========================== */
+
+@media (max-width: 900px) {
+  .mailing-stage-grid {
+    grid-template-columns: repeat(2, minmax(0,1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .mailing-stage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mailing-stage-summary {
+    padding: 16px;
+  }
+
+  .mailing-stage-grid strong {
+    font-size: 22px;
+  }
+}

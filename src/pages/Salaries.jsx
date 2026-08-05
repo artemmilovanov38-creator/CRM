@@ -31,6 +31,8 @@ import {
   profileService,
 } from "../services/profileService";
 
+import "../styles/Salaries.css";
+
 export default function Salaries() {
   const defaultPeriod =
     getCurrentMonthPeriod();
