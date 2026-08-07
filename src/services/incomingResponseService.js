@@ -7,10 +7,10 @@ const CONTACT_FIELDS = `
   phone,
   email,
   telegram_username,
-  telegram_user_id,
-  telegram_found,
   manager_id,
   status,
+  source,
+  is_external,
   sent_at,
   responded_at,
   application_created_at,
@@ -21,11 +21,8 @@ const CONTACT_FIELDS = `
   mailing:mailings (
     id,
     name,
-    supplier,
-    mailing_method,
     status,
-    created_at,
-    started_at
+    created_at
   ),
 
   manager:profiles (
@@ -51,18 +48,12 @@ function normalizeTelegramUsername(value) {
     .trim()
     .toLowerCase();
 
-  if (!cleaned) {
-    return "";
-  }
-
-  return `@${cleaned}`;
+  return cleaned ? `@${cleaned}` : "";
 }
 
 function normalizePhone(value) {
-  let digits = String(value || "").replace(
-    /\D/g,
-    ""
-  );
+  let digits = String(value || "")
+    .replace(/\D/g, "");
 
   if (!digits) {
     return "";
@@ -82,221 +73,278 @@ function normalizePhone(value) {
   return digits;
 }
 
-function normalizeStoredTelegram(value) {
-  return normalizeTelegramUsername(value);
-}
+function normalizeIdentifier(value) {
+  const raw = String(value || "").trim();
 
-function normalizeStoredPhone(value) {
-  return normalizePhone(value);
-}
-
-/**
- * Разбирает текст, вставленный менеджером.
- *
- * Можно вставлять:
- * @username
- * @username2
- * +79991234567
- *
- * Поддерживаются переносы строк, пробелы,
- * запятые и точки с запятой.
- */
-function parseIdentifiers(value) {
-  const source = String(value || "").trim();
-
-  if (!source) {
-    return [];
+  if (!raw) {
+    return null;
   }
 
-  const rawItems = source
+  if (
+    raw.startsWith("@") ||
+    /^https?:\/\/t\.me\//i.test(raw) ||
+    /^t\.me\//i.test(raw) ||
+    /[a-zа-яё]/i.test(raw)
+  ) {
+    const telegram =
+      normalizeTelegramUsername(raw);
+
+    if (!telegram) {
+      return null;
+    }
+
+    return {
+      type: "telegram",
+      value: telegram,
+      telegram,
+      phone: "",
+    };
+  }
+
+  const phone = normalizePhone(raw);
+
+  if (!phone) {
+    return null;
+  }
+
+  return {
+    type: "phone",
+    value: phone,
+    telegram: "",
+    phone,
+  };
+}
+
+function escapeLikeValue(value) {
+  return String(value)
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
+}
+
+function parseIdentifiers(value) {
+  const rawItems = String(value || "")
     .split(/[\n,;]+/)
-    .flatMap((item) => {
-      const trimmed = item.trim();
-
-      if (!trimmed) {
-        return [];
-      }
-
-      /*
-       * Телефон с пробелами не разбиваем.
-       * Обычные ники, разделённые пробелами,
-       * можно обработать отдельно.
-       */
-      if (
-        trimmed.includes("@") &&
-        /\s+/.test(trimmed)
-      ) {
-        return trimmed.split(/\s+/);
-      }
-
-      return [trimmed];
-    })
     .map((item) => item.trim())
     .filter(Boolean);
 
-  const prepared = [];
-  const usedKeys = new Set();
+  const result = [];
+  const used = new Set();
 
-  for (const rawValue of rawItems) {
-    const looksLikeTelegram =
-      rawValue.startsWith("@") ||
-      /t\.me\//i.test(rawValue) ||
-      /^[a-zA-Z][a-zA-Z0-9_]{3,}$/.test(
-        rawValue
-      );
+  for (const rawItem of rawItems) {
+    const normalized =
+      normalizeIdentifier(rawItem);
 
-    const telegram = looksLikeTelegram
-      ? normalizeTelegramUsername(rawValue)
-      : "";
-
-    const phone = telegram
-      ? ""
-      : normalizePhone(rawValue);
-
-    if (!telegram && !phone) {
+    if (!normalized) {
       continue;
     }
 
-    const type = telegram
-      ? "telegram"
-      : "phone";
+    const key =
+      `${normalized.type}:${normalized.value}`;
 
-    const normalizedValue =
-      telegram || phone;
-
-    const key = `${type}:${normalizedValue}`;
-
-    if (usedKeys.has(key)) {
+    if (used.has(key)) {
       continue;
     }
 
-    usedKeys.add(key);
+    used.add(key);
 
-    prepared.push({
-      rawValue,
-      type,
-      value: normalizedValue,
+    result.push({
+      ...normalized,
+      raw: rawItem,
+      identifier:
+        normalized.type === "telegram"
+          ? normalized.telegram
+          : normalized.phone,
     });
   }
 
-  return prepared;
+  return result;
 }
 
-function getStartOfTodayISOString() {
-  const date = new Date();
-
-  date.setHours(0, 0, 0, 0);
-
-  return date.toISOString();
-}
-
-function sortContactsNewestFirst(
-  firstContact,
-  secondContact
+async function findMailingContactsByTelegram(
+  normalizedTelegram
 ) {
-  const firstDate = new Date(
-    firstContact?.created_at || 0
-  ).getTime();
+  const withoutAt =
+    normalizedTelegram.replace(/^@/, "");
 
-  const secondDate = new Date(
-    secondContact?.created_at || 0
-  ).getTime();
+  const values = [
+    normalizedTelegram,
+    withoutAt,
+  ];
 
-  return secondDate - firstDate;
-}
+  const contactsMap = new Map();
 
-/**
- * Загружаем базу, в которой ищем написавших.
- *
- * Если передан mailingId — ищем только
- * в выбранной рассылке.
- *
- * Если mailingId не передан — сначала
- * пытаемся искать среди контактов,
- * загруженных сегодня.
- */
-async function getSearchableContacts({
-  mailingId = null,
-} = {}) {
-  let query = supabase
-    .from("mailing_contacts")
-    .select(CONTACT_FIELDS);
+  for (const value of values) {
+    const { data, error } = await supabase
+      .from("mailing_contacts")
+      .select(CONTACT_FIELDS)
+      .ilike(
+        "telegram_username",
+        escapeLikeValue(value)
+      )
+      .not("mailing_id", "is", null)
+      .order("created_at", {
+        ascending: false,
+      });
 
-  if (mailingId) {
-    query = query.eq(
-      "mailing_id",
-      mailingId
-    );
-  } else {
-    query = query.gte(
-      "created_at",
-      getStartOfTodayISOString()
-    );
-  }
-
-  const { data, error } = await query.order(
-    "created_at",
-    {
-      ascending: false,
+    if (error) {
+      return {
+        data: [],
+        error,
+      };
     }
-  );
 
-  return {
-    data: data || [],
-    error,
-  };
-}
-
-function findMatchingContact(
-  contacts,
-  identifier
-) {
-  const matchingContacts = contacts.filter(
-    (contact) => {
-      if (identifier.type === "telegram") {
-        return (
-          normalizeStoredTelegram(
-            contact.telegram_username
-          ) === identifier.value
-        );
-      }
-
-      return (
-        normalizeStoredPhone(
-          contact.phone
-        ) === identifier.value
+    for (const contact of data || []) {
+      contactsMap.set(
+        contact.id,
+        contact
       );
     }
-  );
+  }
 
-  return (
-    matchingContacts.sort(
-      sortContactsNewestFirst
-    )[0] || null
-  );
+  return {
+    data: Array.from(
+      contactsMap.values()
+    ),
+    error: null,
+  };
 }
 
-async function updateMatchedContact({
-  contact,
+async function findMailingContactsByPhone(
+  normalizedPhone
+) {
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select(CONTACT_FIELDS)
+    .not("phone", "is", null)
+    .not("mailing_id", "is", null)
+    .order("created_at", {
+      ascending: false,
+    });
+
+  if (error) {
+    return {
+      data: [],
+      error,
+    };
+  }
+
+  return {
+    data: (data || []).filter(
+      (contact) =>
+        normalizePhone(contact.phone) ===
+        normalizedPhone
+    ),
+    error: null,
+  };
+}
+
+async function findExternalContact({
+  normalizedTelegram = "",
+  normalizedPhone = "",
+}) {
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select(CONTACT_FIELDS)
+    .is("mailing_id", null)
+    .eq("is_external", true)
+    .order("created_at", {
+      ascending: false,
+    });
+
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  const contacts = data || [];
+
+  if (normalizedTelegram) {
+    return {
+      data:
+        contacts.find(
+          (contact) =>
+            normalizeTelegramUsername(
+              contact.telegram_username
+            ) === normalizedTelegram
+        ) || null,
+
+      error: null,
+    };
+  }
+
+  if (normalizedPhone) {
+    return {
+      data:
+        contacts.find(
+          (contact) =>
+            normalizePhone(contact.phone) ===
+            normalizedPhone
+        ) || null,
+
+      error: null,
+    };
+  }
+
+  return {
+    data: null,
+    error: null,
+  };
+}
+
+async function createExternalContact({
+  normalizedTelegram = "",
+  normalizedPhone = "",
   managerId,
 }) {
-  const now = new Date().toISOString();
+  if (!managerId) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Не удалось определить менеджера"
+      ),
+    };
+  }
 
-  const payload = {
-    manager_id: managerId,
-    responded_at:
-      contact.responded_at || now,
-    status:
-      contact.status === "application"
-        ? "application"
-        : "responded",
-    updated_at: now,
-  };
+  const now = new Date().toISOString();
 
   const { data, error } = await supabase
     .from("mailing_contacts")
-    .update(payload)
-    .eq("id", contact.id)
+    .insert({
+      mailing_id: null,
+
+      full_name:
+        normalizedTelegram ||
+        normalizedPhone ||
+        "Новый входящий",
+
+      phone:
+        normalizedPhone || null,
+
+      telegram_username:
+        normalizedTelegram || null,
+
+      manager_id: managerId,
+
+      status: "responded",
+
+      source: "external",
+
+      is_external: true,
+
+      responded_at: now,
+
+      sent_at: null,
+
+      application_created_at: null,
+
+      comment:
+        "Входящий контакт вне рассылки",
+
+      updated_at: now,
+    })
     .select(CONTACT_FIELDS)
     .single();
 
@@ -306,26 +354,276 @@ async function updateMatchedContact({
   };
 }
 
+async function registerSingleResponse({
+  telegram = "",
+  phone = "",
+  managerId,
+}) {
+  const normalizedTelegram =
+    normalizeTelegramUsername(telegram);
+
+  const normalizedPhone =
+    normalizePhone(phone);
+
+  if (
+    !normalizedTelegram &&
+    !normalizedPhone
+  ) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Введите Telegram-ник или номер телефона"
+      ),
+    };
+  }
+
+  if (!managerId) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Не удалось определить текущего менеджера"
+      ),
+    };
+  }
+
+  const identifier =
+    normalizedTelegram ||
+    normalizedPhone;
+
+  let mailingSearchResult;
+
+  if (normalizedTelegram) {
+    mailingSearchResult =
+      await findMailingContactsByTelegram(
+        normalizedTelegram
+      );
+  } else {
+    mailingSearchResult =
+      await findMailingContactsByPhone(
+        normalizedPhone
+      );
+  }
+
+  if (mailingSearchResult.error) {
+    return {
+      data: null,
+      error:
+        mailingSearchResult.error,
+    };
+  }
+
+  const matchedContacts =
+    mailingSearchResult.data || [];
+
+  if (matchedContacts.length > 0) {
+    const contact =
+      matchedContacts[0];
+
+    if (
+      contact.responded_at &&
+      contact.manager_id &&
+      contact.manager_id !== managerId
+    ) {
+      return {
+        data: {
+          identifier,
+          matched: true,
+          foundInMailing: true,
+          createdExternal: false,
+          alreadyResponded: true,
+          conflict: true,
+          contact,
+        },
+        error: null,
+      };
+    }
+
+    if (
+      contact.responded_at &&
+      contact.manager_id === managerId
+    ) {
+      return {
+        data: {
+          identifier,
+          matched: true,
+          foundInMailing: true,
+          createdExternal: false,
+          alreadyResponded: true,
+          conflict: false,
+          contact,
+        },
+        error: null,
+      };
+    }
+
+    const now =
+      new Date().toISOString();
+
+    const {
+      data: updatedContact,
+      error: updateError,
+    } = await supabase
+      .from("mailing_contacts")
+      .update({
+        responded_at:
+          contact.responded_at || now,
+
+        manager_id: managerId,
+
+        status: "responded",
+
+        source:
+          contact.source || "mailing",
+
+        is_external: false,
+
+        updated_at: now,
+      })
+      .eq("id", contact.id)
+      .select(CONTACT_FIELDS)
+      .single();
+
+    if (updateError) {
+      return {
+        data: null,
+        error: updateError,
+      };
+    }
+
+    return {
+      data: {
+        identifier,
+        matched: true,
+        foundInMailing: true,
+        createdExternal: false,
+        alreadyResponded:
+          Boolean(contact.responded_at),
+        conflict: false,
+        contact: updatedContact,
+      },
+      error: null,
+    };
+  }
+
+  const {
+    data: existingExternal,
+    error: externalError,
+  } = await findExternalContact({
+    normalizedTelegram,
+    normalizedPhone,
+  });
+
+  if (externalError) {
+    return {
+      data: null,
+      error: externalError,
+    };
+  }
+
+  if (existingExternal) {
+    if (
+      existingExternal.manager_id &&
+      existingExternal.manager_id !==
+        managerId
+    ) {
+      return {
+        data: {
+          identifier,
+          matched: false,
+          foundInMailing: false,
+          external: true,
+          createdExternal: false,
+          alreadyResponded: true,
+          conflict: true,
+          contact:
+            existingExternal,
+        },
+        error: null,
+      };
+    }
+
+    return {
+      data: {
+        identifier,
+        matched: false,
+        foundInMailing: false,
+        external: true,
+        createdExternal: false,
+        alreadyResponded: true,
+        conflict: false,
+        contact: existingExternal,
+      },
+      error: null,
+    };
+  }
+
+  const {
+    data: newContact,
+    error: createError,
+  } = await createExternalContact({
+    normalizedTelegram,
+    normalizedPhone,
+    managerId,
+  });
+
+  if (createError) {
+    return {
+      data: null,
+      error: createError,
+    };
+  }
+
+  return {
+    data: {
+      identifier,
+      matched: false,
+      foundInMailing: false,
+      external: true,
+      createdExternal: true,
+      alreadyResponded: false,
+      conflict: false,
+      contact: newContact,
+    },
+
+    error: null,
+  };
+}
+
+async function getContactApplications(
+  contactId
+) {
+  const { data, error } = await supabase
+    .from("applications")
+    .select(`
+      id,
+      status
+    `)
+    .eq(
+      "mailing_contact_id",
+      contactId
+    );
+
+  return {
+    data: data || [],
+    error,
+  };
+}
+
 export const incomingResponseService = {
   normalizeTelegramUsername,
   normalizePhone,
   parseIdentifiers,
 
-  /**
-   * Получить отклики.
-   *
-   * Менеджеру возвращаются только его
-   * контакты. Администратор и head могут
-   * получить все отклики.
-   */
   async getResponses({
     managerId = null,
-    onlyToday = false,
   } = {}) {
     let query = supabase
       .from("mailing_contacts")
       .select(CONTACT_FIELDS)
-      .not("responded_at", "is", null);
+      .not("responded_at", "is", null)
+      .order("responded_at", {
+        ascending: false,
+      });
 
     if (managerId) {
       query = query.eq(
@@ -334,20 +632,8 @@ export const incomingResponseService = {
       );
     }
 
-    if (onlyToday) {
-      query = query.gte(
-        "responded_at",
-        getStartOfTodayISOString()
-      );
-    }
-
     const { data, error } =
-      await query.order(
-        "responded_at",
-        {
-          ascending: false,
-        }
-      );
+      await query;
 
     return {
       data: data || [],
@@ -355,129 +641,27 @@ export const incomingResponseService = {
     };
   },
 
-  /**
-   * Добавить одного ответившего.
-   *
-   * Оставлено для совместимости
-   * с текущим Incoming.jsx.
-   */
   async registerResponse({
     telegram = "",
     phone = "",
     managerId = null,
-    mailingId = null,
   } = {}) {
-    if (!managerId) {
-      return {
-        data: null,
-        error: createServiceError(
-          "Не удалось определить менеджера"
-        ),
-      };
-    }
-
-    const identifierValue =
-      telegram || phone;
-
-    const result =
-      await this.registerResponses({
-        value: identifierValue,
-        managerId,
-        mailingId,
-      });
-
-    if (result.error) {
-      return {
-        data: null,
-        error: result.error,
-      };
-    }
-
-    const firstFound =
-      result.data.found[0];
-
-    const firstAlreadyResponded =
-      result.data.alreadyResponded[0];
-
-    const firstConflict =
-      result.data.conflicts[0];
-
-    const firstNotFound =
-      result.data.notFound[0];
-
-    if (firstConflict) {
-      return {
-        data: {
-          matched: true,
-          conflict: true,
-          contact:
-            firstConflict.contact,
-          identifier:
-            firstConflict.identifier,
-          manager:
-            firstConflict.manager,
-        },
-        error: null,
-      };
-    }
-
-    if (firstAlreadyResponded) {
-      return {
-        data: {
-          matched: true,
-          alreadyResponded: true,
-          contact:
-            firstAlreadyResponded.contact,
-          identifier:
-            firstAlreadyResponded.identifier,
-        },
-        error: null,
-      };
-    }
-
-    if (firstFound) {
-      return {
-        data: {
-          matched: true,
-          alreadyResponded: false,
-          contact:
-            firstFound.contact,
-          identifier:
-            firstFound.identifier,
-        },
-        error: null,
-      };
-    }
-
-    return {
-      data: {
-        matched: false,
-        identifier:
-          firstNotFound?.identifier ||
-          identifierValue,
-      },
-      error: null,
-    };
+    return registerSingleResponse({
+      telegram,
+      phone,
+      managerId,
+    });
   },
 
-  /**
-   * Массовое внесение написавших.
-   *
-   * value:
-   * @user1
-   * @user2
-   * +79991234567
-   */
   async registerResponses({
     value = "",
     managerId = null,
-    mailingId = null,
   } = {}) {
     if (!managerId) {
       return {
         data: null,
         error: createServiceError(
-          "Не удалось определить менеджера"
+          "Не удалось определить текущего менеджера"
         ),
       };
     }
@@ -494,135 +678,394 @@ export const incomingResponseService = {
       };
     }
 
-    const {
-      data: searchableContacts,
-      error: contactsError,
-    } = await getSearchableContacts({
-      mailingId,
-    });
-
-    if (contactsError) {
-      return {
-        data: null,
-        error: contactsError,
-      };
-    }
-
-    const result = {
-      total: identifiers.length,
-      found: [],
-      alreadyResponded: [],
-      conflicts: [],
-      notFound: [],
-      failed: [],
-    };
+    const found = [];
+    const createdExternal = [];
+    const alreadyResponded = [];
+    const conflicts = [];
+    const failed = [];
 
     for (const identifier of identifiers) {
-      const contact =
-        findMatchingContact(
-          searchableContacts,
-          identifier
-        );
+      try {
+        const {
+          data,
+          error,
+        } = await registerSingleResponse({
+          telegram:
+            identifier.type ===
+            "telegram"
+              ? identifier.telegram
+              : "",
 
-      if (!contact) {
-        result.notFound.push({
-          identifier:
-            identifier.value,
-          type: identifier.type,
-          rawValue:
-            identifier.rawValue,
+          phone:
+            identifier.type ===
+            "phone"
+              ? identifier.phone
+              : "",
+
+          managerId,
         });
 
-        continue;
-      }
+        if (error) {
+          failed.push({
+            identifier:
+              identifier.identifier,
+            error:
+              error.message ||
+              "Неизвестная ошибка",
+          });
 
-      /*
-       * Пользователь уже был внесён
-       * другим менеджером.
-       */
-      if (
-        contact.responded_at &&
-        contact.manager_id &&
-        contact.manager_id !== managerId
-      ) {
-        result.conflicts.push({
+          continue;
+        }
+
+        if (data?.conflict) {
+          conflicts.push({
+            identifier:
+              data.identifier,
+            contact:
+              data.contact,
+          });
+
+          continue;
+        }
+
+        if (data?.alreadyResponded) {
+          alreadyResponded.push({
+            identifier:
+              data.identifier,
+            contact:
+              data.contact,
+          });
+
+          continue;
+        }
+
+        if (data?.foundInMailing) {
+          found.push({
+            identifier:
+              data.identifier,
+            contact:
+              data.contact,
+          });
+
+          continue;
+        }
+
+        if (data?.createdExternal) {
+          createdExternal.push({
+            identifier:
+              data.identifier,
+            contact:
+              data.contact,
+          });
+
+          continue;
+        }
+      } catch (error) {
+        failed.push({
           identifier:
-            identifier.value,
-          contact,
-          manager:
-            contact.manager || null,
-        });
+            identifier.identifier,
 
-        continue;
-      }
-
-      /*
-       * Этот же менеджер уже внёс пользователя.
-       */
-      if (
-        contact.responded_at &&
-        contact.manager_id === managerId
-      ) {
-        result.alreadyResponded.push({
-          identifier:
-            identifier.value,
-          contact,
-        });
-
-        continue;
-      }
-
-      const {
-        data: updatedContact,
-        error: updateError,
-      } = await updateMatchedContact({
-        contact,
-        managerId,
-      });
-
-      if (updateError) {
-        result.failed.push({
-          identifier:
-            identifier.value,
-          contactId: contact.id,
           error:
-            updateError.message ||
-            "Не удалось обновить контакт",
+            error?.message ||
+            "Не удалось обработать контакт",
         });
-
-        continue;
       }
-
-      result.found.push({
-        identifier:
-          identifier.value,
-        contact: updatedContact,
-      });
     }
 
     return {
       data: {
-        ...result,
-
         summary: {
-          total: result.total,
-          found: result.found.length,
+          total:
+            identifiers.length,
+
+          found:
+            found.length,
+
+          createdExternal:
+            createdExternal.length,
+
+          externalCreated:
+            createdExternal.length,
 
           alreadyResponded:
-            result.alreadyResponded.length,
+            alreadyResponded.length,
 
           conflicts:
-            result.conflicts.length,
-
-          notFound:
-            result.notFound.length,
+            conflicts.length,
 
           failed:
-            result.failed.length,
+            failed.length,
+
+          notFound: 0,
+
+          successful:
+            found.length +
+            createdExternal.length +
+            alreadyResponded.length,
         },
+
+        found,
+        createdExternal,
+        externalCreated:
+          createdExternal,
+        alreadyResponded,
+        conflicts,
+        failed,
+        notFound: [],
       },
 
       error: null,
+    };
+  },
+
+  /*
+   * =====================================================
+   * УДАЛИТЬ ВНЕШНИЙ КОНТАКТ
+   * =====================================================
+   */
+
+  async deleteExternalResponse({
+    contactId,
+    managerId,
+  }) {
+    if (!contactId) {
+      return {
+        success: false,
+        error: createServiceError(
+          "Не передан ID контакта"
+        ),
+      };
+    }
+
+    const {
+      data: contact,
+      error: contactError,
+    } = await supabase
+      .from("mailing_contacts")
+      .select(`
+        id,
+        mailing_id,
+        manager_id,
+        is_external,
+        application_created_at
+      `)
+      .eq("id", contactId)
+      .maybeSingle();
+
+    if (contactError) {
+      return {
+        success: false,
+        error: contactError,
+      };
+    }
+
+    if (!contact) {
+      return {
+        success: false,
+        error: createServiceError(
+          "Контакт не найден"
+        ),
+      };
+    }
+
+    if (
+      contact.manager_id !==
+      managerId
+    ) {
+      return {
+        success: false,
+        error: createServiceError(
+          "Нельзя удалить чужой контакт"
+        ),
+      };
+    }
+
+    if (
+      contact.mailing_id ||
+      !contact.is_external
+    ) {
+      return {
+        success: false,
+        error: createServiceError(
+          "Контакт из рассылки нельзя удалить. Используйте отмену отметки ответа."
+        ),
+      };
+    }
+
+    const applicationsResult =
+      await getContactApplications(
+        contactId
+      );
+
+    if (applicationsResult.error) {
+      return {
+        success: false,
+        error:
+          applicationsResult.error,
+      };
+    }
+
+    if (
+      applicationsResult.data.length >
+      0
+    ) {
+      return {
+        success: false,
+        error: createServiceError(
+          "По контакту уже есть заявка. Сначала удалите заявку."
+        ),
+      };
+    }
+
+    const { error: deleteError } =
+      await supabase
+        .from("mailing_contacts")
+        .delete()
+        .eq("id", contactId)
+        .eq(
+          "manager_id",
+          managerId
+        );
+
+    if (deleteError) {
+      return {
+        success: false,
+        error: deleteError,
+      };
+    }
+
+    return {
+      success: true,
+      error: null,
+    };
+  },
+
+  /*
+   * =====================================================
+   * ОТМЕНИТЬ ОТВЕТ У КОНТАКТА ИЗ РАССЫЛКИ
+   * =====================================================
+   */
+
+  async undoMailingResponse({
+    contactId,
+    managerId,
+  }) {
+    if (!contactId) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Не передан ID контакта"
+        ),
+      };
+    }
+
+    const {
+      data: contact,
+      error: contactError,
+    } = await supabase
+      .from("mailing_contacts")
+      .select(`
+        id,
+        mailing_id,
+        manager_id,
+        is_external,
+        sent_at,
+        application_created_at
+      `)
+      .eq("id", contactId)
+      .maybeSingle();
+
+    if (contactError) {
+      return {
+        data: null,
+        error: contactError,
+      };
+    }
+
+    if (!contact) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Контакт не найден"
+        ),
+      };
+    }
+
+    if (
+      contact.manager_id !==
+      managerId
+    ) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Нельзя изменить чужой контакт"
+        ),
+      };
+    }
+
+    if (
+      !contact.mailing_id ||
+      contact.is_external
+    ) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Для контакта вне рассылки используйте удаление."
+        ),
+      };
+    }
+
+    const applicationsResult =
+      await getContactApplications(
+        contactId
+      );
+
+    if (applicationsResult.error) {
+      return {
+        data: null,
+        error:
+          applicationsResult.error,
+      };
+    }
+
+    if (
+      applicationsResult.data.length >
+      0
+    ) {
+      return {
+        data: null,
+        error: createServiceError(
+          "По контакту уже создана заявка. Сначала удалите заявку."
+        ),
+      };
+    }
+
+    const nextStatus =
+      contact.sent_at
+        ? "sent"
+        : "new";
+
+    const {
+      data: updatedContact,
+      error: updateError,
+    } = await supabase
+      .from("mailing_contacts")
+      .update({
+        responded_at: null,
+        manager_id: null,
+        status: nextStatus,
+        application_created_at:
+          null,
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq("id", contactId)
+      .select(CONTACT_FIELDS)
+      .single();
+
+    return {
+      data: updatedContact,
+      error: updateError,
     };
   },
 };

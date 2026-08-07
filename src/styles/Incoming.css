@@ -1005,3 +1005,149 @@
     -webkit-tap-highlight-color: transparent;
   }
 }
+/* ==========================================================
+   ВХОДЯЩИЕ ВНЕ РАССЫЛКИ
+========================================================== */
+
+.incoming-card--external {
+  border-color: rgba(139, 92, 246, 0.28);
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(139, 92, 246, 0.08),
+      transparent 42%
+    ),
+    var(--surface, #111420);
+}
+
+.incoming-card__status--external {
+  color: #c4a7ff;
+  background: rgba(139, 92, 246, 0.13);
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+.incoming-bulk-result__item--blue {
+  border-color: rgba(71, 125, 255, 0.28);
+  background: rgba(71, 125, 255, 0.08);
+}
+
+.incoming-bulk-result__item--blue strong {
+  color: #8eb0ff;
+}
+
+.incoming-bulk-result__list--success {
+  border-color: rgba(32, 201, 151, 0.25);
+  background: rgba(32, 201, 151, 0.06);
+}
+
+.incoming-bulk-result__list--success > div {
+  color: #68ddb7;
+}
+
+.incoming-bulk-result__list--warning {
+  border-color: rgba(255, 159, 67, 0.25);
+  background: rgba(255, 159, 67, 0.06);
+}
+
+.incoming-bulk-result__list--warning > div {
+  color: #ffb66f;
+}
+
+.incoming-bulk-result__list--error {
+  border-color: rgba(255, 93, 108, 0.25);
+  background: rgba(255, 93, 108, 0.06);
+}
+
+.incoming-bulk-result__list--error > div {
+  color: #ff8994;
+}
+
+.incoming-bulk-result__success-message {
+  margin-top: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #72dfbc;
+  background: rgba(32, 201, 151, 0.07);
+  border: 1px solid rgba(32, 201, 151, 0.22);
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.incoming-bulk-result__success-message svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* МОБИЛЬНАЯ ВЕРСИЯ */
+
+@media (max-width: 600px) {
+  .incoming-bulk-result__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .incoming-bulk-result__success-message {
+    padding: 11px;
+  }
+}
+
+@media (max-width: 420px) {
+  .incoming-bulk-result__grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* ==========================================================
+   УПРАВЛЕНИЕ ОШИБОЧНО ВНЕСЁННЫМИ КОНТАКТАМИ
+========================================================== */
+
+.incoming-card__manage-actions {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.incoming-card__danger-action,
+.incoming-card__undo-action {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.incoming-card__danger-action {
+  color: #ff8994;
+  background: rgba(255, 93, 108, 0.07);
+  border: 1px solid rgba(255, 93, 108, 0.22);
+}
+
+.incoming-card__danger-action:hover:not(:disabled) {
+  background: rgba(255, 93, 108, 0.13);
+  border-color: rgba(255, 93, 108, 0.4);
+}
+
+.incoming-card__undo-action {
+  color: #ffbf7c;
+  background: rgba(255, 159, 67, 0.07);
+  border: 1px solid rgba(255, 159, 67, 0.22);
+}
+
+.incoming-card__undo-action:hover:not(:disabled) {
+  background: rgba(255, 159, 67, 0.13);
+  border-color: rgba(255, 159, 67, 0.4);
+}
+
+.incoming-card__danger-action:disabled,
+.incoming-card__undo-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

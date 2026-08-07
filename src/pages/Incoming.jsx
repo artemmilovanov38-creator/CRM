@@ -13,8 +13,10 @@ import {
   Inbox,
   ListChecks,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
+  Trash2,
   UserRound,
   Users,
   X,
@@ -22,7 +24,10 @@ import {
 } from "lucide-react";
 
 import { supabase } from "../lib/supabase";
-import { useAuth } from "../context/AuthContext";
+
+import {
+  useAuth,
+} from "../context/AuthContext";
 
 import {
   incomingResponseService,
@@ -33,7 +38,8 @@ import "../styles/Incoming.css";
 export default function Incoming() {
   const { profile, user } = useAuth();
 
-  const currentProfile = profile || user;
+  const currentProfile =
+    profile || user;
 
   const [responses, setResponses] =
     useState([]);
@@ -41,8 +47,10 @@ export default function Incoming() {
   const [search, setSearch] =
     useState("");
 
-  const [identifiersValue, setIdentifiersValue] =
-    useState("");
+  const [
+    identifiersValue,
+    setIdentifiersValue,
+  ] = useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -62,12 +70,27 @@ export default function Incoming() {
   const [result, setResult] =
     useState(null);
 
+  const [
+    contactActionId,
+    setContactActionId,
+  ] = useState(null);
+
   const isManager =
     currentProfile?.role === "manager";
+
+  /*
+   * =====================================================
+   * ЗАГРУЗКА КОНТАКТОВ
+   * =====================================================
+   */
 
   const loadResponses = useCallback(
     async (showLoader = true) => {
       if (!currentProfile?.id) {
+        if (showLoader) {
+          setLoading(false);
+        }
+
         return;
       }
 
@@ -93,7 +116,7 @@ export default function Incoming() {
 
         setError(
           responseResult.error.message ||
-            "Не удалось загрузить отклики"
+            "Не удалось загрузить входящие контакты"
         );
 
         setResponses([]);
@@ -117,13 +140,23 @@ export default function Incoming() {
     loadResponses();
   }, [loadResponses]);
 
+  /*
+   * =====================================================
+   * REALTIME
+   * =====================================================
+   */
+
   useEffect(() => {
+    if (!currentProfile?.id) {
+      return undefined;
+    }
+
     let reloadTimer = null;
 
     const channel = supabase
       .channel(
         `incoming-responses-${
-          currentProfile?.id || "anonymous"
+          currentProfile.id
         }`
       )
       .on(
@@ -131,23 +164,31 @@ export default function Incoming() {
         {
           event: "*",
           schema: "public",
-          table: "mailing_contacts",
+          table:
+            "mailing_contacts",
         },
         () => {
-          clearTimeout(reloadTimer);
-
-          reloadTimer = window.setTimeout(
-            () => {
-              loadResponses(false);
-            },
-            350
+          clearTimeout(
+            reloadTimer
           );
+
+          reloadTimer =
+            window.setTimeout(
+              () => {
+                loadResponses(
+                  false
+                );
+              },
+              350
+            );
         }
       )
       .subscribe();
 
     return () => {
-      clearTimeout(reloadTimer);
+      clearTimeout(
+        reloadTimer
+      );
 
       supabase.removeChannel(
         channel
@@ -157,6 +198,12 @@ export default function Incoming() {
     currentProfile?.id,
     loadResponses,
   ]);
+
+  /*
+   * =====================================================
+   * МОДАЛКА ДОБАВЛЕНИЯ
+   * =====================================================
+   */
 
   function openModal() {
     setIdentifiersValue("");
@@ -171,12 +218,21 @@ export default function Incoming() {
     }
 
     setModalOpen(false);
+
     setIdentifiersValue("");
     setFormError("");
     setResult(null);
   }
 
-  async function handleSubmit(event) {
+  /*
+   * =====================================================
+   * ДОБАВЛЕНИЕ НАПИСАВШИХ
+   * =====================================================
+   */
+
+  async function handleSubmit(
+    event
+  ) {
     event.preventDefault();
 
     setFormError("");
@@ -197,7 +253,8 @@ export default function Incoming() {
         );
 
     if (
-      parsedIdentifiers.length === 0
+      parsedIdentifiers.length ===
+      0
     ) {
       setFormError(
         "Введите хотя бы один Telegram-ник или номер телефона"
@@ -211,38 +268,201 @@ export default function Incoming() {
     const registerResult =
       await incomingResponseService
         .registerResponses({
-          value: identifiersValue,
+          value:
+            identifiersValue,
+
           managerId:
             currentProfile.id,
         });
 
     if (registerResult.error) {
       console.error(
-        "Ошибка регистрации откликов:",
+        "Ошибка регистрации входящих:",
         registerResult.error
       );
 
       setFormError(
-        registerResult.error.message ||
+        registerResult.error
+          .message ||
           "Не удалось обработать список"
       );
 
       setSaving(false);
+
       return;
     }
 
-    setResult(registerResult.data);
+    setResult(
+      registerResult.data
+    );
 
-    await loadResponses(false);
+    await loadResponses(
+      false
+    );
 
     setSaving(false);
   }
 
-  const filteredResponses = useMemo(
-    () => {
-      const normalizedSearch = search
-        .trim()
-        .toLowerCase();
+  /*
+   * =====================================================
+   * УДАЛЕНИЕ ВНЕШНЕГО КОНТАКТА
+   * =====================================================
+   */
+
+  async function handleDeleteExternalContact(
+    contact
+  ) {
+    if (
+      !contact?.id ||
+      !currentProfile?.id
+    ) {
+      return;
+    }
+
+    const identifier =
+      getContactIdentifier(
+        contact
+      );
+
+    const confirmed =
+      window.confirm(
+        `Удалить ошибочно внесённый контакт "${identifier}"?\n\nКонтакт будет полностью удалён из CRM.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setContactActionId(
+      contact.id
+    );
+
+    setError("");
+
+    const deleteResult =
+      await incomingResponseService
+        .deleteExternalResponse({
+          contactId:
+            contact.id,
+
+          managerId:
+            currentProfile.id,
+        });
+
+    if (deleteResult.error) {
+      console.error(
+        "Ошибка удаления контакта:",
+        deleteResult.error
+      );
+
+      setError(
+        deleteResult.error
+          .message ||
+          "Не удалось удалить контакт"
+      );
+
+      setContactActionId(
+        null
+      );
+
+      return;
+    }
+
+    await loadResponses(
+      false
+    );
+
+    setContactActionId(
+      null
+    );
+  }
+
+  /*
+   * =====================================================
+   * ОТМЕНА ОТВЕТА ИЗ РАССЫЛКИ
+   * =====================================================
+   */
+
+  async function handleUndoMailingResponse(
+    contact
+  ) {
+    if (
+      !contact?.id ||
+      !currentProfile?.id
+    ) {
+      return;
+    }
+
+    const identifier =
+      getContactIdentifier(
+        contact
+      );
+
+    const confirmed =
+      window.confirm(
+        `Отменить отметку ответа для "${identifier}"?\n\nКонтакт НЕ будет удалён из рассылки. Он снова станет неответившим и отвяжется от вас.`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setContactActionId(
+      contact.id
+    );
+
+    setError("");
+
+    const undoResult =
+      await incomingResponseService
+        .undoMailingResponse({
+          contactId:
+            contact.id,
+
+          managerId:
+            currentProfile.id,
+        });
+
+    if (undoResult.error) {
+      console.error(
+        "Ошибка отмены ответа:",
+        undoResult.error
+      );
+
+      setError(
+        undoResult.error
+          .message ||
+          "Не удалось отменить отметку ответа"
+      );
+
+      setContactActionId(
+        null
+      );
+
+      return;
+    }
+
+    await loadResponses(
+      false
+    );
+
+    setContactActionId(
+      null
+    );
+  }
+
+  /*
+   * =====================================================
+   * ПОИСК
+   * =====================================================
+   */
+
+  const filteredResponses =
+    useMemo(() => {
+      const normalizedSearch =
+        search
+          .trim()
+          .toLowerCase();
 
       if (!normalizedSearch) {
         return responses;
@@ -250,26 +470,59 @@ export default function Incoming() {
 
       return responses.filter(
         (response) => {
+          const isExternal =
+            Boolean(
+              response.is_external
+            ) ||
+            response.source ===
+              "external" ||
+            !response.mailing_id;
+
           const searchableValue = [
-            response.telegram_username,
+            response
+              .telegram_username,
+
             response.full_name,
+
             response.phone,
+
             response.status,
-            response.mailing?.name,
-            response.manager?.full_name,
+
+            response.source,
+
+            isExternal
+              ? "вне рассылки внешний входящий"
+              : "рассылка",
+
+            response.mailing
+              ?.name,
+
+            response.manager
+              ?.full_name,
+
+            response.manager
+              ?.email,
           ]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
 
-          return searchableValue.includes(
-            normalizedSearch
-          );
+          return searchableValue
+            .includes(
+              normalizedSearch
+            );
         }
       );
-    },
-    [responses, search]
-  );
+    }, [
+      responses,
+      search,
+    ]);
+
+  /*
+   * =====================================================
+   * СТАТИСТИКА
+   * =====================================================
+   */
 
   const stats = useMemo(() => {
     const respondedToday =
@@ -289,29 +542,55 @@ export default function Incoming() {
           )
       ).length;
 
-    const uniqueManagers = new Set(
-      responses
-        .map(
-          (response) =>
-            response.manager_id
-        )
-        .filter(Boolean)
-    ).size;
+    const uniqueManagers =
+      new Set(
+        responses
+          .map(
+            (response) =>
+              response.manager_id
+          )
+          .filter(Boolean)
+      ).size;
+
+    const external =
+      responses.filter(
+        (response) =>
+          Boolean(
+            response.is_external
+          ) ||
+          response.source ===
+            "external" ||
+          !response.mailing_id
+      ).length;
 
     return {
-      total: responses.length,
-      today: respondedToday,
+      total:
+        responses.length,
+
+      today:
+        respondedToday,
+
       withApplications,
-      managers: uniqueManagers,
+
+      managers:
+        uniqueManagers,
+
+      external,
     };
   }, [responses]);
+
+  /*
+   * =====================================================
+   * СТРАНИЦА
+   * =====================================================
+   */
 
   return (
     <main className="incoming-page">
       <section className="incoming-heading">
         <div>
           <span className="incoming-heading__eyebrow">
-            Отклики на рассылку
+            Входящие контакты
           </span>
 
           <h1>
@@ -322,8 +601,8 @@ export default function Incoming() {
 
           <p>
             {isManager
-              ? "Вставьте Telegram-ники или номера пользователей, которые вам написали. CRM найдёт их в общей базе рассылки и закрепит за вами."
-              : "Здесь отображаются пользователи, которых менеджеры отметили как ответивших на рассылку."}
+              ? "Вставьте Telegram-ники или номера всех пользователей, которые вам написали. CRM сама найдёт совпадения в рассылках, а тех, кого в базе нет, автоматически добавит как новые входящие контакты."
+              : "Здесь отображаются все пользователи, которых менеджеры внесли как написавших: как из рассылок, так и пришедшие извне."}
           </p>
         </div>
 
@@ -345,14 +624,18 @@ export default function Incoming() {
               }
             />
 
-            <span>Обновить</span>
+            <span>
+              Обновить
+            </span>
           </button>
 
           {isManager && (
             <button
               className="incoming-add-button"
               type="button"
-              onClick={openModal}
+              onClick={
+                openModal
+              }
             >
               <ClipboardPaste
                 size={19}
@@ -366,42 +649,61 @@ export default function Incoming() {
         </div>
       </section>
 
+      {/* =================================================
+          СТАТИСТИКА
+      ================================================= */}
+
       <section className="incoming-stats">
         <StatCard
           icon={Inbox}
-          title="Всего ответивших"
-          value={stats.total}
+          title="Всего написавших"
+          value={
+            stats.total
+          }
         />
 
         <StatCard
           icon={CheckCircle2}
-          title="Ответили сегодня"
-          value={stats.today}
+          title="Написали сегодня"
+          value={
+            stats.today
+          }
           variant="success"
         />
 
         <StatCard
           icon={ListChecks}
           title="Создано заявок"
-          value={stats.withApplications}
+          value={
+            stats.withApplications
+          }
           variant="warning"
         />
 
-        <StatCard
-          icon={Users}
-          title={
-            isManager
-              ? "Моя база"
-              : "Менеджеров"
-          }
-          value={
-            isManager
-              ? stats.total
-              : stats.managers
-          }
-          variant="blue"
-        />
+        {isManager ? (
+          <StatCard
+            icon={UserRound}
+            title="Вне рассылки"
+            value={
+              stats.external
+            }
+            variant="blue"
+          />
+        ) : (
+          <StatCard
+            icon={Users}
+            title="Менеджеров"
+            value={
+              stats.managers
+            }
+            variant="blue"
+          />
+        )}
       </section>
+
+      {/* =================================================
+          ПОИСК
+      ================================================= */}
 
       <section className="incoming-toolbar">
         <div className="incoming-search">
@@ -409,11 +711,14 @@ export default function Incoming() {
 
           <input
             type="search"
-            placeholder="Telegram, имя, телефон или рассылка"
+            placeholder="Telegram, имя, телефон, рассылка или источник"
             value={search}
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               setSearch(
-                event.target.value
+                event.target
+                  .value
               )
             }
           />
@@ -432,24 +737,37 @@ export default function Incoming() {
         </div>
       </section>
 
+      {/* =================================================
+          ОШИБКА
+      ================================================= */}
+
       {error && (
         <div className="incoming-alert incoming-alert--error">
-          <XCircle size={18} />
-          <span>{error}</span>
+          <XCircle
+            size={18}
+          />
+
+          <span>
+            {error}
+          </span>
         </div>
       )}
+
+      {/* =================================================
+          КОНТЕНТ
+      ================================================= */}
 
       {loading ? (
         <div className="incoming-state">
           <div className="incoming-loader" />
 
           <strong>
-            Загружаем отклики
+            Загружаем входящие
           </strong>
 
           <span>
-            Получаем актуальные данные
-            из CRM.
+            Получаем актуальные
+            данные из CRM.
           </span>
         </div>
       ) : filteredResponses.length ===
@@ -459,31 +777,34 @@ export default function Incoming() {
 
           <strong>
             {search
-              ? "Отклики не найдены"
-              : "Откликов пока нет"}
+              ? "Контакты не найдены"
+              : "Написавших пока нет"}
           </strong>
 
           <span>
             {search
               ? "Измените поисковый запрос."
               : isManager
-                ? "Нажмите \"Занести написавших\" и вставьте ники или номера пользователей."
-                : "Менеджеры ещё не отметили ответивших пользователей."}
+                ? "Нажмите \"Занести написавших\" и вставьте всех пользователей, которые вам написали. Неважно, участвовали они в рассылке или нет."
+                : "Менеджеры ещё не внесли входящие контакты."}
           </span>
 
-          {!search && isManager && (
-            <button
-              className="incoming-state__button"
-              type="button"
-              onClick={openModal}
-            >
-              <ClipboardPaste
-                size={18}
-              />
+          {!search &&
+            isManager && (
+              <button
+                className="incoming-state__button"
+                type="button"
+                onClick={
+                  openModal
+                }
+              >
+                <ClipboardPaste
+                  size={18}
+                />
 
-              Занести написавших
-            </button>
-          )}
+                Занести написавших
+              </button>
+            )}
         </div>
       ) : (
         <>
@@ -498,142 +819,273 @@ export default function Incoming() {
 
           <section className="incoming-grid">
             {filteredResponses.map(
-              (response) => (
-                <article
-                  className="incoming-card"
-                  key={response.id}
-                >
-                  <div className="incoming-card__top">
-                    <div className="incoming-card__identity">
-                      <div className="incoming-card__avatar">
-                        {response.telegram_username ? (
-                          <Send size={20} />
-                        ) : (
+              (response) => {
+                const isExternal =
+                  Boolean(
+                    response.is_external
+                  ) ||
+                  response.source ===
+                    "external" ||
+                  !response.mailing_id;
+
+                const hasApplication =
+                  Boolean(
+                    response
+                      .application_created_at
+                  );
+
+                const actionLoading =
+                  contactActionId ===
+                  response.id;
+
+                return (
+                  <article
+                    className={[
+                      "incoming-card",
+
+                      isExternal
+                        ? "incoming-card--external"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    key={
+                      response.id
+                    }
+                  >
+                    {/* TOP */}
+
+                    <div className="incoming-card__top">
+                      <div className="incoming-card__identity">
+                        <div className="incoming-card__avatar">
+                          {response.telegram_username ? (
+                            <Send
+                              size={20}
+                            />
+                          ) : (
+                            <UserRound
+                              size={20}
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <span>
+                            {isExternal
+                              ? "Входящий вне рассылки"
+                              : "Ответил на рассылку"}
+                          </span>
+
+                          <h2>
+                            {getContactIdentifier(
+                              response
+                            )}
+                          </h2>
+
+                          {response.full_name &&
+                            !isIdentifierAsName(
+                              response
+                                .full_name,
+                              response
+                            ) && (
+                              <p>
+                                {
+                                  response.full_name
+                                }
+                              </p>
+                            )}
+                        </div>
+                      </div>
+
+                      <span
+                        className={[
+                          "incoming-card__status",
+
+                          isExternal
+                            ? "incoming-card__status--external"
+                            : "",
+                        ]
+                          .filter(
+                            Boolean
+                          )
+                          .join(
+                            " "
+                          )}
+                      >
+                        {isExternal ? (
                           <UserRound
-                            size={20}
+                            size={14}
+                          />
+                        ) : (
+                          <CheckCircle2
+                            size={14}
                           />
                         )}
-                      </div>
 
-                      <div>
-                        <span>
-                          Ответивший
-                          пользователь
-                        </span>
-
-                        <h2>
-                          {getContactIdentifier(
-                            response
-                          )}
-                        </h2>
-
-                        {response.full_name && (
-                          <p>
-                            {
-                              response.full_name
-                            }
-                          </p>
-                        )}
-                      </div>
+                        {isExternal
+                          ? "Вне рассылки"
+                          : "Совпадение найдено"}
+                      </span>
                     </div>
 
-                    <span className="incoming-card__status">
-                      <CheckCircle2
-                        size={14}
+                    {/* DETAILS */}
+
+                    <div className="incoming-card__details">
+                      <DetailItem
+                        label="Получен входящий"
+                        value={formatDate(
+                          response
+                            .responded_at
+                        )}
                       />
-                      Ответил
-                    </span>
-                  </div>
 
-                  <div className="incoming-card__details">
-                    <DetailItem
-                      label="Получен ответ"
-                      value={formatDate(
-                        response.responded_at
+                      <DetailItem
+                        label="Телефон"
+                        value={
+                          response.phone
+                            ? formatPhone(
+                                response.phone
+                              )
+                            : "Не указан"
+                        }
+                      />
+
+                      <DetailItem
+                        label="Источник"
+                        value={
+                          isExternal
+                            ? "Вне рассылки"
+                            : response
+                                .mailing
+                                ?.name ||
+                              "Рассылка"
+                        }
+                      />
+
+                      <DetailItem
+                        label="Менеджер"
+                        value={
+                          response
+                            .manager
+                            ?.full_name ||
+                          (isManager
+                            ? "Вы"
+                            : "Не указан")
+                        }
+                      />
+                    </div>
+
+                    {/* APPLICATION */}
+
+                    <div className="incoming-card__actions">
+                      {hasApplication ? (
+                        <div className="incoming-application-created">
+                          <CheckCircle2
+                            size={17}
+                          />
+
+                          <div>
+                            <strong>
+                              Есть заявка
+                            </strong>
+
+                            <span>
+                              По контакту
+                              уже создана
+                              заявка
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="incoming-application-created incoming-application-created--pending">
+                          <Clock3
+                            size={17}
+                          />
+
+                          <div>
+                            <strong>
+                              Заявка не создана
+                            </strong>
+
+                            <span>
+                              Создать её
+                              можно в разделе
+                              "Мои контакты"
+                            </span>
+                          </div>
+                        </div>
                       )}
-                    />
 
-                    <DetailItem
-                      label="Телефон"
-                      value={
-                        response.phone
-                          ? formatPhone(
-                              response.phone
-                            )
-                          : "Не указан"
-                      }
-                    />
+                      {/* DELETE / UNDO */}
 
-                    <DetailItem
-                      label="Рассылка"
-                      value={
-                        response.mailing
-                          ?.name ||
-                        "Не указана"
-                      }
-                    />
+                      {isManager && (
+                        <div className="incoming-card__manage-actions">
+                          {isExternal ? (
+                            <button
+                              type="button"
+                              className="incoming-card__danger-action"
+                              disabled={
+                                actionLoading
+                              }
+                              onClick={() =>
+                                handleDeleteExternalContact(
+                                  response
+                                )
+                              }
+                            >
+                              <Trash2
+                                size={16}
+                              />
 
-                    <DetailItem
-                      label="Менеджер"
-                      value={
-                        response.manager
-                          ?.full_name ||
-                        (isManager
-                          ? "Вы"
-                          : "Не указан")
-                      }
-                    />
-                  </div>
+                              {actionLoading
+                                ? "Удаляем..."
+                                : "Удалить ошибочно внесённого"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="incoming-card__undo-action"
+                              disabled={
+                                actionLoading
+                              }
+                              onClick={() =>
+                                handleUndoMailingResponse(
+                                  response
+                                )
+                              }
+                            >
+                              <RotateCcw
+                                size={16}
+                              />
 
-                  <div className="incoming-card__actions">
-                    {response.application_created_at ? (
-                      <div className="incoming-application-created">
-                        <CheckCircle2
-                          size={17}
-                        />
-
-                        <div>
-                          <strong>
-                            Есть заявка
-                          </strong>
-
-                          <span>
-                            По контакту уже
-                            создана заявка
-                          </span>
+                              {actionLoading
+                                ? "Отменяем..."
+                                : "Отменить отметку ответа"}
+                            </button>
+                          )}
                         </div>
-                      </div>
-                    ) : (
-                      <div className="incoming-application-created incoming-application-created--pending">
-                        <Clock3 size={17} />
-
-                        <div>
-                          <strong>
-                            Заявка не создана
-                          </strong>
-
-                          <span>
-                            Создать её можно
-                            в разделе "Мои
-                            контакты"
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              )
+                      )}
+                    </div>
+                  </article>
+                );
+              }
             )}
           </section>
         </>
       )}
+
+      {/* =================================================
+          МОБИЛЬНАЯ ПЛАВАЮЩАЯ КНОПКА
+      ================================================= */}
 
       {isManager && (
         <button
           className="incoming-floating-button"
           type="button"
           aria-label="Занести написавших"
-          onClick={openModal}
+          onClick={
+            openModal
+          }
         >
           <ClipboardPaste
             size={24}
@@ -641,10 +1093,16 @@ export default function Incoming() {
         </button>
       )}
 
+      {/* =================================================
+          МОДАЛКА
+      ================================================= */}
+
       {modalOpen && (
         <div
           className="incoming-modal-overlay"
-          onMouseDown={(event) => {
+          onMouseDown={(
+            event
+          ) => {
             if (
               event.target ===
               event.currentTarget
@@ -662,7 +1120,7 @@ export default function Incoming() {
             <div className="incoming-modal__header">
               <div>
                 <span>
-                  Массовое добавление
+                  Единое добавление
                 </span>
 
                 <h2 id="incoming-modal-title">
@@ -670,9 +1128,12 @@ export default function Incoming() {
                 </h2>
 
                 <p>
-                  Вставьте Telegram-ники
-                  или номера пользователей,
+                  Вставьте всех
+                  пользователей,
                   которые вам написали.
+                  CRM сама определит,
+                  есть ли они в базе
+                  рассылок.
                 </p>
               </div>
 
@@ -680,8 +1141,12 @@ export default function Incoming() {
                 className="incoming-modal__close"
                 type="button"
                 aria-label="Закрыть"
-                onClick={closeModal}
-                disabled={saving}
+                onClick={
+                  closeModal
+                }
+                disabled={
+                  saving
+                }
               >
                 <X size={21} />
               </button>
@@ -689,11 +1154,13 @@ export default function Incoming() {
 
             <form
               className="incoming-response-form"
-              onSubmit={handleSubmit}
+              onSubmit={
+                handleSubmit
+              }
             >
               <label className="incoming-modal__field">
                 <span>
-                  Ники и номера
+                  Telegram-ники и номера
                 </span>
 
                 <div className="incoming-textarea">
@@ -705,13 +1172,21 @@ export default function Incoming() {
                     value={
                       identifiersValue
                     }
-                    onChange={(event) => {
+                    onChange={(
+                      event
+                    ) => {
                       setIdentifiersValue(
-                        event.target.value
+                        event.target
+                          .value
                       );
 
-                      setFormError("");
-                      setResult(null);
+                      setFormError(
+                        ""
+                      );
+
+                      setResult(
+                        null
+                      );
                     }}
                     placeholder={`@username_one
 @username_two
@@ -719,28 +1194,53 @@ export default function Incoming() {
 79997654321`}
                     rows={9}
                     autoFocus
-                    disabled={saving}
+                    disabled={
+                      saving
+                    }
                   />
                 </div>
               </label>
 
               <div className="incoming-response-form__hint">
+                <strong>
+                  Как это работает:
+                </strong>{" "}
+                если пользователь
+                найден в базе
+                рассылки — CRM
+                свяжет его с ней.
+                Если совпадения
+                нет — контакт
+                автоматически
+                добавится как
+                "Вне рассылки".
+              </div>
+
+              <div className="incoming-response-form__hint">
                 Каждый ник или номер
                 вводите с новой строки.
                 Также поддерживаются
-                запятые и точки с запятой.
+                запятые и точки с
+                запятой.
               </div>
 
               {formError && (
                 <div className="incoming-modal__error">
-                  <XCircle size={18} />
-                  <span>{formError}</span>
+                  <XCircle
+                    size={18}
+                  />
+
+                  <span>
+                    {formError}
+                  </span>
                 </div>
               )}
 
               {result && (
                 <BulkResult
-                  result={result}
+                  result={
+                    result
+                  }
                 />
               )}
 
@@ -748,8 +1248,12 @@ export default function Incoming() {
                 <button
                   className="incoming-modal__cancel"
                   type="button"
-                  onClick={closeModal}
-                  disabled={saving}
+                  onClick={
+                    closeModal
+                  }
+                  disabled={
+                    saving
+                  }
                 >
                   {result
                     ? "Закрыть"
@@ -761,7 +1265,8 @@ export default function Incoming() {
                   type="submit"
                   disabled={
                     saving ||
-                    !identifiersValue.trim()
+                    !identifiersValue
+                      .trim()
                   }
                 >
                   <CheckCircle2
@@ -769,9 +1274,9 @@ export default function Incoming() {
                   />
 
                   {saving
-                    ? "Проверяем..."
+                    ? "Обрабатываем..."
                     : result
-                      ? "Проверить ещё раз"
+                      ? "Добавить ещё"
                       : "Занести написавших"}
                 </button>
               </div>
@@ -783,14 +1288,36 @@ export default function Incoming() {
   );
 }
 
-function BulkResult({ result }) {
+/*
+ * =========================================================
+ * РЕЗУЛЬТАТ МАССОВОГО ДОБАВЛЕНИЯ
+ * =========================================================
+ */
+
+function BulkResult({
+  result,
+}) {
   const summary =
     result?.summary || {};
+
+  const hasConflicts =
+    (
+      result?.conflicts
+        ?.length || 0
+    ) > 0;
+
+  const hasFailed =
+    (
+      result?.failed
+        ?.length || 0
+    ) > 0;
 
   return (
     <div className="incoming-bulk-result">
       <div className="incoming-bulk-result__heading">
-        <CheckCircle2 size={20} />
+        <CheckCircle2
+          size={20}
+        />
 
         <div>
           <strong>
@@ -799,22 +1326,39 @@ function BulkResult({ result }) {
 
           <span>
             Проверено:{" "}
-            {summary.total || 0}
+            {summary.total ||
+              0}
           </span>
         </div>
       </div>
 
       <div className="incoming-bulk-result__grid">
         <ResultItem
-          title="Найдено"
-          value={summary.found || 0}
+          title="Найдены в рассылках"
+          value={
+            summary.found ||
+            0
+          }
           variant="success"
         />
 
         <ResultItem
-          title="Уже внесено вами"
+          title="Добавлены вне рассылки"
           value={
-            summary.alreadyResponded ||
+            summary
+              .createdExternal ||
+            summary
+              .externalCreated ||
+            0
+          }
+          variant="blue"
+        />
+
+        <ResultItem
+          title="Уже были внесены"
+          value={
+            summary
+              .alreadyResponded ||
             0
           }
         />
@@ -822,62 +1366,134 @@ function BulkResult({ result }) {
         <ResultItem
           title="У другого менеджера"
           value={
-            summary.conflicts || 0
+            summary.conflicts ||
+            0
           }
           variant="warning"
         />
 
         <ResultItem
-          title="Не найдено"
-          value={summary.notFound || 0}
-          variant="error"
-        />
-
-        <ResultItem
           title="Ошибки"
-          value={summary.failed || 0}
-          variant="error"
+          value={
+            summary.failed ||
+            0
+          }
+          variant={
+            summary.failed > 0
+              ? "error"
+              : ""
+          }
         />
       </div>
 
-      {result.notFound?.length >
-        0 && (
+      {result
+        .createdExternal
+        ?.length > 0 && (
         <ResultList
-          icon={Search}
-          title="Не найдены в базе"
-          items={result.notFound.map(
-            (item) =>
-              item.identifier
-          )}
+          icon={UserRound}
+          title="Автоматически добавлены как новые входящие"
+          items={
+            result
+              .createdExternal
+              .map(
+                (item) =>
+                  item.identifier
+              )
+          }
+          variant="success"
         />
       )}
 
-      {result.conflicts?.length >
+      {result.found?.length >
         0 && (
         <ResultList
-          icon={AlertTriangle}
+          icon={CheckCircle2}
+          title="Совпадения найдены в рассылках"
+          items={
+            result.found.map(
+              (item) =>
+                item.identifier
+            )
+          }
+          variant="success"
+        />
+      )}
+
+      {result
+        .alreadyResponded
+        ?.length > 0 && (
+        <ResultList
+          icon={Clock3}
+          title="Уже были внесены ранее"
+          items={
+            result
+              .alreadyResponded
+              .map(
+                (item) =>
+                  item.identifier
+              )
+          }
+        />
+      )}
+
+      {hasConflicts && (
+        <ResultList
+          icon={
+            AlertTriangle
+          }
           title="Уже закреплены за другим менеджером"
-          items={result.conflicts.map(
-            (item) =>
-              item.identifier
-          )}
+          items={
+            result.conflicts.map(
+              (item) =>
+                item.identifier
+            )
+          }
+          variant="warning"
         />
       )}
 
-      {result.failed?.length >
-        0 && (
+      {hasFailed && (
         <ResultList
           icon={XCircle}
           title="Не удалось обработать"
-          items={result.failed.map(
-            (item) =>
-              `${item.identifier}: ${item.error}`
-          )}
+          items={
+            result.failed.map(
+              (item) =>
+                `${item.identifier}: ${item.error}`
+            )
+          }
+          variant="error"
         />
       )}
+
+      {!hasFailed &&
+        !hasConflicts && (
+          <div className="incoming-bulk-result__success-message">
+            <CheckCircle2
+              size={17}
+            />
+
+            <span>
+              Все контакты
+              обработаны.
+              Пользователи,
+              которых не было
+              в рассылках,
+              автоматически
+              добавлены как
+              новые входящие.
+            </span>
+          </div>
+        )}
     </div>
   );
 }
+
+/*
+ * =========================================================
+ * РЕЗУЛЬТАТ
+ * =========================================================
+ */
 
 function ResultItem({
   title,
@@ -888,6 +1504,7 @@ function ResultItem({
     <div
       className={[
         "incoming-bulk-result__item",
+
         variant
           ? `incoming-bulk-result__item--${variant}`
           : "",
@@ -895,27 +1512,55 @@ function ResultItem({
         .filter(Boolean)
         .join(" ")}
     >
-      <span>{title}</span>
-      <strong>{value}</strong>
+      <span>
+        {title}
+      </span>
+
+      <strong>
+        {value}
+      </strong>
     </div>
   );
 }
+
+/*
+ * =========================================================
+ * СПИСОК РЕЗУЛЬТАТОВ
+ * =========================================================
+ */
 
 function ResultList({
   icon: Icon,
   title,
   items,
+  variant = "",
 }) {
   return (
-    <div className="incoming-bulk-result__list">
+    <div
+      className={[
+        "incoming-bulk-result__list",
+
+        variant
+          ? `incoming-bulk-result__list--${variant}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div>
         <Icon size={16} />
-        <strong>{title}</strong>
+
+        <strong>
+          {title}
+        </strong>
       </div>
 
       <ul>
         {items.map(
-          (item, index) => (
+          (
+            item,
+            index
+          ) => (
             <li
               key={`${item}-${index}`}
             >
@@ -928,6 +1573,12 @@ function ResultList({
   );
 }
 
+/*
+ * =========================================================
+ * КАРТОЧКА СТАТИСТИКИ
+ * =========================================================
+ */
+
 function StatCard({
   icon: Icon,
   title,
@@ -938,6 +1589,7 @@ function StatCard({
     <article
       className={[
         "incoming-stat-card",
+
         variant
           ? `incoming-stat-card--${variant}`
           : "",
@@ -950,12 +1602,23 @@ function StatCard({
       </div>
 
       <div>
-        <span>{title}</span>
-        <strong>{value}</strong>
+        <span>
+          {title}
+        </span>
+
+        <strong>
+          {value}
+        </strong>
       </div>
     </article>
   );
 }
+
+/*
+ * =========================================================
+ * ДЕТАЛЬ КАРТОЧКИ
+ * =========================================================
+ */
 
 function DetailItem({
   label,
@@ -963,14 +1626,29 @@ function DetailItem({
 }) {
   return (
     <div className="incoming-card__detail">
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span>
+        {label}
+      </span>
+
+      <strong>
+        {value}
+      </strong>
     </div>
   );
 }
 
-function getContactIdentifier(contact) {
-  if (contact?.telegram_username) {
+/*
+ * =========================================================
+ * ИДЕНТИФИКАТОР КОНТАКТА
+ * =========================================================
+ */
+
+function getContactIdentifier(
+  contact
+) {
+  if (
+    contact?.telegram_username
+  ) {
     return formatTelegramUsername(
       contact.telegram_username
     );
@@ -988,23 +1666,107 @@ function getContactIdentifier(contact) {
   );
 }
 
-function formatTelegramUsername(value) {
+/*
+ * Проверяем, не записан ли
+ * автоматически Telegram/телефон
+ * в full_name.
+ */
+function isIdentifierAsName(
+  fullName,
+  contact
+) {
+  if (!fullName) {
+    return false;
+  }
+
+  const normalizedName =
+    String(fullName)
+      .trim()
+      .toLowerCase();
+
+  const telegram =
+    contact?.telegram_username
+      ? formatTelegramUsername(
+          contact
+            .telegram_username
+        ).toLowerCase()
+      : "";
+
+  const phone =
+    contact?.phone
+      ? String(
+          contact.phone
+        ).replace(
+          /\D/g,
+          ""
+        )
+      : "";
+
+  const normalizedNamePhone =
+    normalizedName.replace(
+      /\D/g,
+      ""
+    );
+
+  return (
+    normalizedName ===
+      telegram ||
+    (
+      Boolean(phone) &&
+      normalizedNamePhone ===
+        phone
+    )
+  );
+}
+
+/*
+ * =========================================================
+ * TELEGRAM
+ * =========================================================
+ */
+
+function formatTelegramUsername(
+  value
+) {
   if (!value) {
     return "Telegram не указан";
   }
 
   const username =
-    String(value).trim();
+    String(value)
+      .trim()
+      .replace(
+        /^https?:\/\/t\.me\//i,
+        ""
+      )
+      .replace(
+        /^t\.me\//i,
+        ""
+      )
+      .replace(
+        /^@+/,
+        ""
+      );
 
-  return username.startsWith("@")
-    ? username
-    : `@${username}`;
+  return username
+    ? `@${username}`
+    : "Telegram не указан";
 }
 
+/*
+ * =========================================================
+ * ТЕЛЕФОН
+ * =========================================================
+ */
+
 function formatPhone(value) {
-  const digits = String(
-    value || ""
-  ).replace(/\D/g, "");
+  const digits =
+    String(
+      value || ""
+    ).replace(
+      /\D/g,
+      ""
+    );
 
   if (
     digits.length === 11 &&
@@ -1016,19 +1778,29 @@ function formatPhone(value) {
   }
 
   if (
+    digits.length === 10
+  ) {
+    return formatPhone(
+      `7${digits}`
+    );
+  }
+
+  if (
     digits.length === 11 &&
     digits.startsWith("7")
   ) {
-    return `+7 ${digits.slice(
-      1,
-      4
-    )} ${digits.slice(
-      4,
-      7
-    )}-${digits.slice(
-      7,
-      9
-    )}-${digits.slice(9)}`;
+    return (
+      `+7 ${digits.slice(
+        1,
+        4
+      )} ${digits.slice(
+        4,
+        7
+      )}-${digits.slice(
+        7,
+        9
+      )}-${digits.slice(9)}`
+    );
   }
 
   return (
@@ -1036,6 +1808,12 @@ function formatPhone(value) {
     "Номер не указан"
   );
 }
+
+/*
+ * =========================================================
+ * ДАТА
+ * =========================================================
+ */
 
 function formatDate(value) {
   if (!value) {
@@ -1065,6 +1843,12 @@ function formatDate(value) {
   ).format(date);
 }
 
+/*
+ * =========================================================
+ * СЕГОДНЯ
+ * =========================================================
+ */
+
 function isToday(value) {
   if (!value) {
     return false;
@@ -1072,6 +1856,14 @@ function isToday(value) {
 
   const date =
     new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return false;
+  }
 
   const today =
     new Date();
