@@ -134,32 +134,42 @@ const ImportContactsModal = ({
         .replace(/ё/g, "е");
 
     const headerAliases = {
-      full_name: [
-        "фио",
-        "имя",
-        "фамилия имя",
-        "полное имя",
-        "full name",
-        "fullname",
-        "name",
-      ],
+  full_name: [
+    "фио",
+    "имя",
+    "фамилия имя",
+    "полное имя",
+    "full name",
+    "fullname",
+    "name",
+  ],
 
-      phone: [
-        "телефон",
-        "номер телефона",
-        "номер",
-        "phone",
-        "phone number",
-        "mobile",
-      ],
+  phone: [
+    "телефон",
+    "номер телефона",
+    "номер",
+    "phone",
+    "phone number",
+    "mobile",
+  ],
 
-      email: [
-        "email",
-        "e-mail",
-        "почта",
-        "электронная почта",
-      ],
-    };
+  telegram: [
+    "telegram",
+    "telegram username",
+    "telegram_username",
+    "username",
+    "ник",
+    "телеграм",
+    "telegram nick",
+  ],
+
+  email: [
+    "email",
+    "e-mail",
+    "почта",
+    "электронная почта",
+  ],
+};
 
     const firstRowHeaders = cleanRows[0].map(
       normalizeHeader
@@ -171,59 +181,80 @@ const ImportContactsModal = ({
       );
 
     const detectedIndexes = {
-      full_name: findColumnIndex(
-        headerAliases.full_name
-      ),
+  full_name: findColumnIndex(
+    headerAliases.full_name
+  ),
 
-      phone: findColumnIndex(
-        headerAliases.phone
-      ),
+  phone: findColumnIndex(
+    headerAliases.phone
+  ),
 
-      email: findColumnIndex(
-        headerAliases.email
-      ),
-    };
+  telegram: findColumnIndex(
+    headerAliases.telegram
+  ),
+
+  email: findColumnIndex(
+    headerAliases.email
+  ),
+};
 
     const hasRecognizedHeaders =
-      detectedIndexes.full_name !== -1 ||
-      detectedIndexes.phone !== -1 ||
-      detectedIndexes.email !== -1;
+  detectedIndexes.full_name !== -1 ||
+  detectedIndexes.phone !== -1 ||
+  detectedIndexes.telegram !== -1 ||
+  detectedIndexes.email !== -1;
 
     const dataRows = hasRecognizedHeaders
       ? cleanRows.slice(1)
       : cleanRows;
 
-    const columnIndexes = hasRecognizedHeaders
-      ? detectedIndexes
-      : {
-          full_name: 0,
-          phone: 1,
-          email: 2,
-        };
+    const columnIndexes =
+  hasRecognizedHeaders
+    ? detectedIndexes
+    : {
+        full_name: 0,
+        phone: 1,
+        telegram: 0,
+        email: 2,
+      };
 
-    const contacts = dataRows
-      .map((row) => ({
-        full_name:
-          columnIndexes.full_name >= 0
-            ? row[columnIndexes.full_name] || ""
-            : "",
+   const contacts = dataRows
+  .map((row) => ({
+    full_name:
+      columnIndexes.full_name >= 0
+        ? row[
+            columnIndexes.full_name
+          ] || ""
+        : "",
 
-        phone:
-          columnIndexes.phone >= 0
-            ? row[columnIndexes.phone] || ""
-            : "",
+    phone:
+      columnIndexes.phone >= 0
+        ? row[
+            columnIndexes.phone
+          ] || ""
+        : "",
 
-        email:
-          columnIndexes.email >= 0
-            ? row[columnIndexes.email] || ""
-            : "",
-      }))
-      .filter(
-        (contact) =>
-          contact.full_name ||
-          contact.phone ||
-          contact.email
-      );
+    telegram:
+      columnIndexes.telegram >= 0
+        ? row[
+            columnIndexes.telegram
+          ] || ""
+        : "",
+
+    email:
+      columnIndexes.email >= 0
+        ? row[
+            columnIndexes.email
+          ] || ""
+        : "",
+  }))
+  .filter(
+    (contact) =>
+      contact.full_name ||
+      contact.phone ||
+      contact.telegram ||
+      contact.email
+  );
 
     if (!contacts.length) {
       throw new Error(

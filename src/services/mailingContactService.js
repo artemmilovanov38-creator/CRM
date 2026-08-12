@@ -4,6 +4,9 @@ import { profileService } from "./profileService";
 const normalizePhone = (value) => {
   if (!value) return null;
 
+  
+  
+
   const digits = String(value).replace(/\D/g, "");
 
   if (!digits) return null;
@@ -17,6 +20,48 @@ const normalizePhone = (value) => {
   }
 
   return digits;
+};
+
+const normalizeTelegram = (value) => {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const username = String(value)
+    .trim()
+    .replace(
+      /^https?:\/\/t\.me\//i,
+      ""
+    )
+    .replace(
+      /^t\.me\//i,
+      ""
+    )
+    .replace(/^@+/, "")
+    .split(/[/?#]/)[0]
+    .trim();
+
+  if (!username) {
+    return null;
+  }
+
+  /*
+   * Telegram username:
+   * 5–32 символа,
+   * буквы, цифры, underscore.
+   */
+  if (
+    !/^[a-zA-Z0-9_]{5,32}$/.test(
+      username
+    )
+  ) {
+    return null;
+  }
+
+  return `@${username.toLowerCase()}`;
 };
 const getActiveManagers = async () => {
   const { data, error } = await supabase
@@ -40,46 +85,255 @@ const getActiveManagers = async () => {
     error,
   };
 };
-const normalizeContact = (contact, index) => {
-  const fullName =
-    contact.full_name ||
-    contact.name ||
-    contact.fullName ||
-    contact["ФИО"] ||
-    contact["Имя"] ||
+const normalizeContact = (
+  contact,
+  index
+) => {
+  const safeContact =
+    contact &&
+    typeof contact === "object"
+      ? contact
+      : {};
+
+  /*
+   * Поддерживаем как обычные объекты:
+   *
+   * {
+   *   Телефон: "...",
+   *   Telegram: "..."
+   * }
+   *
+   * так и строки/ячейки без
+   * нормальных заголовков.
+   */
+  const values = Array.isArray(
+    safeContact
+  )
+    ? safeContact
+    : Object.values(
+        safeContact
+      );
+
+  const cleanedValues =
+    values
+      .map((value) =>
+        String(
+          value ?? ""
+        ).trim()
+      )
+      .filter(Boolean);
+
+  let fullName =
+    safeContact.full_name ||
+    safeContact.name ||
+    safeContact.fullName ||
+    safeContact["ФИО"] ||
+    safeContact["Имя"] ||
+    safeContact["Фамилия Имя"] ||
     null;
 
-  const phone = normalizePhone(
-    contact.phone ||
-      contact.phone_number ||
-      contact.mobile ||
-      contact["Телефон"] ||
-      contact["Номер телефона"]
+  let phone = normalizePhone(
+    safeContact.phone ||
+      safeContact.phone_number ||
+      safeContact.mobile ||
+      safeContact["Телефон"] ||
+      safeContact[
+        "Номер телефона"
+      ] ||
+      safeContact["Номер"] ||
+      null
   );
 
-  const email =
-    contact.email ||
-    contact["Email"] ||
-    contact["Почта"] ||
+  let telegram =
+    normalizeTelegram(
+      safeContact.telegram ||
+        safeContact
+          .telegram_username ||
+        safeContact.username ||
+        safeContact["Telegram"] ||
+        safeContact[
+          "Telegram username"
+        ] ||
+        safeContact["Ник"] ||
+        safeContact[
+          "Телеграм"
+        ] ||
+        null
+    );
+
+  let email =
+    safeContact.email ||
+    safeContact["Email"] ||
+    safeContact["E-mail"] ||
+    safeContact["Почта"] ||
     null;
 
+  /*
+   * Если колонок нет или они
+   * называются неизвестным образом,
+   * анализируем каждую ячейку.
+   */
+  for (
+    const rawValue
+    of cleanedValues
+  ) {
+    /*
+     * EMAIL
+     */
+    if (
+      !email &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        rawValue
+      )
+    ) {
+      email =
+        rawValue.trim();
+
+      continue;
+    }
+
+    /*
+     * TELEGRAM
+     *
+     * Сначала явно Telegram:
+     * @user / t.me/user
+     */
+    if (
+      !telegram &&
+      (
+        rawValue.startsWith(
+          "@"
+        ) ||
+        /^https?:\/\/t\.me\//i.test(
+          rawValue
+        ) ||
+        /^t\.me\//i.test(
+          rawValue
+        )
+      )
+    ) {
+      const candidate =
+        normalizeTelegram(
+          rawValue
+        );
+
+      if (candidate) {
+        telegram =
+          candidate;
+
+        continue;
+      }
+    }
+
+    /*
+     * PHONE
+     */
+    if (!phone) {
+      const digits =
+        rawValue.replace(
+          /\D/g,
+          ""
+        );
+
+      if (
+        digits.length >= 10 &&
+        digits.length <= 15
+      ) {
+        const candidatePhone =
+          normalizePhone(
+            rawValue
+          );
+
+        if (
+          candidatePhone
+        ) {
+          phone =
+            candidatePhone;
+
+          continue;
+        }
+      }
+    }
+
+    /*
+     * TELEGRAM БЕЗ @
+     *
+     * Например:
+     * Sinus_max
+     */
+    if (!telegram) {
+      const candidate =
+        normalizeTelegram(
+          rawValue
+        );
+
+      if (candidate) {
+        telegram =
+          candidate;
+
+        continue;
+      }
+    }
+  }
+
+  /*
+   * Для строки, содержащей только
+   * Telegram-ник, не записываем
+   * этот ник ещё и как ФИО.
+   */
+  if (
+    fullName &&
+    telegram
+  ) {
+    const normalizedNameAsTelegram =
+      normalizeTelegram(
+        fullName
+      );
+
+    if (
+      normalizedNameAsTelegram ===
+      telegram
+    ) {
+      fullName = null;
+    }
+  }
+
   return {
-    full_name: fullName
-      ? String(fullName).trim()
-      : null,
+    full_name:
+      fullName
+        ? String(
+            fullName
+          ).trim()
+        : null,
 
-    phone,
+    phone:
+      phone || null,
 
-    email: email
-      ? String(email).trim()
-      : null,
+    telegram_username:
+      telegram || null,
 
-    source_row_number: index + 2,
+    email:
+      email
+        ? String(
+            email
+          ).trim()
+          .toLowerCase()
+        : null,
 
-    raw_data: contact,
+    source_row_number:
+      index + 1,
+
+    raw_data:
+      safeContact,
 
     status: "new",
-    telegram_found: false,
+
+    /*
+     * Ник уже известен из файла,
+     * поэтому Telegram найден.
+     */
+    telegram_found:
+      Boolean(telegram),
   };
 };
 
@@ -596,6 +850,7 @@ export const mailingContactService = {
   autoAssignManagers,
   normalizePhone,
   normalizeContact,
+  normalizeTelegram,
   getContactsByMailingId,
   getContactById,
   updateComment,
