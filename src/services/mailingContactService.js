@@ -474,10 +474,7 @@ const createContact = async (
   };
 };
 
-const importContacts = async (
-  mailingId,
-  contacts
-) => {
+const importContacts = async (mailingId, contacts) => {
   if (!mailingId) {
     return {
       data: [],
@@ -488,22 +485,32 @@ const importContacts = async (
   if (!Array.isArray(contacts)) {
     return {
       data: [],
-      error: new Error(
-        "Контакты должны быть массивом."
-      ),
+      error: new Error("Контакты должны быть массивом."),
     };
   }
+
+  /*
+   * =====================================================
+   * 1. НОРМАЛИЗУЕМ КОНТАКТЫ
+   * =====================================================
+   */
 
   const preparedContacts = contacts
     .map((contact, index) => ({
       ...normalizeContact(contact, index),
+
       mailing_id: mailingId,
+
+      source: "mailing",
+
+      is_external: false,
     }))
     .filter((contact) => {
-      return (
+      return Boolean(
         contact.phone ||
-        contact.email ||
-        contact.full_name
+          contact.email ||
+          contact.telegram_username ||
+          contact.full_name
       );
     });
 
@@ -516,77 +523,421 @@ const importContacts = async (
     };
   }
 
+  /*
+   * =====================================================
+   * 2. УБИРАЕМ ДУБЛИ ВНУТРИ САМОГО ФАЙЛА
+   * =====================================================
+   */
+
   const uniqueContacts = [];
+
   const usedPhones = new Set();
+  const usedTelegrams = new Set();
 
   for (const contact of preparedContacts) {
-    if (contact.phone) {
-      const key = contact.phone;
+    const phoneKey = contact.phone
+      ? String(contact.phone).trim()
+      : null;
 
-      if (usedPhones.has(key)) {
-        continue;
-      }
+    const telegramKey =
+      contact.telegram_username
+        ? String(contact.telegram_username)
+            .trim()
+            .toLowerCase()
+        : null;
 
-      usedPhones.add(key);
+    /*
+     * Если совпал телефон —
+     * это дубль.
+     */
+    if (
+      phoneKey &&
+      usedPhones.has(phoneKey)
+    ) {
+      continue;
+    }
+
+    /*
+     * Если совпал Telegram —
+     * это дубль.
+     */
+    if (
+      telegramKey &&
+      usedTelegrams.has(telegramKey)
+    ) {
+      continue;
+    }
+
+    if (phoneKey) {
+      usedPhones.add(phoneKey);
+    }
+
+    if (telegramKey) {
+      usedTelegrams.add(telegramKey);
     }
 
     uniqueContacts.push(contact);
   }
 
-  const phones = uniqueContacts
-    .map((contact) => contact.phone)
-    .filter(Boolean);
+  /*
+   * =====================================================
+   * 3. ПРОВЕРЯЕМ СУЩЕСТВУЮЩИЕ КОНТАКТЫ
+   * =====================================================
+   *
+   * ВАЖНО:
+   *
+   * Больше НЕ делаем один большой запрос:
+   *
+   * select все контакты mailing_id
+   *
+   * Вместо этого проверяем данные небольшими пачками.
+   */
 
-  let existingPhones = new Set();
+  const existingPhones = new Set();
+  const existingTelegrams = new Set();
 
-  if (phones.length > 0) {
-    const { data: existingContacts, error: existingError } =
-      await supabase
-        .from("mailing_contacts")
-        .select("phone")
-        .eq("mailing_id", mailingId)
-        .in("phone", phones);
+  /*
+   * Размер одной пачки.
+   *
+   * 100 достаточно мало, чтобы запросы
+   * не становились тяжёлыми.
+   */
+  const CHECK_CHUNK_SIZE = 100;
 
-    if (existingError) {
+  /*
+   * =====================================================
+   * 4. ПРОВЕРЯЕМ TELEGRAM
+   * =====================================================
+   */
+
+  const telegramsToCheck = [
+    ...new Set(
+      uniqueContacts
+        .map((contact) =>
+          contact.telegram_username
+            ? String(
+                contact.telegram_username
+              )
+                .trim()
+                .toLowerCase()
+            : null
+        )
+        .filter(Boolean)
+    ),
+  ];
+
+  for (
+    let index = 0;
+    index < telegramsToCheck.length;
+    index += CHECK_CHUNK_SIZE
+  ) {
+    const chunk = telegramsToCheck.slice(
+      index,
+      index + CHECK_CHUNK_SIZE
+    );
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("mailing_contacts")
+      .select("telegram_username")
+      .eq("mailing_id", mailingId)
+      .in("telegram_username", chunk);
+
+    if (error) {
+      console.error(
+        "Ошибка проверки Telegram:",
+        error
+      );
+
       return {
         data: [],
-        error: existingError,
+        error: new Error(
+          `Не удалось проверить существующие Telegram-контакты: ${
+            error.message ||
+            "ошибка базы данных"
+          }`
+        ),
       };
     }
 
-    existingPhones = new Set(
-      (existingContacts || [])
-        .map((contact) => contact.phone)
-        .filter(Boolean)
-    );
+    for (const row of data || []) {
+      if (!row.telegram_username) {
+        continue;
+      }
+
+      existingTelegrams.add(
+        String(row.telegram_username)
+          .trim()
+          .toLowerCase()
+      );
+    }
   }
 
-  const contactsToInsert = uniqueContacts.filter(
-    (contact) =>
-      !contact.phone ||
-      !existingPhones.has(contact.phone)
-  );
+  /*
+   * =====================================================
+   * 5. ПРОВЕРЯЕМ ТЕЛЕФОНЫ
+   * =====================================================
+   */
+
+  const phonesToCheck = [
+    ...new Set(
+      uniqueContacts
+        .map((contact) =>
+          contact.phone
+            ? String(contact.phone).trim()
+            : null
+        )
+        .filter(Boolean)
+    ),
+  ];
+
+  for (
+    let index = 0;
+    index < phonesToCheck.length;
+    index += CHECK_CHUNK_SIZE
+  ) {
+    const chunk = phonesToCheck.slice(
+      index,
+      index + CHECK_CHUNK_SIZE
+    );
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("mailing_contacts")
+      .select("phone")
+      .eq("mailing_id", mailingId)
+      .in("phone", chunk);
+
+    if (error) {
+      console.error(
+        "Ошибка проверки телефонов:",
+        error
+      );
+
+      return {
+        data: [],
+        error: new Error(
+          `Не удалось проверить существующие телефоны: ${
+            error.message ||
+            "ошибка базы данных"
+          }`
+        ),
+      };
+    }
+
+    for (const row of data || []) {
+      if (!row.phone) {
+        continue;
+      }
+
+      existingPhones.add(
+        String(row.phone).trim()
+      );
+    }
+  }
+
+  /*
+   * =====================================================
+   * 6. ОСТАВЛЯЕМ ТОЛЬКО НОВЫЕ КОНТАКТЫ
+   * =====================================================
+   */
+
+  const contactsToInsert =
+    uniqueContacts.filter((contact) => {
+      const phoneKey = contact.phone
+        ? String(contact.phone).trim()
+        : null;
+
+      const telegramKey =
+        contact.telegram_username
+          ? String(contact.telegram_username)
+              .trim()
+              .toLowerCase()
+          : null;
+
+      if (
+        phoneKey &&
+        existingPhones.has(phoneKey)
+      ) {
+        return false;
+      }
+
+      if (
+        telegramKey &&
+        existingTelegrams.has(
+          telegramKey
+        )
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+  /*
+   * =====================================================
+   * 7. ЕСЛИ ВСЁ УЖЕ ЕСТЬ
+   * =====================================================
+   *
+   * Это НЕ ошибка.
+   *
+   * Например:
+   *
+   * файл = 1877
+   * в базе = 1877
+   *
+   * Просто возвращаем статистику.
+   */
 
   if (contactsToInsert.length === 0) {
     return {
       data: [],
-      error: new Error(
-        "Все контакты из файла уже есть в этой партии."
-      ),
+      error: null,
+
+      stats: {
+        received: contacts.length,
+
+        valid: preparedContacts.length,
+
+        unique: uniqueContacts.length,
+
+        inserted: 0,
+
+        skippedExisting:
+          uniqueContacts.length,
+
+        duplicatesInFile:
+          preparedContacts.length -
+          uniqueContacts.length,
+      },
+
+      message:
+        `Новых контактов нет. ` +
+        `${uniqueContacts.length} уже существуют в этой партии.`,
     };
   }
 
-  const { data, error } = await supabase
-    .from("mailing_contacts")
-    .insert(contactsToInsert)
-    .select();
+  /*
+   * =====================================================
+   * 8. ВСТАВЛЯЕМ НОВЫЕ КОНТАКТЫ ПОРЦИЯМИ
+   * =====================================================
+   */
+
+  const INSERT_CHUNK_SIZE = 100;
+
+  const insertedContacts = [];
+
+  for (
+    let index = 0;
+    index < contactsToInsert.length;
+    index += INSERT_CHUNK_SIZE
+  ) {
+    const chunk = contactsToInsert.slice(
+      index,
+      index + INSERT_CHUNK_SIZE
+    );
+
+    const {
+      data,
+      error,
+    } = await supabase
+      .from("mailing_contacts")
+      .insert(chunk)
+      .select();
+
+    if (error) {
+      console.error(
+        "Ошибка импорта контактов:",
+        {
+          chunkStart: index,
+          chunkSize: chunk.length,
+          insertedBeforeError:
+            insertedContacts.length,
+          error,
+        }
+      );
+
+      return {
+        data: insertedContacts,
+
+        error: new Error(
+          `Импорт остановлен. ` +
+          `Успешно добавлено: ${insertedContacts.length}. ` +
+          `Ошибка: ${
+            error.message ||
+            "ошибка базы данных"
+          }`
+        ),
+
+        stats: {
+          received: contacts.length,
+
+          valid: preparedContacts.length,
+
+          unique: uniqueContacts.length,
+
+          inserted:
+            insertedContacts.length,
+
+          skippedExisting:
+            uniqueContacts.length -
+            contactsToInsert.length,
+
+          duplicatesInFile:
+            preparedContacts.length -
+            uniqueContacts.length,
+        },
+      };
+    }
+
+    insertedContacts.push(
+      ...(data || [])
+    );
+  }
+
+  /*
+   * =====================================================
+   * 9. РЕЗУЛЬТАТ
+   * =====================================================
+   */
 
   return {
-    data: data || [],
-    error,
+    data: insertedContacts,
+
+    error: null,
+
+    stats: {
+      received: contacts.length,
+
+      valid: preparedContacts.length,
+
+      unique: uniqueContacts.length,
+
+      inserted:
+        insertedContacts.length,
+
+      skippedExisting:
+        uniqueContacts.length -
+        contactsToInsert.length,
+
+      duplicatesInFile:
+        preparedContacts.length -
+        uniqueContacts.length,
+    },
+
+    message:
+      `Импорт завершён. ` +
+      `Добавлено: ${insertedContacts.length}. ` +
+      `Уже существовали: ${
+        uniqueContacts.length -
+        contactsToInsert.length
+      }.`,
   };
 };
-
 const updateContact = async (
   contactId,
   updates
