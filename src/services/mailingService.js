@@ -313,6 +313,12 @@ export const mailingService = {
    * Получить все партии.
    */
   async getMailings() {
+  /*
+   * ============================================
+   * 1. ПОЛУЧАЕМ САМИ РАССЫЛКИ
+   * ============================================
+   */
+
   const {
     data: mailings,
     error: mailingsError,
@@ -337,78 +343,338 @@ export const mailingService = {
     };
   }
 
-  const mailingIds = mailings.map(
-    (mailing) => mailing.id
-  );
+  /*
+   * ============================================
+   * 2. СЧИТАЕМ СТАТИСТИКУ КАЖДОЙ РАССЫЛКИ
+   * ============================================
+   *
+   * ВАЖНО:
+   *
+   * Больше НЕ загружаем все mailing_contacts
+   * одним большим запросом.
+   *
+   * Вместо этого PostgreSQL считает количество
+   * на сервере через count: "exact".
+   *
+   * Поэтому 1000 / 5000 / 50000 контактов
+   * будут считаться корректно.
+   */
 
-  const {
-  data: contacts,
-  error: contactsError,
-} = await supabase
-  .from("mailing_contacts")
-  .select(`
-    id,
-    mailing_id,
-    status,
-    telegram_found,
-    telegram_username,
-    sent_at,
-    responded_at,
-    application_created_at
-  `)
-  .in("mailing_id", mailingIds);
+  const preparedMailings =
+    await Promise.all(
+      mailings.map(async (mailing) => {
+        /*
+         * ----------------------------------------
+         * ВСЕ ЗАГРУЖЕННЫЕ
+         * ----------------------------------------
+         */
 
-  if (contactsError) {
-    return {
-      data: [],
-      error: contactsError,
-    };
-  }
+        const {
+          count: uploadedCount,
+          error: uploadedError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          );
 
-  const contactsByMailing = (
-    contacts || []
-  ).reduce((result, contact) => {
-    if (!result[contact.mailing_id]) {
-      result[contact.mailing_id] = [];
-    }
+        if (uploadedError) {
+          throw uploadedError;
+        }
 
-    result[contact.mailing_id].push(
-      contact
+        /*
+         * ----------------------------------------
+         * TELEGRAM НАЙДЕН
+         * ----------------------------------------
+         *
+         * Считаем контакт найденным, если:
+         *
+         * telegram_found = true
+         *
+         * ИЛИ
+         *
+         * telegram_username заполнен.
+         */
+
+        const {
+          count: telegramFoundByFlag,
+          error:
+            telegramFoundByFlagError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .eq(
+            "telegram_found",
+            true
+          );
+
+        if (
+          telegramFoundByFlagError
+        ) {
+          throw telegramFoundByFlagError;
+        }
+
+        /*
+         * В большинстве импортированных нами
+         * Telegram-контактов telegram_found уже
+         * выставляется true.
+         *
+         * Поэтому основной показатель берём
+         * именно по флагу.
+         */
+
+        /*
+         * ----------------------------------------
+         * TELEGRAM НЕ НАЙДЕН
+         * ----------------------------------------
+         */
+
+        const {
+          count:
+            telegramNotFoundCount,
+          error:
+            telegramNotFoundError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .eq(
+            "telegram_found",
+            false
+          )
+          .is(
+            "telegram_username",
+            null
+          );
+
+        if (
+          telegramNotFoundError
+        ) {
+          throw telegramNotFoundError;
+        }
+
+        /*
+         * ----------------------------------------
+         * ОТПРАВЛЕНО
+         * ----------------------------------------
+         *
+         * Раньше считалось:
+         *
+         * sent_at существует
+         * ИЛИ статус:
+         *
+         * sent
+         * responded
+         * application
+         * opened
+         *
+         * Чтобы не потерять старые записи,
+         * считаем по статусам.
+         */
+
+        const {
+          count: sentCount,
+          error: sentError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .in("status", [
+            "sent",
+            "responded",
+            "application",
+            "opened",
+          ]);
+
+        if (sentError) {
+          throw sentError;
+        }
+
+        /*
+         * ----------------------------------------
+         * ОТВЕТИЛИ
+         * ----------------------------------------
+         */
+
+        const {
+          count: respondedCount,
+          error: respondedError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .in("status", [
+            "responded",
+            "application",
+            "opened",
+          ]);
+
+        if (respondedError) {
+          throw respondedError;
+        }
+
+        /*
+         * ----------------------------------------
+         * ЗАЯВКИ
+         * ----------------------------------------
+         */
+
+        const {
+          count: applicationsCount,
+          error: applicationsError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .in("status", [
+            "application",
+            "opened",
+          ]);
+
+        if (applicationsError) {
+          throw applicationsError;
+        }
+
+        /*
+         * ----------------------------------------
+         * ОТКРЫТИЯ
+         * ----------------------------------------
+         */
+
+        const {
+          count: openingsCount,
+          error: openingsError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .eq(
+            "status",
+            "opened"
+          );
+
+        if (openingsError) {
+          throw openingsError;
+        }
+
+        /*
+         * ----------------------------------------
+         * ОТКАЗЫ
+         * ----------------------------------------
+         */
+
+        const {
+          count: rejectedCount,
+          error: rejectedError,
+        } = await supabase
+          .from("mailing_contacts")
+          .select("id", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "mailing_id",
+            mailing.id
+          )
+          .eq(
+            "status",
+            "rejected"
+          );
+
+        if (rejectedError) {
+          throw rejectedError;
+        }
+
+        /*
+         * ----------------------------------------
+         * ПРЕОБРАЗОВЫВАЕМ РАССЫЛКУ
+         * ----------------------------------------
+         */
+
+        const mappedMailing =
+          mapMailingFromDatabase(
+            mailing
+          );
+
+        return {
+          ...mappedMailing,
+
+          uploaded:
+            uploadedCount || 0,
+
+          delivered:
+            sentCount || 0,
+
+          replied:
+            respondedCount || 0,
+
+          applications:
+            applicationsCount || 0,
+
+          openings:
+            openingsCount || 0,
+
+          telegram_found:
+            telegramFoundByFlag ||
+            0,
+
+          telegram_not_found:
+            telegramNotFoundCount ||
+            0,
+
+          rejected:
+            rejectedCount || 0,
+        };
+      })
     );
 
-    return result;
-  }, {});
-
-  const preparedMailings = mailings.map(
-    (mailing) => {
-      const statistics =
-        getContactStatistics(
-          contactsByMailing[mailing.id] || []
-        );
-
-      const mappedMailing =
-        mapMailingFromDatabase(mailing);
-
-      return {
-        ...mappedMailing,
-
-        uploaded: statistics.uploaded,
-        delivered: statistics.sent,
-        replied: statistics.responded,
-        applications:
-          statistics.applications,
-        openings: statistics.openings,
-
-        telegram_found:
-          statistics.telegramFound,
-
-        telegram_not_found:
-          statistics.telegramNotFound,
-
-        rejected: statistics.rejected,
-      };
-    }
-  );
+  /*
+   * ============================================
+   * 3. ВОЗВРАЩАЕМ РЕЗУЛЬТАТ
+   * ============================================
+   */
 
   return {
     data: preparedMailings,
