@@ -4181,3 +4181,20 @@ gap:10px;
     font-size: 11px;
   }
 }
+@media (max-width: 768px) {
+  .incoming-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .incoming-manager-filter {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+  }
+
+  .incoming-manager-filter select {
+    font-size: 16px;
+  }
+}

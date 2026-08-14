@@ -47,6 +47,11 @@ export default function Incoming() {
   const [search, setSearch] =
     useState("");
 
+    const [
+  managerFilter,
+  setManagerFilter,
+] = useState("all");
+
   const [
     identifiersValue,
     setIdentifiersValue,
@@ -450,7 +455,92 @@ export default function Incoming() {
       null
     );
   }
+/*
+ * =====================================================
+ * МЕНЕДЖЕРЫ ДЛЯ ФИЛЬТРА
+ * =====================================================
+ */
 
+const managerOptions =
+  useMemo(() => {
+    const managersMap =
+      new Map();
+
+    for (const response of responses) {
+      const managerId =
+        response.manager_id;
+
+      if (!managerId) {
+        continue;
+      }
+
+      const managerName =
+        response.manager?.full_name ||
+        response.manager?.email ||
+        "Без имени";
+
+      if (
+        !managersMap.has(
+          managerId
+        )
+      ) {
+        managersMap.set(
+          managerId,
+          {
+            id: managerId,
+            name: managerName,
+            count: 0,
+          }
+        );
+      }
+
+      const current =
+        managersMap.get(
+          managerId
+        );
+
+      current.count += 1;
+    }
+
+    return Array.from(
+      managersMap.values()
+    ).sort((a, b) =>
+      a.name.localeCompare(
+        b.name,
+        "ru"
+      )
+    );
+  }, [responses]);
+
+/*
+ * =====================================================
+ * ФИЛЬТР ПО МЕНЕДЖЕРУ
+ * =====================================================
+ */
+
+const managerFilteredResponses =
+  useMemo(() => {
+    /*
+     * У обычного менеджера
+     * фильтра по другим сотрудникам нет.
+     */
+    if (
+      isManager ||
+      managerFilter === "all"
+    ) {
+      return responses;
+    }
+
+    return responses.filter(
+      (response) =>
+        response.manager_id ===
+        managerFilter
+    );
+  }, [
+    responses,
+    managerFilter,
+    isManager,
+  ]);
   /*
    * =====================================================
    * ПОИСК
@@ -458,65 +548,58 @@ export default function Incoming() {
    */
 
   const filteredResponses =
-    useMemo(() => {
-      const normalizedSearch =
-        search
-          .trim()
+  useMemo(() => {
+    const normalizedSearch =
+      search
+        .trim()
+        .toLowerCase();
+
+    if (!normalizedSearch) {
+      return managerFilteredResponses;
+    }
+
+    return managerFilteredResponses.filter(
+      (response) => {
+        const isExternal =
+          Boolean(
+            response.is_external
+          ) ||
+          response.source ===
+            "external" ||
+          !response.mailing_id;
+
+        const searchableValue = [
+          response.telegram_username,
+          response.full_name,
+          response.phone,
+          response.status,
+          response.source,
+
+          isExternal
+            ? "вне рассылки внешний входящий"
+            : "рассылка",
+
+          response.mailing?.name,
+
+          response.manager
+            ?.full_name,
+
+          response.manager
+            ?.email,
+        ]
+          .filter(Boolean)
+          .join(" ")
           .toLowerCase();
 
-      if (!normalizedSearch) {
-        return responses;
+        return searchableValue.includes(
+          normalizedSearch
+        );
       }
-
-      return responses.filter(
-        (response) => {
-          const isExternal =
-            Boolean(
-              response.is_external
-            ) ||
-            response.source ===
-              "external" ||
-            !response.mailing_id;
-
-          const searchableValue = [
-            response
-              .telegram_username,
-
-            response.full_name,
-
-            response.phone,
-
-            response.status,
-
-            response.source,
-
-            isExternal
-              ? "вне рассылки внешний входящий"
-              : "рассылка",
-
-            response.mailing
-              ?.name,
-
-            response.manager
-              ?.full_name,
-
-            response.manager
-              ?.email,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-
-          return searchableValue
-            .includes(
-              normalizedSearch
-            );
-        }
-      );
-    }, [
-      responses,
-      search,
-    ]);
+    );
+  }, [
+    managerFilteredResponses,
+    search,
+  ]);
 
   /*
    * =====================================================
@@ -524,9 +607,13 @@ export default function Incoming() {
    * =====================================================
    */
 
-  const stats = useMemo(() => {
+ const stats =
+  useMemo(() => {
+    const data =
+      managerFilteredResponses;
+
     const respondedToday =
-      responses.filter(
+      data.filter(
         (response) =>
           isToday(
             response.responded_at
@@ -534,7 +621,7 @@ export default function Incoming() {
       ).length;
 
     const withApplications =
-      responses.filter(
+      data.filter(
         (response) =>
           Boolean(
             response
@@ -544,7 +631,7 @@ export default function Incoming() {
 
     const uniqueManagers =
       new Set(
-        responses
+        data
           .map(
             (response) =>
               response.manager_id
@@ -553,7 +640,7 @@ export default function Incoming() {
       ).size;
 
     const external =
-      responses.filter(
+      data.filter(
         (response) =>
           Boolean(
             response.is_external
@@ -565,7 +652,7 @@ export default function Incoming() {
 
     return {
       total:
-        responses.length,
+        data.length,
 
       today:
         respondedToday,
@@ -577,7 +664,9 @@ export default function Incoming() {
 
       external,
     };
-  }, [responses]);
+  }, [
+    managerFilteredResponses,
+  ]);
 
   /*
    * =====================================================
@@ -705,37 +794,64 @@ export default function Incoming() {
           ПОИСК
       ================================================= */}
 
-      <section className="incoming-toolbar">
-        <div className="incoming-search">
-          <Search size={19} />
+     <section className="incoming-toolbar">
+  <div className="incoming-search">
+    <Search size={19} />
 
-          <input
-            type="search"
-            placeholder="Telegram, имя, телефон, рассылка или источник"
-            value={search}
-            onChange={(
-              event
-            ) =>
-              setSearch(
-                event.target
-                  .value
-              )
-            }
-          />
+    <input
+      type="search"
+      placeholder="Telegram, имя, телефон, рассылка или источник"
+      value={search}
+      onChange={(event) =>
+        setSearch(
+          event.target.value
+        )
+      }
+    />
 
-          {search && (
-            <button
-              type="button"
-              aria-label="Очистить поиск"
-              onClick={() =>
-                setSearch("")
-              }
+    {search && (
+      <button
+        type="button"
+        aria-label="Очистить поиск"
+        onClick={() =>
+          setSearch("")
+        }
+      >
+        <X size={17} />
+      </button>
+    )}
+  </div>
+
+  {!isManager && (
+    <div className="incoming-manager-filter">
+      <Users size={18} />
+
+      <select
+        value={managerFilter}
+        onChange={(event) =>
+          setManagerFilter(
+            event.target.value
+          )
+        }
+      >
+        <option value="all">
+          Все менеджеры — {responses.length}
+        </option>
+
+        {managerOptions.map(
+          (manager) => (
+            <option
+              key={manager.id}
+              value={manager.id}
             >
-              <X size={17} />
-            </button>
-          )}
-        </div>
-      </section>
+              {manager.name} — {manager.count}
+            </option>
+          )
+        )}
+      </select>
+    </div>
+  )}
+</section>
 
       {/* =================================================
           ОШИБКА
@@ -809,13 +925,36 @@ export default function Incoming() {
       ) : (
         <>
           <div className="incoming-results">
-            Найдено:{" "}
-            <strong>
-              {
-                filteredResponses.length
-              }
-            </strong>
-          </div>
+  {managerFilter === "all" ||
+  isManager ? (
+    <>
+      Найдено:{" "}
+      <strong>
+        {filteredResponses.length}
+      </strong>
+    </>
+  ) : (
+    <>
+      Менеджер:{" "}
+      <strong>
+        {
+          managerOptions.find(
+            (manager) =>
+              manager.id ===
+              managerFilter
+          )?.name
+        }
+      </strong>
+
+      {" · "}
+
+      Входящих:{" "}
+      <strong>
+        {filteredResponses.length}
+      </strong>
+    </>
+  )}
+</div>
 
           <section className="incoming-grid">
             {filteredResponses.map(
