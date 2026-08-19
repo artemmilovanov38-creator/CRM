@@ -67,6 +67,21 @@ function createServiceError(message) {
   return new Error(message);
 }
 
+function sameId(left, right) {
+  if (
+    left === null ||
+    left === undefined ||
+    right === null ||
+    right === undefined ||
+    left === "" ||
+    right === ""
+  ) {
+    return false;
+  }
+
+  return String(left) === String(right);
+}
+
 function isUniqueViolation(error) {
   return error?.code === "23505";
 }
@@ -348,9 +363,8 @@ async function findExistingApplication({
 }) {
   let query = supabase
     .from("applications")
-    .select(APPLICATION_FIELDS)
-    .eq("product_id", productId)
-    .limit(5);
+    .select("id, product_id, mailing_contact_id")
+    .eq("product_id", productId);
 
   if (contact?.id) {
     query = query.eq(
@@ -385,13 +399,6 @@ async function findExistingApplication({
     }
   }
 
-  if (excludeApplicationId) {
-    query = query.neq(
-      "id",
-      excludeApplicationId
-    );
-  }
-
   const { data, error } = await query;
 
   if (error) {
@@ -404,7 +411,10 @@ async function findExistingApplication({
   const existing =
     (data || []).find(
       (item) =>
-        item.id !== excludeApplicationId
+        !sameId(
+          item.id,
+          excludeApplicationId
+        )
     ) || null;
 
   return {
@@ -1550,15 +1560,17 @@ export const applicationService = {
         };
       }
 
-      const productChanged =
-        nextProduct.id !==
-        currentApplication.product_id;
+      const productChanged = !sameId(
+        nextProduct.id,
+        currentApplication.product_id
+      );
 
       /*
        * Дубль "контакт + продукт" проверяем
        * только при реальной смене продукта.
-       * Смена статуса/комментария этой заявки
-       * не должна считаться дублем.
+       * Текущая заявка всегда исключается
+       * из проверки и не считается дублем
+       * самой себя.
        */
       if (productChanged) {
         const {
@@ -1590,7 +1602,7 @@ export const applicationService = {
               : currentApplication.phone,
 
           excludeApplicationId:
-            applicationId,
+            currentApplication.id,
         });
 
         if (duplicateError) {
@@ -1618,6 +1630,13 @@ export const applicationService = {
 
       payload.product =
         nextProduct.name;
+
+      if (productChanged) {
+        payload.opening_price_snapshot =
+          normalizePrice(
+            nextProduct.opening_price
+          );
+      }
     } else if ("product" in payload) {
       payload.product =
         normalizeText(

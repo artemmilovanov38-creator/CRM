@@ -468,9 +468,6 @@ export default function ApplicationsPage() {
       source:
         form.source?.trim() || null,
 
-      product_id:
-        form.product_id || null,
-
       status: form.status,
 
       assigned_manager_id:
@@ -485,6 +482,15 @@ export default function ApplicationsPage() {
       comment:
         form.comment.trim() || null,
     };
+
+    if (
+      form.product_id &&
+      String(form.product_id) !==
+        String(application.product_id || "")
+    ) {
+      updates.product_id =
+        form.product_id;
+    }
 
     const {
       data,

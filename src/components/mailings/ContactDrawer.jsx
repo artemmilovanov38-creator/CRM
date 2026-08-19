@@ -310,8 +310,8 @@ export default function ContactDrawer({
     () =>
       new Set(
         applications
-          .map(
-            (item) => item.product_id
+          .map((item) =>
+            String(item.product_id || "")
           )
           .filter(Boolean)
       ),
@@ -323,7 +323,7 @@ export default function ContactDrawer({
       products.filter(
         (product) =>
           !usedProductIds.has(
-            product.id
+            String(product.id)
           )
       ),
     [products, usedProductIds]
@@ -411,9 +411,64 @@ export default function ContactDrawer({
     }
 
     if (result.alreadyExists) {
-      setApplicationFormError(
-        "По выбранному продукту уже существует заявка"
+      const existingApplication =
+        result.data;
+
+      if (!existingApplication?.id) {
+        setApplicationFormError(
+          "По выбранному продукту уже существует заявка"
+        );
+
+        setApplicationSaving(false);
+        return;
+      }
+
+      const updateResult =
+        await applicationService
+          .updateApplicationProgress(
+            existingApplication.id,
+            {
+              status:
+                applicationForm.status,
+
+              comment:
+                applicationForm.comment,
+            }
+          );
+
+      if (updateResult.error) {
+        console.error(
+          "Ошибка изменения заявки:",
+          updateResult.error
+        );
+
+        setApplicationFormError(
+          updateResult.error.message ||
+            "Не удалось изменить заявку"
+        );
+
+        setApplicationSaving(false);
+        return;
+      }
+
+      setApplicationSuccess(
+        "Изменения заявки сохранены"
       );
+
+      setLastCreatedApplicationId(
+        updateResult.data?.id || null
+      );
+
+      setApplicationForm(
+        emptyApplicationForm
+      );
+
+      await loadApplications();
+
+      onContactChanged?.({
+        ...contact,
+        status: "application",
+      });
 
       setApplicationSaving(false);
       return;
@@ -500,20 +555,25 @@ export default function ContactDrawer({
     setApplicationsError("");
     setApplicationSuccess("");
 
+    const updates = {
+      status: editingForm.status,
+      comment: editingForm.comment,
+    };
+
+    if (
+      editingForm.productId &&
+      String(editingForm.productId) !==
+        String(application.product_id || "")
+    ) {
+      updates.productId =
+        editingForm.productId;
+    }
+
     const result =
       await applicationService
         .updateApplicationProgress(
           application.id,
-          {
-            productId:
-              editingForm.productId,
-
-            status:
-              editingForm.status,
-
-            comment:
-              editingForm.comment,
-          }
+          updates
         );
 
     if (result.error) {
@@ -544,6 +604,8 @@ export default function ContactDrawer({
     );
 
     cancelEditingApplication();
+
+    await loadApplications();
 
     onContactChanged?.({
       ...contact,
@@ -814,7 +876,7 @@ export default function ContactDrawer({
           <section className="contact-drawer-section contact-drawer-section--create">
             <SectionHeading
               title="Создать заявку"
-              description="Один контакт может иметь несколько заявок — по одному продукту каждая"
+              description="Новая заявка создаётся только по продукту, которого ещё нет у этого контакта. Существующие заявки редактируйте в списке ниже."
               icon={FilePlus2}
             />
 

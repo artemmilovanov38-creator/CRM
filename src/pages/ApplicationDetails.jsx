@@ -340,8 +340,17 @@ setProducts(productsResult.data || []);
     const previousStatus = application?.status || null;
     const nextStatus = form.status || null;
 
+    const updates = { ...form };
+
+    if (
+      String(form.product_id || "") ===
+      String(application?.product_id || "")
+    ) {
+      delete updates.product_id;
+    }
+
     const { data, error: updateError } =
-      await applicationService.updateApplication(applicationId, form);
+      await applicationService.updateApplication(applicationId, updates);
 
     if (updateError) {
       console.error("Ошибка сохранения заявки:", updateError);
