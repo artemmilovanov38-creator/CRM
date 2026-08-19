@@ -306,6 +306,29 @@ export default function ContactDrawer({
     ]
   );
 
+  const usedProductIds = useMemo(
+    () =>
+      new Set(
+        applications
+          .map(
+            (item) => item.product_id
+          )
+          .filter(Boolean)
+      ),
+    [applications]
+  );
+
+  const productsForCreate = useMemo(
+    () =>
+      products.filter(
+        (product) =>
+          !usedProductIds.has(
+            product.id
+          )
+      ),
+    [products, usedProductIds]
+  );
+
   const managerChanged =
     managerValue !==
     (contact?.manager_id || "");
@@ -530,6 +553,65 @@ export default function ContactDrawer({
     setApplicationSaving(false);
   }
 
+  async function handleQuickStatusChange(
+    application,
+    nextStatus
+  ) {
+    if (
+      !application?.id ||
+      !nextStatus ||
+      nextStatus === application.status
+    ) {
+      return;
+    }
+
+    setApplicationSaving(true);
+    setApplicationsError("");
+    setApplicationSuccess("");
+    setApplicationFormError("");
+
+    const result =
+      await applicationService
+        .updateStatus(
+          application.id,
+          nextStatus
+        );
+
+    if (result.error) {
+      console.error(
+        "Ошибка изменения статуса:",
+        result.error
+      );
+
+      setApplicationsError(
+        result.error.message ||
+          "Не удалось изменить статус"
+      );
+
+      setApplicationSaving(false);
+      return;
+    }
+
+    setApplications((current) =>
+      current.map((item) =>
+        item.id === result.data.id
+          ? result.data
+          : item
+      )
+    );
+
+    setApplicationSuccess(
+      "Статус заявки обновлён"
+    );
+
+    onContactChanged?.({
+      ...contact,
+      status: "application",
+    });
+
+    setApplicationSaving(false);
+  }
+
   async function handleDeleteApplication(
     application
   ) {
@@ -732,7 +814,7 @@ export default function ContactDrawer({
           <section className="contact-drawer-section contact-drawer-section--create">
             <SectionHeading
               title="Создать заявку"
-              description="Выберите продукт и текущий этап клиента"
+              description="Один контакт может иметь несколько заявок — по одному продукту каждая"
               icon={FilePlus2}
             />
 
@@ -746,7 +828,7 @@ export default function ContactDrawer({
                 }
                 disabled={
                   applicationSaving ||
-                  products.length === 0
+                  productsForCreate.length === 0
                 }
                 onChange={(event) => {
                   setApplicationForm(
@@ -766,7 +848,7 @@ export default function ContactDrawer({
                   Выберите продукт
                 </option>
 
-                {products.map(
+                {productsForCreate.map(
                   (product) => (
                     <option
                       key={product.id}
@@ -865,6 +947,16 @@ export default function ContactDrawer({
               </div>
             )}
 
+            {productsForCreate.length === 0 &&
+              products.length > 0 && (
+              <p className="contact-drawer-hint">
+                По всем активным продуктам
+                заявки уже созданы. Можно
+                изменить статус существующей
+                заявки ниже.
+              </p>
+            )}
+
             {products.length === 0 && (
               <p className="contact-drawer-hint">
                 Активные продукты не найдены.
@@ -916,7 +1008,8 @@ export default function ContactDrawer({
               className="contact-drawer-action contact-drawer-action--application"
               disabled={
                 applicationSaving ||
-                !applicationForm.productId
+                !applicationForm.productId ||
+                productsForCreate.length === 0
               }
               onClick={
                 handleCreateApplication
@@ -934,7 +1027,7 @@ export default function ContactDrawer({
           <section className="contact-drawer-section">
             <SectionHeading
               title={`Заявки клиента (${applications.length})`}
-              description="История продуктов и текущих статусов"
+              description="Все продукты контакта. Статус можно сменить сразу в списке"
               icon={CheckCircle2}
             />
 
@@ -986,6 +1079,8 @@ export default function ContactDrawer({
                       application.id;
 
                     const productPrice =
+                      application
+                        .opening_price_snapshot ??
                       application
                         .product_data
                         ?.opening_price;
@@ -1165,13 +1260,43 @@ export default function ContactDrawer({
                                 </span>
                               </div>
 
-                              <span
-                                className={`contact-drawer-application-status contact-drawer-application-status--${application.status}`}
+                              <select
+                                className={`contact-drawer-application-status-select contact-drawer-application-status--${application.status}`}
+                                value={
+                                  application.status ===
+                                  "waiting"
+                                    ? "new"
+                                    : application.status
+                                }
+                                disabled={
+                                  applicationSaving ||
+                                  isDeleting
+                                }
+                                aria-label="Изменить статус заявки"
+                                onChange={(event) =>
+                                  handleQuickStatusChange(
+                                    application,
+                                    event.target.value
+                                  )
+                                }
                               >
-                                {getApplicationStatusName(
-                                  application.status
+                                {applicationStatusOptions.map(
+                                  (status) => (
+                                    <option
+                                      key={
+                                        status.value
+                                      }
+                                      value={
+                                        status.value
+                                      }
+                                    >
+                                      {
+                                        status.title
+                                      }
+                                    </option>
+                                  )
                                 )}
-                              </span>
+                              </select>
                             </div>
 
                             <div className="contact-drawer-application-meta">

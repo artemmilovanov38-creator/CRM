@@ -58,8 +58,111 @@ const ALLOWED_APPLICATION_STATUSES = [
   "rejected",
 ];
 
+const PRIVILEGED_ROLES = [
+  "admin",
+  "head",
+];
+
 function createServiceError(message) {
   return new Error(message);
+}
+
+function isUniqueViolation(error) {
+  return error?.code === "23505";
+}
+
+function isPrivilegedRole(role) {
+  return PRIVILEGED_ROLES.includes(role);
+}
+
+async function getCurrentActor() {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return {
+      user: null,
+      profile: null,
+      error:
+        userError ||
+        createServiceError(
+          "Пользователь не авторизован"
+        ),
+    };
+  }
+
+  const { data: profile, error } =
+    await supabase
+      .from("profiles")
+      .select("id, role, status")
+      .eq("id", user.id)
+      .maybeSingle();
+
+  if (error) {
+    return {
+      user,
+      profile: null,
+      error,
+    };
+  }
+
+  return {
+    user,
+    profile,
+    error: null,
+  };
+}
+
+function applyManagerScope(
+  query,
+  actor,
+  field = "assigned_manager_id"
+) {
+  if (
+    actor?.profile &&
+    !isPrivilegedRole(actor.profile.role)
+  ) {
+    return query.eq(
+      field,
+      actor.profile.id
+    );
+  }
+
+  return query;
+}
+
+async function assertCanModifyApplication(
+  application
+) {
+  const actor = await getCurrentActor();
+
+  if (!actor.profile) {
+    return (
+      actor.error ||
+      createServiceError(
+        "Не удалось определить пользователя"
+      )
+    );
+  }
+
+  if (
+    isPrivilegedRole(actor.profile.role)
+  ) {
+    return null;
+  }
+
+  if (
+    application.assigned_manager_id !==
+    actor.profile.id
+  ) {
+    return createServiceError(
+      "Нельзя изменить чужую заявку"
+    );
+  }
+
+  return null;
 }
 
 function normalizeText(value) {
@@ -247,7 +350,7 @@ async function findExistingApplication({
     .from("applications")
     .select(APPLICATION_FIELDS)
     .eq("product_id", productId)
-    .limit(1);
+    .limit(5);
 
   if (contact?.id) {
     query = query.eq(
@@ -291,9 +394,22 @@ async function findExistingApplication({
 
   const { data, error } = await query;
 
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  const existing =
+    (data || []).find(
+      (item) =>
+        item.id !== excludeApplicationId
+    ) || null;
+
   return {
-    data: data?.[0] || null,
-    error,
+    data: existing,
+    error: null,
   };
 }
 
@@ -612,15 +728,38 @@ async function prepareApprovalFields({
 
 export const applicationService = {
   /**
-   * Получить все заявки.
+   * Получить заявки.
+   * Для роли manager возвращаются только
+   * заявки текущего менеджера.
    */
   async getApplications() {
-    const { data, error } = await supabase
+    const actor = await getCurrentActor();
+
+    if (!actor.profile) {
+      return {
+        data: [],
+        error:
+          actor.error ||
+          createServiceError(
+            "Не удалось определить пользователя"
+          ),
+      };
+    }
+
+    let query = supabase
       .from("applications")
       .select(APPLICATION_FIELDS)
       .order("created_at", {
         ascending: false,
       });
+
+    query = applyManagerScope(
+      query,
+      actor
+    );
+
+    const { data, error } =
+      await query;
 
     return {
       data: data || [],
@@ -643,7 +782,20 @@ export const applicationService = {
       };
     }
 
-    const { data, error } = await supabase
+    const actor = await getCurrentActor();
+
+    if (!actor.profile) {
+      return {
+        data: [],
+        error:
+          actor.error ||
+          createServiceError(
+            "Не удалось определить пользователя"
+          ),
+      };
+    }
+
+    let query = supabase
       .from("applications")
       .select(APPLICATION_FIELDS)
       .eq(
@@ -653,6 +805,14 @@ export const applicationService = {
       .order("created_at", {
         ascending: false,
       });
+
+    query = applyManagerScope(
+      query,
+      actor
+    );
+
+    const { data, error } =
+      await query;
 
     return {
       data: data || [],
@@ -668,12 +828,30 @@ export const applicationService = {
     dateFrom,
     dateTo
   ) {
+    const actor = await getCurrentActor();
+
+    if (!actor.profile) {
+      return {
+        data: [],
+        error:
+          actor.error ||
+          createServiceError(
+            "Не удалось определить пользователя"
+          ),
+      };
+    }
+
     let query = supabase
       .from("applications")
       .select(APPLICATION_FIELDS)
       .order("created_at", {
         ascending: false,
       });
+
+    query = applyManagerScope(
+      query,
+      actor
+    );
 
     if (dateFrom) {
       query = query.gte(
@@ -717,6 +895,24 @@ export const applicationService = {
         ascending: false,
       });
 
+    const actor = await getCurrentActor();
+
+    if (!actor.profile) {
+      return {
+        data: [],
+        error:
+          actor.error ||
+          createServiceError(
+            "Не удалось определить пользователя"
+          ),
+      };
+    }
+
+    query = applyManagerScope(
+      query,
+      actor
+    );
+
     if (dateFrom) {
       query = query.gte(
         "approved_at",
@@ -755,11 +951,31 @@ export const applicationService = {
       };
     }
 
-    const { data, error } = await supabase
+    const actor = await getCurrentActor();
+
+    if (!actor.profile) {
+      return {
+        data: null,
+        error:
+          actor.error ||
+          createServiceError(
+            "Не удалось определить пользователя"
+          ),
+      };
+    }
+
+    let query = supabase
       .from("applications")
       .select(APPLICATION_FIELDS)
-      .eq("id", applicationId)
-      .maybeSingle();
+      .eq("id", applicationId);
+
+    query = applyManagerScope(
+      query,
+      actor
+    );
+
+    const { data, error } =
+      await query.maybeSingle();
 
     return {
       data,
@@ -822,6 +1038,57 @@ export const applicationService = {
       };
     }
 
+    const telegram = normalizeTelegram(
+      values?.telegram
+    );
+
+    const phone = normalizePhone(
+      values?.phone
+    );
+
+    if (
+      values?.mailing_contact_id ||
+      telegram ||
+      phone
+    ) {
+      const {
+        data: existingApplication,
+        error: duplicateError,
+      } = await findExistingApplication({
+        contact: {
+          id:
+            values?.mailing_contact_id ||
+            null,
+
+          mailing_id:
+            values?.mailing_id || null,
+        },
+
+        productId: product.id,
+        telegram,
+        phone,
+      });
+
+      if (duplicateError) {
+        return {
+          data: null,
+          error: duplicateError,
+        };
+      }
+
+      if (existingApplication) {
+        return {
+          data: existingApplication,
+          error: createServiceError(
+            `По продукту "${product.name}" у этого контакта уже есть заявка`
+          ),
+          alreadyExists: true,
+        };
+      }
+    }
+
+    const actor = await getCurrentActor();
+
     const payload = {
       mailing_id:
         values?.mailing_id || null,
@@ -836,13 +1103,9 @@ export const applicationService = {
 
       full_name: fullName,
 
-      phone: normalizePhone(
-        values?.phone
-      ),
+      phone,
 
-      telegram: normalizeTelegram(
-        values?.telegram
-      ),
+      telegram,
 
       source:
         normalizeText(values?.source) ||
@@ -852,6 +1115,11 @@ export const applicationService = {
 
       assigned_manager_id:
         values?.assigned_manager_id ||
+        null,
+
+      created_by:
+        actor.user?.id ||
+        values?.created_by ||
         null,
 
       amount: normalizeAmount(
@@ -870,6 +1138,16 @@ export const applicationService = {
       .insert(payload)
       .select(APPLICATION_FIELDS)
       .single();
+
+    if (isUniqueViolation(error)) {
+      return {
+        data: null,
+        error: createServiceError(
+          `По продукту "${product.name}" у этого контакта уже есть заявка`
+        ),
+        alreadyExists: true,
+      };
+    }
 
     return {
       data,
@@ -1025,6 +1303,15 @@ export const applicationService = {
       });
 
     if (result.error) {
+      if (result.alreadyExists) {
+        return {
+          data: result.data,
+          contact,
+          error: null,
+          alreadyExists: true,
+        };
+      }
+
       return {
         data: null,
         error: result.error,
@@ -1101,6 +1388,7 @@ export const applicationService = {
         phone,
         mailing_id,
         status,
+        assigned_manager_id,
         approved_at,
         opening_price_snapshot
       `)
@@ -1122,6 +1410,20 @@ export const applicationService = {
         ),
       };
     }
+
+    const accessError =
+      await assertCanModifyApplication(
+        currentApplication
+      );
+
+    if (accessError) {
+      return {
+        data: null,
+        error: accessError,
+      };
+    }
+
+    const actor = await getCurrentActor();
 
     const allowedFields = [
       "full_name",
@@ -1190,9 +1492,17 @@ export const applicationService = {
     if (
       "assigned_manager_id" in payload
     ) {
-      payload.assigned_manager_id =
-        payload.assigned_manager_id ||
-        null;
+      if (
+        !isPrivilegedRole(
+          actor.profile?.role
+        )
+      ) {
+        delete payload.assigned_manager_id;
+      } else {
+        payload.assigned_manager_id =
+          payload.assigned_manager_id ||
+          null;
+      }
     }
 
     if ("mailing_id" in payload) {
@@ -1240,52 +1550,64 @@ export const applicationService = {
         };
       }
 
-      const {
-        data: duplicateApplication,
-        error: duplicateError,
-      } = await findExistingApplication({
-        contact: {
-          id:
-            payload.mailing_contact_id ||
-            currentApplication
-              .mailing_contact_id,
+      const productChanged =
+        nextProduct.id !==
+        currentApplication.product_id;
 
-          mailing_id:
-            payload.mailing_id ||
-            currentApplication.mailing_id,
-        },
-
-        productId:
-          nextProduct.id,
-
-        telegram:
-          "telegram" in payload
-            ? payload.telegram
-            : currentApplication.telegram,
-
-        phone:
-          "phone" in payload
-            ? payload.phone
-            : currentApplication.phone,
-
-        excludeApplicationId:
-          applicationId,
-      });
-
-      if (duplicateError) {
-        return {
-          data: null,
+      /*
+       * Дубль "контакт + продукт" проверяем
+       * только при реальной смене продукта.
+       * Смена статуса/комментария этой заявки
+       * не должна считаться дублем.
+       */
+      if (productChanged) {
+        const {
+          data: duplicateApplication,
           error: duplicateError,
-        };
-      }
+        } = await findExistingApplication({
+          contact: {
+            id:
+              payload.mailing_contact_id ||
+              currentApplication
+                .mailing_contact_id,
 
-      if (duplicateApplication) {
-        return {
-          data: null,
-          error: createServiceError(
-            `По продукту "${nextProduct.name}" у этого контакта уже есть заявка`
-          ),
-        };
+            mailing_id:
+              payload.mailing_id ||
+              currentApplication.mailing_id,
+          },
+
+          productId:
+            nextProduct.id,
+
+          telegram:
+            "telegram" in payload
+              ? payload.telegram
+              : currentApplication.telegram,
+
+          phone:
+            "phone" in payload
+              ? payload.phone
+              : currentApplication.phone,
+
+          excludeApplicationId:
+            applicationId,
+        });
+
+        if (duplicateError) {
+          return {
+            data: null,
+            error: duplicateError,
+          };
+        }
+
+        if (duplicateApplication) {
+          return {
+            data: null,
+            error: createServiceError(
+              `По продукту "${nextProduct.name}" у этого контакта уже есть заявка`
+            ),
+          };
+        }
       }
 
       finalProductId =
@@ -1344,6 +1666,15 @@ export const applicationService = {
       .eq("id", applicationId)
       .select(APPLICATION_FIELDS)
       .single();
+
+    if (isUniqueViolation(error)) {
+      return {
+        data: null,
+        error: createServiceError(
+          "По выбранному продукту у этого контакта уже есть заявка"
+        ),
+      };
+    }
 
     return {
       data,
@@ -1450,7 +1781,8 @@ export const applicationService = {
       .from("applications")
       .select(`
         id,
-        mailing_contact_id
+        mailing_contact_id,
+        assigned_manager_id
       `)
       .eq("id", applicationId)
       .maybeSingle();
@@ -1468,6 +1800,18 @@ export const applicationService = {
         error: createServiceError(
           "Заявка не найдена"
         ),
+      };
+    }
+
+    const accessError =
+      await assertCanModifyApplication(
+        application
+      );
+
+    if (accessError) {
+      return {
+        success: false,
+        error: accessError,
       };
     }
 

@@ -226,6 +226,15 @@ export default function MyContacts() {
             contact.latest_application
               ?.status
           ],
+          ...(contact.applications || [])
+            .flatMap((application) => [
+              application.product_data
+                ?.name,
+              application.product,
+              applicationStatusConfig[
+                application.status
+              ],
+            ]),
         ]
           .filter(Boolean)
           .join(" ")
@@ -524,9 +533,6 @@ export default function MyContacts() {
         <section className="my-contacts-grid">
           {filteredContacts.map(
             (contact) => {
-              const latestApplication =
-                contact.latest_application;
-
               return (
                 <article
                   className="my-contact-card"
@@ -619,33 +625,47 @@ export default function MyContacts() {
                     />
                   </div>
 
-                  {latestApplication ? (
-                    <div className="my-contact-application-preview">
-                      <div>
-                        <span>
-                          Последняя заявка
-                        </span>
+                  {contact.applications
+                    .length > 0 ? (
+                    <div className="my-contact-applications">
+                      {contact.applications.map(
+                        (application) => (
+                          <div
+                            className="my-contact-application-preview"
+                            key={
+                              application.id
+                            }
+                          >
+                            <div>
+                              <span>
+                                {formatDate(
+                                  application.created_at
+                                )}
+                              </span>
 
-                        <strong>
-                          {latestApplication
-                            .product_data
-                            ?.name ||
-                            latestApplication
-                              .product ||
-                            "Без продукта"}
-                        </strong>
-                      </div>
+                              <strong>
+                                {
+                                  application
+                                    .product_data
+                                    ?.name ||
+                                  application.product ||
+                                  "Без продукта"
+                                }
+                              </strong>
+                            </div>
 
-                      <span
-                        className={`my-contact-application-status my-contact-application-status--${latestApplication.status}`}
-                      >
-                        {applicationStatusConfig[
-                          latestApplication
-                            .status
-                        ] ||
-                          latestApplication
-                            .status}
-                      </span>
+                            <span
+                              className={`my-contact-application-status my-contact-application-status--${application.status}`}
+                            >
+                              {applicationStatusConfig[
+                                application
+                                  .status
+                              ] ||
+                                application.status}
+                            </span>
+                          </div>
+                        )
+                      )}
                     </div>
                   ) : (
                     <div className="my-contact-no-application">

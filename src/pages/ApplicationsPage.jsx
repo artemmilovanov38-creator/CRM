@@ -23,6 +23,7 @@ import {
 
 import "../styles/Applications.css";
 
+import { useAuth } from "../context/AuthContext";
 import { applicationService } from "../services/applicationService";
 import { profileService } from "../services/profileService";
 import ApplicationDrawer from "../components/applications/ApplicationDrawer";
@@ -47,6 +48,11 @@ const statusOptions = [
 ];
 
 export default function ApplicationsPage() {
+  const { user } = useAuth();
+
+  const isManager =
+    user?.role === "manager";
+
   const [applications, setApplications] =
     useState([]);
 
@@ -673,9 +679,9 @@ export default function ApplicationsPage() {
           <h1>Заявки</h1>
 
           <p>
-            Управляйте заявками,
-            назначайте менеджеров и
-            отслеживайте успешные открытия.
+            {isManager
+              ? "Ваши заявки и статусы: новые, в работе, успешно и отказы."
+              : "Управляйте заявками, назначайте менеджеров и отслеживайте успешные открытия."}
           </p>
         </div>
 
@@ -810,6 +816,7 @@ export default function ApplicationsPage() {
             )}
           </select>
 
+          {!isManager && (
           <select
             className="applications-filter"
             value={managerFilter}
@@ -840,6 +847,7 @@ export default function ApplicationsPage() {
               )
             )}
           </select>
+          )}
 
           <div className="applications-view-switcher">
             <button

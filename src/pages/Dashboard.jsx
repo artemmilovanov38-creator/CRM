@@ -20,10 +20,16 @@ import { useNavigate } from "react-router-dom";
 
 import "../styles/Dashboard.css";
 
+import { useAuth } from "../context/AuthContext";
 import { applicationService } from "../services/applicationService";
 import { profileService } from "../services/profileService";
 
 const statusConfig = {
+  new: {
+    label: "Новые",
+    className: "new",
+  },
+
   in_progress: {
     label: "В работе",
     className: "in-progress",
@@ -42,6 +48,10 @@ const statusConfig = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const isManager =
+    user?.role === "manager";
 
   const [applications, setApplications] =
     useState([]);
@@ -88,17 +98,16 @@ export default function Dashboard() {
     }
 
     setApplications(
-  (applicationsResult.data || []).map(
-    (application) => ({
-      ...application,
-      status:
-        application.status === "new" ||
-        application.status === "waiting"
-          ? "in_progress"
-          : application.status,
-    })
-  )
-);
+      (applicationsResult.data || []).map(
+        (application) => ({
+          ...application,
+          status:
+            application.status === "waiting"
+              ? "new"
+              : application.status,
+        })
+      )
+    );
 
     setManagers(managersResult.data || []);
 
@@ -108,13 +117,17 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const total = applications.length;
 
-    
+    const newApplications =
+      applications.filter(
+        (application) =>
+          application.status === "new"
+      ).length;
 
-   const inProgress =
-  applications.filter(
-    (application) =>
-      application.status === "in_progress"
-  ).length;
+    const inProgress =
+      applications.filter(
+        (application) =>
+          application.status === "in_progress"
+      ).length;
 
     const approvedApplications =
       applications.filter(
@@ -149,7 +162,8 @@ export default function Dashboard() {
         : 0;
 
     return {
-  total,
+      total,
+      newApplications,
       inProgress,
       approved,
       rejected,
@@ -271,14 +285,17 @@ export default function Dashboard() {
       <section className="dashboard-header">
         <div>
           <span className="dashboard-header__eyebrow">
-            Общая статистика
+            {isManager
+              ? "Личный кабинет менеджера"
+              : "Общая статистика"}
           </span>
 
           <h1>Dashboard</h1>
 
           <p>
-            Основные показатели CRM, последние
-            заявки и эффективность менеджеров.
+            {isManager
+              ? "Показатели только по вашим заявкам: новые, в работе, успешные и отказы."
+              : "Основные показатели CRM, последние заявки и эффективность менеджеров."}
           </p>
         </div>
 
@@ -307,12 +324,17 @@ export default function Dashboard() {
           icon={FileText}
         />
 
-        
+        <StatCard
+          title="Новые"
+          value={stats.newApplications}
+          description="Ещё не взяты в работу"
+          icon={FileText}
+        />
 
         <StatCard
           title="В работе"
           value={stats.inProgress}
-          description="Работа и ожидание"
+          description="Текущая обработка"
           icon={Clock3}
         />
 
@@ -503,6 +525,7 @@ export default function Dashboard() {
       </section>
 
       <section className="dashboard-bottom-grid">
+        {!isManager && (
         <article className="dashboard-card dashboard-card--managers">
           <div className="dashboard-card__header">
             <div>
@@ -607,6 +630,7 @@ export default function Dashboard() {
             </div>
           )}
         </article>
+        )}
 
         <article className="dashboard-card dashboard-card--summary">
           <div className="dashboard-card__header">
@@ -620,20 +644,24 @@ export default function Dashboard() {
           </div>
 
           <div className="dashboard-summary-list">
-            <SummaryItem
-              label="Менеджеров"
-              value={managers.length}
-            />
+            {!isManager && (
+              <SummaryItem
+                label="Менеджеров"
+                value={managers.length}
+              />
+            )}
 
-            <SummaryItem
-              label="Заявок без менеджера"
-              value={
-                applications.filter(
-                  (application) =>
-                    !application.assigned_manager_id
-                ).length
-              }
-            />
+            {!isManager && (
+              <SummaryItem
+                label="Заявок без менеджера"
+                value={
+                  applications.filter(
+                    (application) =>
+                      !application.assigned_manager_id
+                  ).length
+                }
+              />
+            )}
 
             <SummaryItem
               label="Отказов"
@@ -651,6 +679,7 @@ export default function Dashboard() {
             />
           </div>
 
+          {!isManager && (
           <button
             className="dashboard-summary-button"
             type="button"
@@ -661,6 +690,7 @@ export default function Dashboard() {
             Перейти к отчётам
             <ArrowUpRight size={16} />
           </button>
+          )}
         </article>
       </section>
     </main>

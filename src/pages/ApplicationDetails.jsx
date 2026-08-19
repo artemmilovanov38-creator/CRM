@@ -279,6 +279,50 @@ setProducts(productsResult.data || []);
     }));
   }
 
+  async function handleQuickStatusChange(
+    event
+  ) {
+    const nextStatus = event.target.value;
+
+    if (
+      !application?.id ||
+      nextStatus === application.status
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setSuccessMessage("");
+
+    const { data, error: updateError } =
+      await applicationService.updateStatus(
+        application.id,
+        nextStatus
+      );
+
+    if (updateError) {
+      console.error(
+        "Ошибка изменения статуса:",
+        updateError
+      );
+      setError(
+        updateError.message ||
+          "Не удалось изменить статус"
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    setApplication(data);
+    setForm((currentForm) => ({
+      ...currentForm,
+      status: data.status,
+    }));
+    setSuccessMessage("Статус заявки обновлён");
+    setIsSaving(false);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -301,7 +345,10 @@ setProducts(productsResult.data || []);
 
     if (updateError) {
       console.error("Ошибка сохранения заявки:", updateError);
-      setError("Не удалось сохранить изменения");
+      setError(
+        updateError.message ||
+          "Не удалось сохранить изменения"
+      );
       setIsSaving(false);
       return;
     }
@@ -549,11 +596,32 @@ setProducts(productsResult.data || []);
             <h1>{application.full_name}</h1>
 
             <div className="application-details-header__meta">
-              <span
-                className={`application-details-status application-details-status--${application.status}`}
-              >
-                {getStatusLabel(application.status)}
-              </span>
+              <label className="application-details-quick-status">
+                <span>Статус</span>
+                <select
+                  value={
+                    application.status ===
+                    "waiting"
+                      ? "new"
+                      : application.status
+                  }
+                  disabled={isSaving}
+                  onChange={
+                    handleQuickStatusChange
+                  }
+                >
+                  {statusOptions.map(
+                    (status) => (
+                      <option
+                        key={status.value}
+                        value={status.value}
+                      >
+                        {status.label}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
 
               <span>
                 Заявка от {formatDateTime(application.created_at)}

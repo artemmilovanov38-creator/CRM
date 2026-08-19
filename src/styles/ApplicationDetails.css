@@ -109,13 +109,36 @@
   font-size: 28px;
 }
 
-.application-details-header__meta {
-  display: flex;
-  flex-wrap: wrap;
+.application-details-quick-status {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 9px;
+  gap: 8px;
 }
+
+.application-details-quick-status span {
+  color: #8992a5;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.application-details-quick-status select {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #313b50;
+  border-radius: 999px;
+  background: #151c29;
+  color: #e8edf5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.application-details-quick-status select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 
 .application-details-header__meta > span {
   color: #8992a5;

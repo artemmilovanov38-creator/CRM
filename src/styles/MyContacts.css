@@ -278,12 +278,17 @@
   white-space: nowrap;
 }
 
+.my-contact-applications {
+  display: grid;
+  gap: 8px;
+  margin-top: 15px;
+}
+
 .my-contact-application-preview {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 15px;
   padding: 12px;
   border: 1px solid #2a3344;
   border-radius: 11px;
