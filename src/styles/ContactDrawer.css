@@ -907,11 +907,25 @@
   white-space: nowrap;
 }
 
-.contact-drawer-application-actions {
-  grid-template-columns:
-    repeat(2, minmax(0, 1fr));
-}
-
 .contact-drawer-application-delete {
   grid-column: 1 / -1;
+}
+
+.contact-drawer-create-actions {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr);
+  gap: 8px;
+}
+
+.contact-drawer-create-actions:has(button:nth-child(2)) {
+  grid-template-columns:
+    minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.contact-drawer-application-card__top
+  > div
+  > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

@@ -15,6 +15,7 @@ const APPLICATION_FIELDS = `
   mailing_contact_id,
   amount,
   comment,
+  pp_id,
   opening_price_snapshot,
   approved_at,
   created_at,
@@ -277,6 +278,14 @@ function normalizePrice(value) {
     : 0;
 }
 
+function normalizePpId(value) {
+  const digits = String(
+    value ?? ""
+  ).replace(/\D/g, "");
+
+  return digits || null;
+}
+
 async function getProduct(productId) {
   if (!productId) {
     return {
@@ -355,48 +364,38 @@ async function validateProduct({
 }
 
 async function findExistingApplication({
-  contact,
+  mailingContactId,
   productId,
-  telegram,
-  phone,
   excludeApplicationId = null,
 }) {
+  /*
+   * Дубль проверяем только по паре
+   * contact_id + product_id.
+   * Телефон и Telegram в эту проверку
+   * не входят: у одного контакта может
+   * быть несколько заявок.
+   */
+  if (!mailingContactId || !productId) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
   let query = supabase
     .from("applications")
     .select("id, product_id, mailing_contact_id")
+    .eq(
+      "mailing_contact_id",
+      mailingContactId
+    )
     .eq("product_id", productId);
 
-  if (contact?.id) {
-    query = query.eq(
-      "mailing_contact_id",
-      contact.id
+  if (excludeApplicationId) {
+    query = query.neq(
+      "id",
+      excludeApplicationId
     );
-  } else {
-    if (contact?.mailing_id) {
-      query = query.eq(
-        "mailing_id",
-        contact.mailing_id
-      );
-    }
-
-    if (telegram) {
-      query = query.ilike(
-        "telegram",
-        telegram
-      );
-    } else if (phone) {
-      query = query.eq(
-        "phone",
-        phone
-      );
-    } else {
-      return {
-        data: null,
-        error: createServiceError(
-          "Не удалось определить контакт для проверки дубля"
-        ),
-      };
-    }
   }
 
   const { data, error } = await query;
@@ -408,17 +407,8 @@ async function findExistingApplication({
     };
   }
 
-  const existing =
-    (data || []).find(
-      (item) =>
-        !sameId(
-          item.id,
-          excludeApplicationId
-        )
-    ) || null;
-
   return {
-    data: existing,
+    data: (data || [])[0] || null,
     error: null,
   };
 }
@@ -1056,27 +1046,15 @@ export const applicationService = {
       values?.phone
     );
 
-    if (
-      values?.mailing_contact_id ||
-      telegram ||
-      phone
-    ) {
+    if (values?.mailing_contact_id) {
       const {
         data: existingApplication,
         error: duplicateError,
       } = await findExistingApplication({
-        contact: {
-          id:
-            values?.mailing_contact_id ||
-            null,
-
-          mailing_id:
-            values?.mailing_id || null,
-        },
+        mailingContactId:
+          values.mailing_contact_id,
 
         productId: product.id,
-        telegram,
-        phone,
       });
 
       if (duplicateError) {
@@ -1138,6 +1116,10 @@ export const applicationService = {
 
       comment: normalizeText(
         values?.comment
+      ),
+
+      pp_id: normalizePpId(
+        values?.pp_id
       ),
 
       ...approvalFields,
@@ -1230,11 +1212,8 @@ export const applicationService = {
       data: existingApplication,
       error: duplicateError,
     } = await findExistingApplication({
-      contact,
-      productId:
-        selectedProduct.id,
-      telegram,
-      phone,
+      mailingContactId: contact.id,
+      productId: selectedProduct.id,
     });
 
     if (duplicateError) {
@@ -1248,7 +1227,9 @@ export const applicationService = {
       return {
         data: existingApplication,
         contact,
-        error: null,
+        error: createServiceError(
+          `По продукту "${selectedProduct.name}" у этого контакта уже есть заявка`
+        ),
         alreadyExists: true,
       };
     }
@@ -1310,21 +1291,20 @@ export const applicationService = {
             contact.comment
           ) ||
           "Заявка создана из входящего отклика",
+
+        pp_id: options?.pp_id,
       });
 
     if (result.error) {
-      if (result.alreadyExists) {
-        return {
-          data: result.data,
-          contact,
-          error: null,
-          alreadyExists: true,
-        };
-      }
-
       return {
-        data: null,
+        data: result.alreadyExists
+          ? result.data
+          : null,
+        contact,
         error: result.error,
+        alreadyExists: Boolean(
+          result.alreadyExists
+        ),
       };
     }
 
@@ -1446,6 +1426,7 @@ export const applicationService = {
       "assigned_manager_id",
       "amount",
       "comment",
+      "pp_id",
       "mailing_id",
       "mailing_contact_id",
     ];
@@ -1496,6 +1477,13 @@ export const applicationService = {
       payload.comment =
         normalizeText(
           payload.comment
+        );
+    }
+
+    if ("pp_id" in payload) {
+      payload.pp_id =
+        normalizePpId(
+          payload.pp_id
         );
     }
 
@@ -1577,29 +1565,13 @@ export const applicationService = {
           data: duplicateApplication,
           error: duplicateError,
         } = await findExistingApplication({
-          contact: {
-            id:
-              payload.mailing_contact_id ||
-              currentApplication
-                .mailing_contact_id,
-
-            mailing_id:
-              payload.mailing_id ||
-              currentApplication.mailing_id,
-          },
+          mailingContactId:
+            payload.mailing_contact_id ||
+            currentApplication
+              .mailing_contact_id,
 
           productId:
             nextProduct.id,
-
-          telegram:
-            "telegram" in payload
-              ? payload.telegram
-              : currentApplication.telegram,
-
-          phone:
-            "phone" in payload
-              ? payload.phone
-              : currentApplication.phone,
 
           excludeApplicationId:
             currentApplication.id,
@@ -1739,6 +1711,7 @@ export const applicationService = {
       status,
       comment,
       productId,
+      ppId,
     } = {}
   ) {
     const values = {};
@@ -1754,6 +1727,10 @@ export const applicationService = {
     if (productId) {
       values.product_id =
         productId;
+    }
+
+    if (ppId !== undefined) {
+      values.pp_id = ppId;
     }
 
     return this.updateApplication(

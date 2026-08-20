@@ -688,7 +688,7 @@ export default function MyContacts() {
                       {contact
                         .applications_count >
                       0
-                        ? "Открыть и редактировать"
+                        ? "Открыть карточку"
                         : "Создать заявку"}
                     </button>
                   </div>

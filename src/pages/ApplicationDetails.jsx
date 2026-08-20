@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   CalendarDays,
   CircleDollarSign,
+  Hash,
   History,
   Mail,
   MessageCircle,
@@ -55,6 +56,7 @@ const initialForm = {
   assigned_manager_id: "",
   amount: "",
   comment: "",
+  pp_id: "",
 };
 
 export default function ApplicationDetails() {
@@ -224,6 +226,7 @@ setProducts(productsResult.data || []);
       ? ""
       : String(data.amount),
   comment: data.comment || "",
+  pp_id: data.pp_id || "",
 });
 
     setIsLoading(false);
@@ -685,6 +688,12 @@ setProducts(productsResult.data || []);
           />
 
           <InfoItem
+            icon={Hash}
+            label="ID ПП"
+            value={application.pp_id || "Не указан"}
+          />
+
+          <InfoItem
             icon={UserRound}
             label="Менеджер"
             value={
@@ -829,6 +838,25 @@ setProducts(productsResult.data || []);
                   placeholder="0"
                   min="0"
                   step="0.01"
+                />
+              </label>
+
+              <label className="application-details-field">
+                <span>ID ПП</span>
+                <input
+                  type="text"
+                  name="pp_id"
+                  inputMode="numeric"
+                  value={form.pp_id}
+                  onChange={(event) => {
+                    const { value } = event.target;
+
+                    setForm((currentForm) => ({
+                      ...currentForm,
+                      pp_id: value.replace(/\D/g, ""),
+                    }));
+                  }}
+                  placeholder="Введите цифры вручную"
                 />
               </label>
 
@@ -1099,6 +1127,7 @@ function getHistoryDescription(item, managers) {
     phone: "телефон",
     telegram: "Telegram",
     source: "источник",
+    pp_id: "ID ПП",
   };
 
   const fieldLabel = fieldLabels[item.field_name] || "данные заявки";

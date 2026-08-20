@@ -69,12 +69,14 @@ const emptyApplicationForm = {
   productId: "",
   status: "new",
   comment: "",
+  ppId: "",
 };
 
 const emptyEditingForm = {
   productId: "",
   status: "new",
   comment: "",
+  ppId: "",
 };
 
 export default function ContactDrawer({
@@ -143,6 +145,11 @@ export default function ContactDrawer({
   ] = useState(null);
 
   const [
+    isCreateFormOpen,
+    setIsCreateFormOpen,
+  ] = useState(false);
+
+  const [
     editingApplicationId,
     setEditingApplicationId,
   ] = useState(null);
@@ -197,9 +204,17 @@ export default function ContactDrawer({
         );
 
         setApplications([]);
+        setIsCreateFormOpen(true);
       } else {
+        const nextApplications =
+          result.data || [];
+
         setApplications(
-          result.data || []
+          nextApplications
+        );
+
+        setIsCreateFormOpen(
+          nextApplications.length === 0
         );
       }
 
@@ -223,6 +238,11 @@ export default function ContactDrawer({
 
     setApplicationForm(
       emptyApplicationForm
+    );
+
+    setIsCreateFormOpen(
+      Array.isArray(contact.applications) &&
+        contact.applications.length === 0
     );
 
     setEditingApplicationId(null);
@@ -318,17 +338,6 @@ export default function ContactDrawer({
     [applications]
   );
 
-  const productsForCreate = useMemo(
-    () =>
-      products.filter(
-        (product) =>
-          !usedProductIds.has(
-            String(product.id)
-          )
-      ),
-    [products, usedProductIds]
-  );
-
   const managerChanged =
     managerValue !==
     (contact?.manager_id || "");
@@ -357,6 +366,22 @@ export default function ContactDrawer({
     ) {
       setApplicationFormError(
         "Выберите продукт"
+      );
+
+      return;
+    }
+
+    if (
+      usedProductIds.has(
+        String(applicationForm.productId)
+      )
+    ) {
+      const productName =
+        selectedProduct?.name ||
+        "выбранному продукту";
+
+      setApplicationFormError(
+        `По продукту "${productName}" у этого контакта уже есть заявка`
       );
 
       return;
@@ -392,6 +417,9 @@ export default function ContactDrawer({
 
             comment:
               applicationForm.comment,
+
+            pp_id:
+              applicationForm.ppId,
           }
         );
 
@@ -405,70 +433,6 @@ export default function ContactDrawer({
         result.error.message ||
           "Не удалось создать заявку"
       );
-
-      setApplicationSaving(false);
-      return;
-    }
-
-    if (result.alreadyExists) {
-      const existingApplication =
-        result.data;
-
-      if (!existingApplication?.id) {
-        setApplicationFormError(
-          "По выбранному продукту уже существует заявка"
-        );
-
-        setApplicationSaving(false);
-        return;
-      }
-
-      const updateResult =
-        await applicationService
-          .updateApplicationProgress(
-            existingApplication.id,
-            {
-              status:
-                applicationForm.status,
-
-              comment:
-                applicationForm.comment,
-            }
-          );
-
-      if (updateResult.error) {
-        console.error(
-          "Ошибка изменения заявки:",
-          updateResult.error
-        );
-
-        setApplicationFormError(
-          updateResult.error.message ||
-            "Не удалось изменить заявку"
-        );
-
-        setApplicationSaving(false);
-        return;
-      }
-
-      setApplicationSuccess(
-        "Изменения заявки сохранены"
-      );
-
-      setLastCreatedApplicationId(
-        updateResult.data?.id || null
-      );
-
-      setApplicationForm(
-        emptyApplicationForm
-      );
-
-      await loadApplications();
-
-      onContactChanged?.({
-        ...contact,
-        status: "application",
-      });
 
       setApplicationSaving(false);
       return;
@@ -490,6 +454,8 @@ export default function ContactDrawer({
     setApplicationForm(
       emptyApplicationForm
     );
+
+    setIsCreateFormOpen(false);
 
     await loadApplications();
 
@@ -517,6 +483,8 @@ export default function ContactDrawer({
       application.id
     );
 
+    setIsCreateFormOpen(false);
+
     setEditingForm({
       productId:
         application.product_id || "",
@@ -526,6 +494,9 @@ export default function ContactDrawer({
 
       comment:
         application.comment || "",
+
+      ppId:
+        application.pp_id || "",
     });
 
     setApplicationsError("");
@@ -558,6 +529,7 @@ export default function ContactDrawer({
     const updates = {
       status: editingForm.status,
       comment: editingForm.comment,
+      ppId: editingForm.ppId,
     };
 
     if (
@@ -732,6 +704,10 @@ export default function ContactDrawer({
       remainingApplications
     );
 
+    setIsCreateFormOpen(
+      remainingApplications.length === 0
+    );
+
     setApplicationSuccess(
       "Заявка удалена"
     );
@@ -771,6 +747,26 @@ export default function ContactDrawer({
     navigate(
       `/applications/${applicationId}`
     );
+  }
+
+  function openCreateForm() {
+    setEditingApplicationId(null);
+    setEditingForm(emptyEditingForm);
+    setApplicationForm(
+      emptyApplicationForm
+    );
+    setApplicationFormError("");
+    setApplicationSuccess("");
+    setLastCreatedApplicationId(null);
+    setIsCreateFormOpen(true);
+  }
+
+  function closeCreateForm() {
+    setApplicationForm(
+      emptyApplicationForm
+    );
+    setApplicationFormError("");
+    setIsCreateFormOpen(false);
   }
 
   return (
@@ -872,11 +868,59 @@ export default function ContactDrawer({
             />
           </section>
 
-          {/* ГЛАВНОЕ ДЕЙСТВИЕ МЕНЕДЖЕРА */}
+          {applicationSuccess && (
+            <div className="contact-drawer-application-success">
+              <CheckCircle2 size={18} />
+
+              <div>
+                <strong>
+                  {applicationSuccess}
+                </strong>
+
+                {lastCreatedApplicationId && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openApplication(
+                        lastCreatedApplicationId
+                      )
+                    }
+                  >
+                    Открыть заявку
+                    <ArrowUpRight
+                      size={15}
+                    />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {applications.length > 0 &&
+            !isCreateFormOpen && (
+              <button
+                type="button"
+                className="contact-drawer-action contact-drawer-action--application"
+                disabled={
+                  applicationSaving ||
+                  products.length === 0
+                }
+                onClick={openCreateForm}
+              >
+                <FilePlus2 size={17} />
+                Создать ещё заявку
+              </button>
+            )}
+
+          {isCreateFormOpen && (
           <section className="contact-drawer-section contact-drawer-section--create">
             <SectionHeading
-              title="Создать заявку"
-              description="Новая заявка создаётся только по продукту, которого ещё нет у этого контакта. Существующие заявки редактируйте в списке ниже."
+              title={
+                applications.length > 0
+                  ? "Добавить продукт"
+                  : "Создать заявку"
+              }
+              description="Откроется пустая форма новой заявки. Существующие заявки не изменятся."
               icon={FilePlus2}
             />
 
@@ -890,7 +934,7 @@ export default function ContactDrawer({
                 }
                 disabled={
                   applicationSaving ||
-                  productsForCreate.length === 0
+                  products.length === 0
                 }
                 onChange={(event) => {
                   setApplicationForm(
@@ -910,18 +954,28 @@ export default function ContactDrawer({
                   Выберите продукт
                 </option>
 
-                {productsForCreate.map(
-                  (product) => (
-                    <option
-                      key={product.id}
-                      value={product.id}
-                    >
-                      {product.name} —{" "}
-                      {formatMoney(
-                        product.opening_price
-                      )}
-                    </option>
-                  )
+                {products.map(
+                  (product) => {
+                    const alreadyUsed =
+                      usedProductIds.has(
+                        String(product.id)
+                      );
+
+                    return (
+                      <option
+                        key={product.id}
+                        value={product.id}
+                      >
+                        {product.name} —{" "}
+                        {formatMoney(
+                          product.opening_price
+                        )}
+                        {alreadyUsed
+                          ? " (уже есть заявка)"
+                          : ""}
+                      </option>
+                    );
+                  }
                 )}
               </select>
             </label>
@@ -961,6 +1015,36 @@ export default function ContactDrawer({
                   )
                 )}
               </select>
+            </label>
+
+            <label className="contact-drawer-form-field">
+              <span>ID ПП</span>
+
+              <input
+                className="contact-drawer-select"
+                type="text"
+                inputMode="numeric"
+                value={
+                  applicationForm.ppId
+                }
+                placeholder="Введите цифры вручную"
+                disabled={
+                  applicationSaving
+                }
+                onChange={(event) =>
+                  setApplicationForm(
+                    (current) => ({
+                      ...current,
+
+                      ppId:
+                        event.target.value.replace(
+                          /\D/g,
+                          ""
+                        ),
+                    })
+                  )
+                }
+              />
             </label>
 
             <label className="contact-drawer-form-field">
@@ -1009,16 +1093,6 @@ export default function ContactDrawer({
               </div>
             )}
 
-            {productsForCreate.length === 0 &&
-              products.length > 0 && (
-              <p className="contact-drawer-hint">
-                По всем активным продуктам
-                заявки уже созданы. Можно
-                изменить статус существующей
-                заявки ниже.
-              </p>
-            )}
-
             {products.length === 0 && (
               <p className="contact-drawer-hint">
                 Активные продукты не найдены.
@@ -1037,59 +1111,51 @@ export default function ContactDrawer({
               </div>
             )}
 
-            {applicationSuccess && (
-              <div className="contact-drawer-application-success">
-                <CheckCircle2 size={18} />
+            <div className="contact-drawer-create-actions">
+              {applications.length > 0 && (
+                <button
+                  type="button"
+                  className="contact-drawer-save-comment"
+                  disabled={
+                    applicationSaving
+                  }
+                  onClick={
+                    closeCreateForm
+                  }
+                >
+                  Отмена
+                </button>
+              )}
 
-                <div>
-                  <strong>
-                    {applicationSuccess}
-                  </strong>
+              <button
+                type="button"
+                className="contact-drawer-action contact-drawer-action--application"
+                disabled={
+                  applicationSaving ||
+                  !applicationForm.productId ||
+                  products.length === 0
+                }
+                onClick={
+                  handleCreateApplication
+                }
+              >
+                <FilePlus2 size={17} />
 
-                  {lastCreatedApplicationId && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openApplication(
-                          lastCreatedApplicationId
-                        )
-                      }
-                    >
-                      Открыть заявку
-                      <ArrowUpRight
-                        size={15}
-                      />
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              className="contact-drawer-action contact-drawer-action--application"
-              disabled={
-                applicationSaving ||
-                !applicationForm.productId ||
-                productsForCreate.length === 0
-              }
-              onClick={
-                handleCreateApplication
-              }
-            >
-              <FilePlus2 size={17} />
-
-              {applicationSaving
-                ? "Создаём заявку..."
-                : "Создать заявку"}
-            </button>
+                {applicationSaving
+                  ? "Создаём заявку..."
+                  : applications.length > 0
+                    ? "Создать ещё заявку"
+                    : "Создать заявку"}
+              </button>
+            </div>
           </section>
+          )}
 
           {/* ИСТОРИЯ ЗАЯВОК */}
           <section className="contact-drawer-section">
             <SectionHeading
               title={`Заявки клиента (${applications.length})`}
-              description="Все продукты контакта. Статус можно сменить сразу в списке"
+              description="Все заявки этого контакта. У каждой свой продукт, статус и ID."
               icon={CheckCircle2}
             />
 
@@ -1244,6 +1310,37 @@ export default function ContactDrawer({
 
                             <label>
                               <span>
+                                ID ПП
+                              </span>
+
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={
+                                  editingForm.ppId
+                                }
+                                disabled={
+                                  applicationSaving
+                                }
+                                placeholder="Введите цифры вручную"
+                                onChange={(event) =>
+                                  setEditingForm(
+                                    (current) => ({
+                                      ...current,
+
+                                      ppId:
+                                        event.target.value.replace(
+                                          /\D/g,
+                                          ""
+                                        ),
+                                    })
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <label>
+                              <span>
                                 Комментарий
                               </span>
 
@@ -1315,6 +1412,11 @@ export default function ContactDrawer({
                                 </strong>
 
                                 <span>
+                                  ID заявки:{" "}
+                                  {application.id}
+                                </span>
+
+                                <span>
                                   Создана:{" "}
                                   {formatDate(
                                     application.created_at
@@ -1364,7 +1466,7 @@ export default function ContactDrawer({
                             <div className="contact-drawer-application-meta">
                               <div>
                                 <span>
-                                  Стоимость открытия
+                                  Стоимость / выплата
                                 </span>
 
                                 <strong>
@@ -1381,24 +1483,20 @@ export default function ContactDrawer({
 
                               <div>
                                 <span>
-                                  Обновлена
+                                  ID ПП
                                 </span>
 
                                 <strong>
-                                  {formatDate(
-                                    application.updated_at
-                                  )}
+                                  {application.pp_id ||
+                                    "Не указан"}
                                 </strong>
                               </div>
                             </div>
 
-                            {application.comment && (
-                              <p className="contact-drawer-application-comment">
-                                {
-                                  application.comment
-                                }
-                              </p>
-                            )}
+                            <p className="contact-drawer-application-comment">
+                              {application.comment ||
+                                "Комментарий не указан"}
+                            </p>
 
                             <div className="contact-drawer-application-actions">
                               <button
@@ -1410,7 +1508,7 @@ export default function ContactDrawer({
                                 }
                               >
                                 <Pencil size={15} />
-                                Редактировать
+                                Открыть и редактировать
                               </button>
 
                               <button
@@ -1424,7 +1522,7 @@ export default function ContactDrawer({
                                 <ArrowUpRight
                                   size={15}
                                 />
-                                Открыть
+                                Полная карточка
                               </button>
 
                               <button

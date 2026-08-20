@@ -481,6 +481,9 @@ export default function ApplicationsPage() {
 
       comment:
         form.comment.trim() || null,
+
+      pp_id:
+        form.pp_id?.trim() || null,
     };
 
     if (

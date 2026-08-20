@@ -49,6 +49,7 @@ const emptyForm = {
   assigned_manager_id: "",
   amount: "",
   comment: "",
+  pp_id: "",
 };
 
 function getApplicationForm(application) {
@@ -94,6 +95,9 @@ function getApplicationForm(application) {
 
     comment:
       application.comment || "",
+
+    pp_id:
+      application.pp_id || "",
   };
 }
 
@@ -402,6 +406,34 @@ export default function ApplicationDrawer({
                 step="0.01"
                 inputMode="decimal"
                 placeholder="0"
+              />
+            </label>
+
+            <label className="application-drawer-field">
+              <span>ID ПП</span>
+
+              <input
+                type="text"
+                name="pp_id"
+                inputMode="numeric"
+                value={form.pp_id}
+                onChange={(event) => {
+                  const { value } =
+                    event.target;
+
+                  setForm(
+                    (currentForm) => ({
+                      ...currentForm,
+                      pp_id:
+                        value.replace(
+                          /\D/g,
+                          ""
+                        ),
+                    })
+                  );
+                }}
+                disabled={actionLoading}
+                placeholder="Введите цифры вручную"
               />
             </label>
           </section>
