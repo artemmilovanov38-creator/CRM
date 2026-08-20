@@ -12,12 +12,17 @@ import {
   Phone,
   Save,
   Send,
+  Stamp,
   Trash2,
   UserRound,
   X,
 } from "lucide-react";
 
 import "../../styles/ApplicationDrawer.css";
+import {
+  getApplicationOpenedAt,
+  isApplicationReceiptOpened,
+} from "../../services/applicationService";
 
 const statusOptions = [
   {
@@ -109,6 +114,7 @@ export default function ApplicationDrawer({
   onClose,
   onSave,
   onDelete,
+  onMarkOpened,
 }) {
   const [form, setForm] =
     useState(emptyForm);
@@ -216,6 +222,12 @@ export default function ApplicationDrawer({
     onDelete?.(application);
   }
 
+  const receiptOpened =
+    isApplicationReceiptOpened(application);
+
+  const openedAt =
+    getApplicationOpenedAt(application);
+
   return (
     <div className="application-drawer-layer">
       <button
@@ -296,6 +308,36 @@ export default function ApplicationDrawer({
               href={telegramLink}
               external
             />
+          </section>
+
+          <section className="application-drawer-section application-drawer-section--receipt">
+            {receiptOpened ? (
+              <div className="application-drawer-receipt application-drawer-receipt--done">
+                <Stamp size={18} />
+                <div>
+                  <span>Квит открыт</span>
+                  <strong>
+                    {formatDate(openedAt)}
+                  </strong>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="application-drawer-receipt-button"
+                onClick={() =>
+                  onMarkOpened?.(
+                    application
+                  )
+                }
+                disabled={actionLoading}
+              >
+                <Stamp size={18} />
+                {actionLoading
+                  ? "Отмечаем..."
+                  : "Отметить квит открытым"}
+              </button>
+            )}
           </section>
 
           <section className="application-drawer-section">
@@ -585,11 +627,11 @@ export default function ApplicationDrawer({
           <section className="application-drawer-section">
             <div className="application-drawer-section-heading">
               <div>
-                <h3>Комментарий</h3>
+                <h3>Комментарий к заявке</h3>
 
                 <p>
-                  Внутренняя информация по
-                  работе с клиентом.
+                  Только по этой заявке,
+                  не по всему контакту.
                 </p>
               </div>
 
@@ -608,7 +650,7 @@ export default function ApplicationDrawer({
                 onChange={handleChange}
                 disabled={actionLoading}
                 maxLength={2000}
-                placeholder="Комментарий по заявке..."
+                placeholder="Комментарий к этой заявке..."
               />
             </div>
           </section>

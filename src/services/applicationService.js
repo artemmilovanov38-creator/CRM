@@ -18,6 +18,7 @@ const APPLICATION_FIELDS = `
   pp_id,
   opening_price_snapshot,
   approved_at,
+  opened_at,
   created_at,
   updated_at,
 
@@ -63,6 +64,22 @@ const PRIVILEGED_ROLES = [
   "admin",
   "head",
 ];
+
+export function isApplicationReceiptOpened(
+  application
+) {
+  return application?.status === "approved";
+}
+
+export function getApplicationOpenedAt(
+  application
+) {
+  return (
+    application?.opened_at ||
+    application?.approved_at ||
+    null
+  );
+}
 
 function createServiceError(message) {
   return new Error(message);
@@ -671,9 +688,18 @@ async function prepareApprovalFields({
   /*
    * Дата успешного открытия фиксируется
    * только при первом переходе в approved.
+   * opened_at нужен кнопке «Квит открыт»
+   * и не перезаписывается повторно.
    */
   if (!currentApplication?.approved_at) {
     result.approved_at =
+      new Date().toISOString();
+  }
+
+  if (!currentApplication?.opened_at) {
+    result.opened_at =
+      currentApplication?.approved_at ||
+      result.approved_at ||
       new Date().toISOString();
   }
 
@@ -1380,6 +1406,7 @@ export const applicationService = {
         status,
         assigned_manager_id,
         approved_at,
+        opened_at,
         opening_price_snapshot
       `)
       .eq("id", applicationId)
@@ -1699,6 +1726,94 @@ export const applicationService = {
           normalizedStatus,
       }
     );
+  },
+
+  /**
+   * Отметить квит открытым.
+   * Переводит заявку в approved один раз,
+   * пишет opened_at и не дублирует
+   * зарплату при повторном нажатии.
+   */
+  async markReceiptOpened(
+    applicationId
+  ) {
+    if (!applicationId) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Не передан ID заявки"
+        ),
+      };
+    }
+
+    const {
+      data: currentApplication,
+      error: loadError,
+    } = await supabase
+      .from("applications")
+      .select(`
+        id,
+        status,
+        assigned_manager_id,
+        approved_at,
+        opened_at
+      `)
+      .eq("id", applicationId)
+      .maybeSingle();
+
+    if (loadError) {
+      return {
+        data: null,
+        error: loadError,
+      };
+    }
+
+    if (!currentApplication) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Заявка не найдена"
+        ),
+      };
+    }
+
+    const accessError =
+      await assertCanModifyApplication(
+        currentApplication
+      );
+
+    if (accessError) {
+      return {
+        data: null,
+        error: accessError,
+      };
+    }
+
+    if (
+      currentApplication.status ===
+        "approved" &&
+      currentApplication.opened_at
+    ) {
+      return {
+        ...(await this.getApplicationById(
+          applicationId
+        )),
+        alreadyOpened: true,
+      };
+    }
+
+    const result =
+      await this.updateApplication(
+        applicationId,
+        {
+          status: "approved",
+        }
+      );
+
+    return {
+      ...result,
+      alreadyOpened: false,
+    };
   },
 
   /**

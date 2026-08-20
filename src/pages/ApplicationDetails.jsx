@@ -9,6 +9,7 @@ import {
   Phone,
   Save,
   Send,
+  Stamp,
   Trash2,
   UserCheck,
   UserRound,
@@ -21,7 +22,11 @@ import "../styles/ApplicationDetails.css";
 import { productService } from "../services/productService";
 
 import { useAuth } from "../context/AuthContext";
-import { applicationService } from "../services/applicationService";
+import {
+  applicationService,
+  getApplicationOpenedAt,
+  isApplicationReceiptOpened,
+} from "../services/applicationService";
 import { applicationHistoryService } from "../services/applicationHistoryService";
 import { applicationMessageService } from "../services/applicationMessageService";
 import { notificationService } from "../services/notificationService";
@@ -76,6 +81,7 @@ export default function ApplicationDetails() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isMarkingOpened, setIsMarkingOpened] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [isMessagesLoading, setIsMessagesLoading] = useState(true);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -324,6 +330,48 @@ setProducts(productsResult.data || []);
     }));
     setSuccessMessage("Статус заявки обновлён");
     setIsSaving(false);
+  }
+
+  async function handleMarkReceiptOpened() {
+    if (
+      !application?.id ||
+      isMarkingOpened ||
+      isSaving ||
+      isApplicationReceiptOpened(application)
+    ) {
+      return;
+    }
+
+    setIsMarkingOpened(true);
+    setError("");
+    setSuccessMessage("");
+
+    const { data, error: openError, alreadyOpened } =
+      await applicationService.markReceiptOpened(
+        application.id
+      );
+
+    if (openError) {
+      console.error("Ошибка отметки квита:", openError);
+      setError(
+        openError.message ||
+          "Не удалось отметить квит открытым"
+      );
+      setIsMarkingOpened(false);
+      return;
+    }
+
+    setApplication(data);
+    setForm((currentForm) => ({
+      ...currentForm,
+      status: data.status,
+    }));
+    setSuccessMessage(
+      alreadyOpened
+        ? "Квит уже был отмечен открытым"
+        : "Квит отмечен открытым"
+    );
+    setIsMarkingOpened(false);
   }
 
   async function handleSubmit(event) {
@@ -617,7 +665,7 @@ setProducts(productsResult.data || []);
                       ? "new"
                       : application.status
                   }
-                  disabled={isSaving}
+                  disabled={isSaving || isMarkingOpened}
                   onChange={
                     handleQuickStatusChange
                   }
@@ -634,6 +682,30 @@ setProducts(productsResult.data || []);
                   )}
                 </select>
               </label>
+
+              {isApplicationReceiptOpened(application) ? (
+                <div className="application-details-receipt application-details-receipt--done">
+                  <Stamp size={15} />
+                  <span>
+                    Квит открыт{" "}
+                    {formatDateTime(
+                      getApplicationOpenedAt(application)
+                    )}
+                  </span>
+                </div>
+              ) : (
+                <button
+                  className="application-details-receipt-button"
+                  type="button"
+                  onClick={handleMarkReceiptOpened}
+                  disabled={isSaving || isMarkingOpened}
+                >
+                  <Stamp size={16} />
+                  {isMarkingOpened
+                    ? "Отмечаем..."
+                    : "Квит открыт"}
+                </button>
+              )}
 
               <span>
                 Заявка от {formatDateTime(application.created_at)}
@@ -705,6 +777,18 @@ setProducts(productsResult.data || []);
 
           <InfoItem
             icon={CalendarDays}
+            label="Квит открыт"
+            value={
+              getApplicationOpenedAt(application)
+                ? formatDateTime(
+                    getApplicationOpenedAt(application)
+                  )
+                : "Ещё не открыт"
+            }
+          />
+
+          <InfoItem
+            icon={CalendarDays}
             label="Создана"
             value={formatDateTime(application.created_at)}
           />
@@ -714,6 +798,13 @@ setProducts(productsResult.data || []);
             label="Обновлена"
             value={formatDateTime(application.updated_at)}
           />
+
+          <div className="application-details-comment-preview">
+            <span>Комментарий к заявке</span>
+            <strong>
+              {application.comment || "Комментарий пока не добавлен"}
+            </strong>
+          </div>
         </aside>
 
         <section className="application-details-content">
@@ -861,12 +952,12 @@ setProducts(productsResult.data || []);
               </label>
 
               <label className="application-details-field application-details-field--wide">
-                <span>Комментарий</span>
+                <span>Комментарий к заявке</span>
                 <textarea
                   name="comment"
                   value={form.comment}
                   onChange={handleChange}
-                  placeholder="Комментарий по заявке"
+                  placeholder="Комментарий только по этой заявке, не по всему контакту"
                   rows={7}
                 />
               </label>
@@ -1128,6 +1219,7 @@ function getHistoryDescription(item, managers) {
     telegram: "Telegram",
     source: "источник",
     pp_id: "ID ПП",
+    opened_at: "дату открытия квита",
   };
 
   const fieldLabel = fieldLabels[item.field_name] || "данные заявки";

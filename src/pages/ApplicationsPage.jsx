@@ -536,6 +536,63 @@ export default function ApplicationsPage() {
     setDrawerLoading(false);
   }
 
+  async function handleMarkReceiptOpened(
+    application
+  ) {
+    if (
+      !application?.id ||
+      drawerLoading
+    ) {
+      return;
+    }
+
+    setDrawerLoading(true);
+    setError("");
+    setSuccessMessage("");
+
+    const {
+      data,
+      error: openError,
+      alreadyOpened,
+    } =
+      await applicationService.markReceiptOpened(
+        application.id
+      );
+
+    if (openError) {
+      console.error(
+        "Ошибка отметки квита:",
+        openError
+      );
+
+      setError(
+        openError.message ||
+          "Не удалось отметить квит открытым"
+      );
+
+      setDrawerLoading(false);
+      return;
+    }
+
+    setApplications(
+      (currentApplications) =>
+        currentApplications.map(
+          (item) =>
+            item.id === application.id
+              ? data
+              : item
+        )
+    );
+
+    setSelectedApplication(data);
+    setSuccessMessage(
+      alreadyOpened
+        ? "Квит уже был отмечен открытым"
+        : "Квит отмечен открытым"
+    );
+    setDrawerLoading(false);
+  }
+
   async function handleDeleteApplication(
     application
   ) {
@@ -1020,6 +1077,9 @@ export default function ApplicationsPage() {
         }
         onDelete={
           handleDeleteApplication
+        }
+        onMarkOpened={
+          handleMarkReceiptOpened
         }
       />
     </main>

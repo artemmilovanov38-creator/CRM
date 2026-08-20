@@ -314,3 +314,60 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+.application-drawer-section--receipt {
+  padding-top: 0;
+}
+
+.application-drawer-receipt,
+.application-drawer-receipt-button {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font: inherit;
+}
+
+.application-drawer-receipt-button {
+  justify-content: center;
+  border: 1px solid rgba(34, 197, 94, 0.38);
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.application-drawer-receipt-button:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.application-drawer-receipt-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.application-drawer-receipt--done {
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+}
+
+.application-drawer-receipt--done span,
+.application-drawer-receipt--done strong {
+  display: block;
+}
+
+.application-drawer-receipt--done span {
+  color: #6ee7b7;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.application-drawer-receipt--done strong {
+  font-size: 13px;
+}
