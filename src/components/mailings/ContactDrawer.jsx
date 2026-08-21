@@ -29,6 +29,7 @@ import { useAuth } from "../../context/AuthContext";
 
 import {
   applicationService,
+  getApplicationPayout,
 } from "../../services/applicationService";
 
 import "../../styles/ContactDrawer.css";
@@ -1207,11 +1208,9 @@ export default function ContactDrawer({
                       application.id;
 
                     const productPrice =
-                      application
-                        .opening_price_snapshot ??
-                      application
-                        .product_data
-                        ?.opening_price;
+                      getApplicationPayout(
+                        application
+                      );
 
                     return (
                       <article

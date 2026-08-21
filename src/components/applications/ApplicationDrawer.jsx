@@ -21,6 +21,7 @@ import {
 import "../../styles/ApplicationDrawer.css";
 import {
   getApplicationOpenedAt,
+  getApplicationPayout,
   isApplicationReceiptOpened,
 } from "../../services/applicationService";
 
@@ -93,10 +94,14 @@ function getApplicationForm(application) {
       "",
 
     amount:
-      application.amount === null ||
-      application.amount === undefined
+      getApplicationPayout(application) ===
+        null
         ? ""
-        : String(application.amount),
+        : String(
+            getApplicationPayout(
+              application
+            )
+          ),
 
     comment:
       application.comment || "",
@@ -436,14 +441,13 @@ export default function ApplicationDrawer({
             </div>
 
             <label className="application-drawer-field">
-              <span>Сумма заявки</span>
+              <span>Сумма из продукта</span>
 
               <input
                 type="number"
                 name="amount"
                 value={form.amount}
-                onChange={handleChange}
-                disabled={actionLoading}
+                readOnly
                 min="0"
                 step="0.01"
                 inputMode="decimal"

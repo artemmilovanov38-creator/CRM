@@ -25,6 +25,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   applicationService,
   getApplicationOpenedAt,
+  getApplicationPayout,
   isApplicationReceiptOpened,
 } from "../services/applicationService";
 import { applicationHistoryService } from "../services/applicationHistoryService";
@@ -227,10 +228,9 @@ setProducts(productsResult.data || []);
   assigned_manager_id:
     data.assigned_manager_id || "",
   amount:
-    data.amount === null ||
-    data.amount === undefined
+    getApplicationPayout(data) === null
       ? ""
-      : String(data.amount),
+      : String(getApplicationPayout(data)),
   comment: data.comment || "",
   pp_id: data.pp_id || "",
 });
@@ -281,6 +281,24 @@ setProducts(productsResult.data || []);
 
   function handleChange(event) {
     const { name, value } = event.target;
+
+    if (name === "product_id") {
+      const selectedProduct = products.find(
+        (product) => String(product.id) === String(value)
+      );
+
+      setForm((currentForm) => ({
+        ...currentForm,
+        product_id: value,
+        product: selectedProduct?.name || currentForm.product,
+        amount:
+          selectedProduct
+            ? String(selectedProduct.opening_price ?? "")
+            : currentForm.amount,
+      }));
+
+      return;
+    }
 
     setForm((currentForm) => ({
       ...currentForm,
@@ -753,9 +771,9 @@ setProducts(productsResult.data || []);
             icon={CircleDollarSign}
             label="Сумма"
             value={
-              application.amount === null || application.amount === undefined
+              getApplicationPayout(application) === null
                 ? "Не указана"
-                : formatMoney(application.amount)
+                : formatMoney(getApplicationPayout(application))
             }
           />
 
@@ -920,15 +938,13 @@ setProducts(productsResult.data || []);
               </label>
 
               <label className="application-details-field">
-                <span>Сумма</span>
+                <span>Сумма из продукта</span>
                 <input
                   type="number"
                   name="amount"
                   value={form.amount}
-                  onChange={handleChange}
-                  placeholder="0"
-                  min="0"
-                  step="0.01"
+                  readOnly
+                  placeholder="Выберите продукт"
                 />
               </label>
 

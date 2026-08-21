@@ -33,6 +33,23 @@ import {
   incomingResponseService,
 } from "../services/incomingResponseService";
 
+import {
+  analyticsService,
+  emptyIncomingStats,
+} from "../services/analyticsService";
+
+import {
+  profileService,
+} from "../services/profileService";
+
+import PeriodFilter from "../components/filters/PeriodFilter";
+import ManagerAnalytics from "../components/analytics/ManagerAnalytics";
+
+import {
+  formatDateInput,
+  getPeriodBounds,
+} from "../utils/periodRange";
+
 import "../styles/Incoming.css";
 
 export default function Incoming() {
@@ -51,6 +68,36 @@ export default function Incoming() {
   managerFilter,
   setManagerFilter,
 ] = useState("all");
+
+  const [
+    periodPreset,
+    setPeriodPreset,
+  ] = useState("today");
+
+  const [
+    customFrom,
+    setCustomFrom,
+  ] = useState(
+    formatDateInput(new Date())
+  );
+
+  const [
+    customTo,
+    setCustomTo,
+  ] = useState(
+    formatDateInput(new Date())
+  );
+
+  const [stats, setStats] =
+    useState(emptyIncomingStats);
+
+  const [
+    managerAnalytics,
+    setManagerAnalytics,
+  ] = useState([]);
+
+  const [managers, setManagers] =
+    useState([]);
 
   const [
     identifiersValue,
@@ -83,6 +130,20 @@ export default function Incoming() {
   const isManager =
     currentProfile?.role === "manager";
 
+  const periodRange = useMemo(
+    () =>
+      getPeriodBounds(
+        periodPreset,
+        customFrom,
+        customTo
+      ),
+    [
+      periodPreset,
+      customFrom,
+      customTo,
+    ]
+  );
+
   /*
    * =====================================================
    * ЗАГРУЗКА КОНТАКТОВ
@@ -105,13 +166,43 @@ export default function Incoming() {
 
       setError("");
 
-      const responseResult =
-        await incomingResponseService
+      const managerIdForQuery =
+        isManager
+          ? currentProfile.id
+          : managerFilter === "all"
+            ? null
+            : managerFilter;
+
+      const [
+        responseResult,
+        statsResult,
+        managersResult,
+      ] = await Promise.all([
+        incomingResponseService
           .getResponses({
-            managerId: isManager
-              ? currentProfile.id
-              : null,
-          });
+            managerId:
+              managerIdForQuery,
+            dateFrom:
+              periodRange.from,
+            dateTo:
+              periodRange.to,
+          }),
+        analyticsService
+          .getIncomingStats({
+            managerId:
+              managerIdForQuery,
+            dateFrom:
+              periodRange.from,
+            dateTo:
+              periodRange.to,
+          }),
+        isManager
+          ? Promise.resolve({
+              data: [],
+              error: null,
+            })
+          : profileService.getManagers(),
+      ]);
 
       if (responseResult.error) {
         console.error(
@@ -131,6 +222,55 @@ export default function Incoming() {
         );
       }
 
+      if (statsResult.error) {
+        console.error(
+          "Ошибка статистики входящих:",
+          statsResult.error
+        );
+      }
+
+      setStats(
+        statsResult.data ||
+          emptyIncomingStats()
+      );
+
+      const loadedManagers = (
+        managersResult.data || []
+      ).filter(
+        (manager) =>
+          manager.status !== "blocked"
+      );
+
+      setManagers(loadedManagers);
+
+      if (!isManager) {
+        const analyticsResult =
+          await analyticsService
+            .getManagerPeriodAnalytics({
+              managerId:
+                managerIdForQuery,
+              dateFrom:
+                periodRange.from,
+              dateTo:
+                periodRange.to,
+              managers:
+                loadedManagers,
+            });
+
+        if (analyticsResult.error) {
+          console.error(
+            "Ошибка аналитики менеджеров:",
+            analyticsResult.error
+          );
+        }
+
+        setManagerAnalytics(
+          analyticsResult.data || []
+        );
+      } else {
+        setManagerAnalytics([]);
+      }
+
       if (showLoader) {
         setLoading(false);
       }
@@ -138,6 +278,9 @@ export default function Incoming() {
     [
       currentProfile?.id,
       isManager,
+      managerFilter,
+      periodRange.from,
+      periodRange.to,
     ]
   );
 
@@ -463,84 +606,36 @@ export default function Incoming() {
 
 const managerOptions =
   useMemo(() => {
-    const managersMap =
-      new Map();
+    return managers
+      .map((manager) => {
+        const analyticsRow =
+          managerAnalytics.find(
+            (row) =>
+              row.id === manager.id
+          );
 
-    for (const response of responses) {
-      const managerId =
-        response.manager_id;
-
-      if (!managerId) {
-        continue;
-      }
-
-      const managerName =
-        response.manager?.full_name ||
-        response.manager?.email ||
-        "Без имени";
-
-      if (
-        !managersMap.has(
-          managerId
+        return {
+          id: manager.id,
+          name:
+            manager.full_name ||
+            manager.email ||
+            "Без имени",
+          count:
+            analyticsRow?.responded ||
+            0,
+        };
+      })
+      .sort((a, b) =>
+        a.name.localeCompare(
+          b.name,
+          "ru"
         )
-      ) {
-        managersMap.set(
-          managerId,
-          {
-            id: managerId,
-            name: managerName,
-            count: 0,
-          }
-        );
-      }
-
-      const current =
-        managersMap.get(
-          managerId
-        );
-
-      current.count += 1;
-    }
-
-    return Array.from(
-      managersMap.values()
-    ).sort((a, b) =>
-      a.name.localeCompare(
-        b.name,
-        "ru"
-      )
-    );
-  }, [responses]);
-
-/*
- * =====================================================
- * ФИЛЬТР ПО МЕНЕДЖЕРУ
- * =====================================================
- */
-
-const managerFilteredResponses =
-  useMemo(() => {
-    /*
-     * У обычного менеджера
-     * фильтра по другим сотрудникам нет.
-     */
-    if (
-      isManager ||
-      managerFilter === "all"
-    ) {
-      return responses;
-    }
-
-    return responses.filter(
-      (response) =>
-        response.manager_id ===
-        managerFilter
-    );
+      );
   }, [
-    responses,
-    managerFilter,
-    isManager,
+    managers,
+    managerAnalytics,
   ]);
+
   /*
    * =====================================================
    * ПОИСК
@@ -555,10 +650,10 @@ const managerFilteredResponses =
         .toLowerCase();
 
     if (!normalizedSearch) {
-      return managerFilteredResponses;
+      return responses;
     }
 
-    return managerFilteredResponses.filter(
+    return responses.filter(
       (response) => {
         const isExternal =
           Boolean(
@@ -597,75 +692,8 @@ const managerFilteredResponses =
       }
     );
   }, [
-    managerFilteredResponses,
+    responses,
     search,
-  ]);
-
-  /*
-   * =====================================================
-   * СТАТИСТИКА
-   * =====================================================
-   */
-
- const stats =
-  useMemo(() => {
-    const data =
-      managerFilteredResponses;
-
-    const respondedToday =
-      data.filter(
-        (response) =>
-          isToday(
-            response.responded_at
-          )
-      ).length;
-
-    const withApplications =
-      data.filter(
-        (response) =>
-          Boolean(
-            response
-              .application_created_at
-          )
-      ).length;
-
-    const uniqueManagers =
-      new Set(
-        data
-          .map(
-            (response) =>
-              response.manager_id
-          )
-          .filter(Boolean)
-      ).size;
-
-    const external =
-      data.filter(
-        (response) =>
-          Boolean(
-            response.is_external
-          ) ||
-          response.source ===
-            "external" ||
-          !response.mailing_id
-      ).length;
-
-    return {
-      total:
-        data.length,
-
-      today:
-        respondedToday,
-
-      withApplications,
-
-      managers:
-        uniqueManagers,
-
-      external,
-    };
-  }, [
-    managerFilteredResponses,
   ]);
 
   /*
@@ -742,20 +770,48 @@ const managerFilteredResponses =
           СТАТИСТИКА
       ================================================= */}
 
+      <p className="incoming-period-label">
+        Статистика {periodRange.label}
+        {managerFilter !== "all" &&
+        !isManager
+          ? ` · ${
+              managerOptions.find(
+                (manager) =>
+                  manager.id ===
+                  managerFilter
+              )?.name || "менеджер"
+            }`
+          : ""}
+      </p>
+
+      <p className="incoming-period-hint">
+        Написавшие считаются по дате
+        входящего контакта. Заявки — по
+        дате создания. Успешные открытия
+        и отказы — по дате самого события,
+        а не по дате создания заявки.
+      </p>
+
       <section className="incoming-stats">
         <StatCard
           icon={Inbox}
           title="Всего написавших"
           value={
-            stats.total
+            stats.responded
           }
         />
 
         <StatCard
           icon={CheckCircle2}
-          title="Написали сегодня"
+          title={
+            periodPreset === "today"
+              ? "Написали сегодня"
+              : periodPreset === "yesterday"
+                ? "Написали вчера"
+                : "Написали за период"
+          }
           value={
-            stats.today
+            stats.responded
           }
           variant="success"
         />
@@ -764,9 +820,26 @@ const managerFilteredResponses =
           icon={ListChecks}
           title="Создано заявок"
           value={
-            stats.withApplications
+            stats.applications
           }
           variant="warning"
+        />
+
+        <StatCard
+          icon={CheckCircle2}
+          title="Успешно открыто"
+          value={
+            stats.opened
+          }
+          variant="success"
+        />
+
+        <StatCard
+          icon={XCircle}
+          title="Отказы"
+          value={
+            stats.rejected
+          }
         />
 
         {isManager ? (
@@ -783,7 +856,11 @@ const managerFilteredResponses =
             icon={Users}
             title="Менеджеров"
             value={
-              stats.managers
+              stats.managers ||
+              managerAnalytics.filter(
+                (row) =>
+                  row.responded > 0
+              ).length
             }
             variant="blue"
           />
@@ -835,7 +912,7 @@ const managerFilteredResponses =
         }
       >
         <option value="all">
-          Все менеджеры — {responses.length}
+          Все менеджеры — {stats.responded}
         </option>
 
         {managerOptions.map(
@@ -851,7 +928,24 @@ const managerFilteredResponses =
       </select>
     </div>
   )}
+
+  <PeriodFilter
+    preset={periodPreset}
+    customFrom={customFrom}
+    customTo={customTo}
+    onPresetChange={setPeriodPreset}
+    onCustomFromChange={setCustomFrom}
+    onCustomToChange={setCustomTo}
+  />
 </section>
+
+      {!isManager && (
+        <ManagerAnalytics
+          title={`Результат менеджеров ${periodRange.label}`}
+          rows={managerAnalytics}
+          loading={loading}
+        />
+      )}
 
       {/* =================================================
           ОШИБКА
@@ -900,7 +994,9 @@ const managerFilteredResponses =
           <span>
             {search
               ? "Измените поисковый запрос."
-              : isManager
+              : periodPreset !== "all"
+                ? `За выбранный период ${periodRange.shortLabel} входящих нет. Попробуйте другой день или «Все даты».`
+                : isManager
                 ? "Нажмите \"Занести написавших\" и вставьте всех пользователей, которые вам написали. Неважно, участвовали они в рассылке или нет."
                 : "Менеджеры ещё не внесли входящие контакты."}
           </span>

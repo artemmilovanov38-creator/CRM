@@ -1627,3 +1627,65 @@ font-size:14px;
 }
 
 }
+
+.applications-period-label {
+  margin: 0 0 8px;
+  color: #c5ccd8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.applications-period-hint {
+  margin: 0 0 16px;
+  color: #7e899c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.applications-page .applications-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.applications-search {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.applications-filter {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.applications-toolbar .period-filter {
+  flex: 1 1 100%;
+}
+
+.applications-view-switcher {
+  flex: 0 0 auto;
+}
+
+.applications-stats {
+  grid-template-columns:
+    repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.applications-panel .manager-analytics {
+  margin: 12px 18px 0;
+}
+
+@media (max-width: 760px) {
+  .applications-search,
+  .applications-filter,
+  .applications-toolbar .period-filter,
+  .applications-view-switcher {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .applications-panel .manager-analytics {
+    margin: 10px;
+  }
+}

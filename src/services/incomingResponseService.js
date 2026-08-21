@@ -38,6 +38,42 @@ function createServiceError(message) {
   return new Error(message);
 }
 
+const PAGE_SIZE = 1000;
+
+async function fetchAllPages(buildQuery) {
+  const rows = [];
+  let from = 0;
+
+  while (from < 100000) {
+    const { data, error } =
+      await buildQuery().range(
+        from,
+        from + PAGE_SIZE - 1
+      );
+
+    if (error) {
+      return {
+        data: rows,
+        error,
+      };
+    }
+
+    const chunk = data || [];
+    rows.push(...chunk);
+
+    if (chunk.length < PAGE_SIZE) {
+      break;
+    }
+
+    from += PAGE_SIZE;
+  }
+
+  return {
+    data: rows,
+    error: null,
+  };
+}
+
 function normalizeTelegramUsername(value) {
   const cleaned = String(value || "")
     .trim()
@@ -868,29 +904,41 @@ export const incomingResponseService = {
 
   async getResponses({
     managerId = null,
+    dateFrom = null,
+    dateTo = null,
   } = {}) {
-    let query = supabase
-      .from("mailing_contacts")
-      .select(CONTACT_FIELDS)
-      .not("responded_at", "is", null)
-      .order("responded_at", {
-        ascending: false,
-      });
+    return fetchAllPages(() => {
+      let query = supabase
+        .from("mailing_contacts")
+        .select(CONTACT_FIELDS)
+        .not("responded_at", "is", null)
+        .order("responded_at", {
+          ascending: false,
+        });
 
-    if (managerId) {
-      query = query.eq(
-        "manager_id",
-        managerId
-      );
-    }
+      if (managerId) {
+        query = query.eq(
+          "manager_id",
+          managerId
+        );
+      }
 
-    const { data, error } =
-      await query;
+      if (dateFrom) {
+        query = query.gte(
+          "responded_at",
+          dateFrom
+        );
+      }
 
-    return {
-      data: data || [],
-      error,
-    };
+      if (dateTo) {
+        query = query.lt(
+          "responded_at",
+          dateTo
+        );
+      }
+
+      return query;
+    });
   },
 
   async registerResponse({

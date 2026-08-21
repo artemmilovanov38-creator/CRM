@@ -1189,3 +1189,55 @@
   background: #101620;
   color: #e6e9ef;
 }
+
+.incoming-period-label,
+.applications-period-label {
+  margin: 0 0 8px;
+  color: #c5ccd8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.incoming-period-hint,
+.applications-period-hint {
+  margin: 0 0 14px;
+  color: #7e899c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.incoming-page .incoming-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.incoming-search,
+.incoming-manager-filter {
+  flex: 1 1 240px;
+}
+
+.incoming-toolbar .period-filter {
+  flex: 1 1 100%;
+}
+
+.incoming-stats {
+  grid-template-columns:
+    repeat(auto-fit, minmax(170px, 1fr));
+}
+
+@media (max-width: 760px) {
+  .incoming-search,
+  .incoming-manager-filter,
+  .incoming-toolbar .period-filter {
+    flex-basis: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .incoming-period-label,
+  .incoming-period-hint {
+    margin-right: 0;
+  }
+}

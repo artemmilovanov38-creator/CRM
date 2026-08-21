@@ -143,6 +143,16 @@ function getApplicationOpeningRate(
   productMap
 ) {
   if (
+    application?.amount !== null &&
+    application?.amount !== undefined &&
+    application?.amount !== ""
+  ) {
+    return toSafeNumber(
+      application.amount
+    );
+  }
+
+  if (
     hasOpeningPriceSnapshot(
       application
     )

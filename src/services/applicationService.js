@@ -19,6 +19,7 @@ const APPLICATION_FIELDS = `
   opening_price_snapshot,
   approved_at,
   opened_at,
+  rejected_at,
   created_at,
   updated_at,
 
@@ -79,6 +80,34 @@ export function getApplicationOpenedAt(
     application?.approved_at ||
     null
   );
+}
+
+export function getApplicationPayout(
+  application
+) {
+  const candidates = [
+    application?.amount,
+    application?.opening_price_snapshot,
+    application?.product_data?.opening_price,
+  ];
+
+  for (const value of candidates) {
+    if (
+      value === null ||
+      value === undefined ||
+      value === ""
+    ) {
+      continue;
+    }
+
+    const amount = Number(value);
+
+    if (Number.isFinite(amount)) {
+      return amount;
+    }
+  }
+
+  return null;
 }
 
 function createServiceError(message) {
@@ -293,6 +322,22 @@ function normalizePrice(value) {
   return Number.isFinite(price)
     ? price
     : 0;
+}
+
+function resolveApplicationPayout(
+  product,
+  explicitAmount
+) {
+  const fromForm =
+    normalizeAmount(explicitAmount);
+
+  if (fromForm !== null) {
+    return fromForm;
+  }
+
+  return normalizePrice(
+    product?.opening_price
+  );
 }
 
 function normalizePpId(value) {
@@ -703,10 +748,35 @@ async function prepareApprovalFields({
       new Date().toISOString();
   }
 
+  if (
+    currentApplication?.amount === null ||
+    currentApplication?.amount ===
+      undefined
+  ) {
+    const {
+      data: product,
+      error: payoutProductError,
+    } = await getProduct(productId);
+
+    if (payoutProductError) {
+      return {
+        data: null,
+        error: payoutProductError,
+      };
+    }
+
+    result.amount = resolveApplicationPayout(
+      product,
+      currentApplication?.amount
+    );
+  }
+
   /*
    * Ставка также фиксируется только один раз.
    * Последующее изменение цены продукта
-   * не изменит старую зарплату.
+   * в каталоге не изменит старую зарплату.
+   * Смена продукта у самой заявки
+   * обновляет снимок отдельно.
    */
   if (
     currentApplication
@@ -714,6 +784,19 @@ async function prepareApprovalFields({
     currentApplication
       ?.opening_price_snapshot !== undefined
   ) {
+    return {
+      data: result,
+      error: null,
+    };
+  }
+
+  if (
+    result.amount !== null &&
+    result.amount !== undefined
+  ) {
+    result.opening_price_snapshot =
+      result.amount;
+
     return {
       data: result,
       error: null,
@@ -758,7 +841,11 @@ export const applicationService = {
    * Для роли manager возвращаются только
    * заявки текущего менеджера.
    */
-  async getApplications() {
+  async getApplications({
+    dateFrom = null,
+    dateTo = null,
+    managerId = null,
+  } = {}) {
     const actor = await getCurrentActor();
 
     if (!actor.profile) {
@@ -772,24 +859,82 @@ export const applicationService = {
       };
     }
 
-    let query = supabase
-      .from("applications")
-      .select(APPLICATION_FIELDS)
-      .order("created_at", {
-        ascending: false,
-      });
+    const pageSize = 1000;
+    const rows = [];
+    let from = 0;
 
-    query = applyManagerScope(
-      query,
-      actor
-    );
+    while (from < 100000) {
+      let query = supabase
+        .from("applications")
+        .select(APPLICATION_FIELDS)
+        .order("created_at", {
+          ascending: false,
+        });
 
-    const { data, error } =
-      await query;
+      query = applyManagerScope(
+        query,
+        actor
+      );
+
+      if (
+        isPrivilegedRole(
+          actor.profile.role
+        ) &&
+        managerId
+      ) {
+        if (managerId === "unassigned") {
+          query = query.is(
+            "assigned_manager_id",
+            null
+          );
+        } else {
+          query = query.eq(
+            "assigned_manager_id",
+            managerId
+          );
+        }
+      }
+
+      if (dateFrom) {
+        query = query.gte(
+          "created_at",
+          dateFrom
+        );
+      }
+
+      if (dateTo) {
+        query = query.lt(
+          "created_at",
+          dateTo
+        );
+      }
+
+      const { data, error } =
+        await query.range(
+          from,
+          from + pageSize - 1
+        );
+
+      if (error) {
+        return {
+          data: rows,
+          error,
+        };
+      }
+
+      const chunk = data || [];
+      rows.push(...chunk);
+
+      if (chunk.length < pageSize) {
+        break;
+      }
+
+      from += pageSize;
+    }
 
     return {
-      data: data || [],
-      error,
+      data: rows,
+      error: null,
     };
   },
 
@@ -912,15 +1057,6 @@ export const applicationService = {
     dateFrom,
     dateTo
   ) {
-    let query = supabase
-      .from("applications")
-      .select(APPLICATION_FIELDS)
-      .eq("status", "approved")
-      .not("approved_at", "is", null)
-      .order("approved_at", {
-        ascending: false,
-      });
-
     const actor = await getCurrentActor();
 
     if (!actor.profile) {
@@ -934,31 +1070,65 @@ export const applicationService = {
       };
     }
 
-    query = applyManagerScope(
-      query,
-      actor
-    );
+    const pageSize = 1000;
+    const rows = [];
+    let from = 0;
 
-    if (dateFrom) {
-      query = query.gte(
-        "approved_at",
-        `${dateFrom}T00:00:00`
+    while (from < 100000) {
+      let query = supabase
+        .from("applications")
+        .select(APPLICATION_FIELDS)
+        .eq("status", "approved")
+        .not("approved_at", "is", null)
+        .order("approved_at", {
+          ascending: false,
+        });
+
+      query = applyManagerScope(
+        query,
+        actor
       );
-    }
 
-    if (dateTo) {
-      query = query.lte(
-        "approved_at",
-        `${dateTo}T23:59:59.999`
-      );
-    }
+      if (dateFrom) {
+        query = query.gte(
+          "approved_at",
+          `${dateFrom}T00:00:00`
+        );
+      }
 
-    const { data, error } =
-      await query;
+      if (dateTo) {
+        query = query.lte(
+          "approved_at",
+          `${dateTo}T23:59:59.999`
+        );
+      }
+
+      const { data, error } =
+        await query.range(
+          from,
+          from + pageSize - 1
+        );
+
+      if (error) {
+        return {
+          data: rows,
+          error,
+        };
+      }
+
+      const chunk = data || [];
+      rows.push(...chunk);
+
+      if (chunk.length < pageSize) {
+        break;
+      }
+
+      from += pageSize;
+    }
 
     return {
-      data: data || [],
-      error,
+      data: rows,
+      error: null,
     };
   },
 
@@ -1136,9 +1306,17 @@ export const applicationService = {
         values?.created_by ||
         null,
 
-      amount: normalizeAmount(
+      amount: resolveApplicationPayout(
+        product,
         values?.amount
       ),
+
+      opening_price_snapshot:
+        approvalFields.opening_price_snapshot ??
+        resolveApplicationPayout(
+          product,
+          values?.amount
+        ),
 
       comment: normalizeText(
         values?.comment
@@ -1307,8 +1485,6 @@ export const applicationService = {
         assigned_manager_id:
           assignedManagerId,
 
-        amount: null,
-
         comment:
           normalizeText(
             options?.comment
@@ -1407,6 +1583,7 @@ export const applicationService = {
         assigned_manager_id,
         approved_at,
         opened_at,
+        rejected_at,
         opening_price_snapshot
       `)
       .eq("id", applicationId)
@@ -1494,10 +1671,17 @@ export const applicationService = {
     }
 
     if ("amount" in payload) {
-      payload.amount =
+      const normalizedAmount =
         normalizeAmount(
           payload.amount
         );
+
+      if (normalizedAmount === null) {
+        delete payload.amount;
+      } else {
+        payload.amount =
+          normalizedAmount;
+      }
     }
 
     if ("comment" in payload) {
@@ -1631,10 +1815,14 @@ export const applicationService = {
         nextProduct.name;
 
       if (productChanged) {
-        payload.opening_price_snapshot =
-          normalizePrice(
-            nextProduct.opening_price
+        payload.amount =
+          resolveApplicationPayout(
+            nextProduct,
+            payload.amount
           );
+
+        payload.opening_price_snapshot =
+          payload.amount;
       }
     } else if ("product" in payload) {
       payload.product =
@@ -1666,6 +1854,61 @@ export const applicationService = {
       payload,
       approvalFields
     );
+
+    if (
+      nextStatus === "rejected" &&
+      !currentApplication.rejected_at
+    ) {
+      payload.rejected_at =
+        new Date().toISOString();
+    }
+
+    const nextAmount =
+      payload.amount !== undefined
+        ? payload.amount
+        : currentApplication.amount;
+
+    if (
+      nextAmount === null ||
+      nextAmount === undefined
+    ) {
+      const {
+        data: payoutProduct,
+      } = await getProduct(
+        finalProductId
+      );
+
+      if (payoutProduct) {
+        payload.amount =
+          resolveApplicationPayout(
+            payoutProduct,
+            null
+          );
+      }
+    }
+
+    const nextSnapshot =
+      payload.opening_price_snapshot !==
+      undefined
+        ? payload.opening_price_snapshot
+        : currentApplication.opening_price_snapshot;
+
+    if (
+      nextSnapshot === null ||
+      nextSnapshot === undefined
+    ) {
+      const snapshotValue =
+        payload.amount ??
+        currentApplication.amount;
+
+      if (
+        snapshotValue !== null &&
+        snapshotValue !== undefined
+      ) {
+        payload.opening_price_snapshot =
+          snapshotValue;
+      }
+    }
 
     if (
       Object.keys(payload).length === 0

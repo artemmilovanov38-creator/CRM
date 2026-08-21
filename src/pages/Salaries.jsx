@@ -217,6 +217,16 @@ export default function Salaries() {
             return;
           }
 
+          const payoutFromApplication =
+            application.amount !==
+              null &&
+            application.amount !==
+              undefined
+              ? toSafeNumber(
+                  application.amount
+                )
+              : null;
+
           const hasSnapshot =
             application
               .opening_price_snapshot !==
@@ -230,18 +240,23 @@ export default function Salaries() {
                 application
                   .opening_price_snapshot
               )
-            : toSafeNumber(
-                product.opening_price
-              );
+            : payoutFromApplication !==
+                null
+              ? payoutFromApplication
+              : toSafeNumber(
+                  product.opening_price
+                );
 
           /*
            * Если у старой успешной заявки
-           * снимок ставки отсутствует,
+           * нет ни суммы, ни снимка ставки,
            * временно используем текущую
-           * ставку продукта и показываем
-           * предупреждение.
+           * ставку продукта.
            */
-          if (!hasSnapshot) {
+          if (
+            !hasSnapshot &&
+            payoutFromApplication === null
+          ) {
             unpricedOpenings += 1;
           }
 

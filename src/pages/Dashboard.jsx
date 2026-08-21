@@ -21,7 +21,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/Dashboard.css";
 
 import { useAuth } from "../context/AuthContext";
-import { applicationService } from "../services/applicationService";
+import { applicationService, getApplicationPayout } from "../services/applicationService";
 import { profileService } from "../services/profileService";
 
 const statusConfig = {
@@ -148,7 +148,11 @@ export default function Dashboard() {
       approvedApplications.reduce(
         (sum, application) =>
           sum +
-          Number(application.amount || 0),
+          Number(
+            getApplicationPayout(
+              application
+            ) || 0
+          ),
         0
       );
 
@@ -242,7 +246,11 @@ export default function Dashboard() {
         const amount = approved.reduce(
           (sum, application) =>
             sum +
-            Number(application.amount || 0),
+            Number(
+              getApplicationPayout(
+                application
+              ) || 0
+            ),
           0
         );
 
@@ -447,12 +455,14 @@ export default function Dashboard() {
                     </span>
 
                     <strong className="dashboard-application__amount">
-                      {application.amount === null ||
-                      application.amount ===
-                        undefined
+                      {getApplicationPayout(
+                        application
+                      ) === null
                         ? "—"
                         : formatMoney(
-                            application.amount
+                            getApplicationPayout(
+                              application
+                            )
                           )}
                     </strong>
 

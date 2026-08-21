@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -24,9 +25,19 @@ import {
 import "../styles/Applications.css";
 
 import { useAuth } from "../context/AuthContext";
-import { applicationService } from "../services/applicationService";
+import { applicationService, getApplicationPayout } from "../services/applicationService";
 import { profileService } from "../services/profileService";
+import {
+  analyticsService,
+  emptyApplicationStats,
+} from "../services/analyticsService";
 import ApplicationDrawer from "../components/applications/ApplicationDrawer";
+import PeriodFilter from "../components/filters/PeriodFilter";
+import ManagerAnalytics from "../components/analytics/ManagerAnalytics";
+import {
+  formatDateInput,
+  getPeriodBounds,
+} from "../utils/periodRange";
 
 const statusOptions = [
   {
@@ -68,6 +79,23 @@ export default function ApplicationsPage() {
   const [managerFilter, setManagerFilter] =
     useState("all");
 
+  const [periodPreset, setPeriodPreset] =
+    useState("all");
+
+  const [customFrom, setCustomFrom] =
+    useState(formatDateInput(new Date()));
+
+  const [customTo, setCustomTo] =
+    useState(formatDateInput(new Date()));
+
+  const [stats, setStats] =
+    useState(emptyApplicationStats);
+
+  const [
+    managerAnalytics,
+    setManagerAnalytics,
+  ] = useState([]);
+
   const [viewMode, setViewMode] =
     useState("kanban");
 
@@ -108,60 +136,149 @@ export default function ApplicationsPage() {
     setMovingApplicationId,
   ] = useState(null);
 
+  const periodRange = useMemo(
+    () =>
+      getPeriodBounds(
+        periodPreset,
+        customFrom,
+        customTo
+      ),
+    [
+      periodPreset,
+      customFrom,
+      customTo,
+    ]
+  );
+
+  const managerIdForQuery =
+    isManager || managerFilter === "all"
+      ? null
+      : managerFilter;
+
+  const loadPageData = useCallback(
+    async (showLoader = true) => {
+      if (showLoader) {
+        setIsLoading(true);
+      }
+
+      setError("");
+
+      const [
+        applicationsResult,
+        managersResult,
+        statsResult,
+      ] = await Promise.all([
+        applicationService.getApplications({
+          dateFrom: periodRange.from,
+          dateTo: periodRange.to,
+          managerId: managerIdForQuery,
+        }),
+        profileService.getManagers(),
+        analyticsService.getApplicationStats({
+          managerId: isManager
+            ? user?.id
+            : managerIdForQuery,
+          dateFrom: periodRange.from,
+          dateTo: periodRange.to,
+        }),
+      ]);
+
+      if (applicationsResult.error) {
+        console.error(
+          "Ошибка загрузки заявок:",
+          applicationsResult.error
+        );
+
+        setError(
+          applicationsResult.error.message ||
+            "Не удалось загрузить заявки"
+        );
+      }
+
+      if (managersResult.error) {
+        console.error(
+          "Ошибка загрузки менеджеров:",
+          managersResult.error
+        );
+      }
+
+      if (statsResult.error) {
+        console.error(
+          "Ошибка статистики заявок:",
+          statsResult.error
+        );
+      }
+
+      setApplications(
+        (
+          applicationsResult.data || []
+        ).map((application) => ({
+          ...application,
+
+          status:
+            application.status === "waiting"
+              ? "new"
+              : application.status,
+        }))
+      );
+
+      const loadedManagers = (
+        managersResult.data || []
+      ).filter(
+        (manager) =>
+          manager.status !== "blocked"
+      );
+
+      setManagers(loadedManagers);
+
+      setStats(
+        statsResult.data ||
+          emptyApplicationStats()
+      );
+
+      if (!isManager) {
+        const analyticsResult =
+          await analyticsService.getManagerPeriodAnalytics(
+            {
+              managerId:
+                managerIdForQuery,
+              dateFrom:
+                periodRange.from,
+              dateTo: periodRange.to,
+              managers: loadedManagers,
+            }
+          );
+
+        if (analyticsResult.error) {
+          console.error(
+            "Ошибка аналитики менеджеров:",
+            analyticsResult.error
+          );
+        }
+
+        setManagerAnalytics(
+          analyticsResult.data || []
+        );
+      } else {
+        setManagerAnalytics([]);
+      }
+
+      if (showLoader) {
+        setIsLoading(false);
+      }
+    },
+    [
+      isManager,
+      managerIdForQuery,
+      periodRange.from,
+      periodRange.to,
+      user?.id,
+    ]
+  );
+
   useEffect(() => {
     loadPageData();
-  }, []);
-
-  async function loadPageData() {
-    setIsLoading(true);
-    setError("");
-
-    const [
-      applicationsResult,
-      managersResult,
-    ] = await Promise.all([
-      applicationService.getApplications(),
-      profileService.getManagers(),
-    ]);
-
-    if (applicationsResult.error) {
-      console.error(
-        "Ошибка загрузки заявок:",
-        applicationsResult.error
-      );
-
-      setError(
-        applicationsResult.error.message ||
-          "Не удалось загрузить заявки"
-      );
-    }
-
-    if (managersResult.error) {
-      console.error(
-        "Ошибка загрузки менеджеров:",
-        managersResult.error
-      );
-    }
-
-    setApplications(
-      (
-        applicationsResult.data || []
-      ).map((application) => ({
-        ...application,
-
-        status:
-          application.status === "waiting"
-            ? "new"
-            : application.status,
-      }))
-    );
-
-    setManagers(
-      managersResult.data || []
-    );
-
-    setIsLoading(false);
-  }
+  }, [loadPageData]);
 
   const filteredApplications = useMemo(
     () => {
@@ -197,20 +314,9 @@ export default function ApplicationsPage() {
             application.status ===
               statusFilter;
 
-          const matchesManager =
-            managerFilter === "all" ||
-            (
-              managerFilter ===
-                "unassigned" &&
-              !application.assigned_manager_id
-            ) ||
-            application.assigned_manager_id ===
-              managerFilter;
-
           return (
             matchesSearch &&
-            matchesStatus &&
-            matchesManager
+            matchesStatus
           );
         }
       );
@@ -219,54 +325,8 @@ export default function ApplicationsPage() {
       applications,
       search,
       statusFilter,
-      managerFilter,
     ]
   );
-
-  const stats = useMemo(() => {
-    const approvedApplications =
-      applications.filter(
-        (application) =>
-          application.status === "approved"
-      );
-
-    return {
-      total: applications.length,
-
-      newApplications:
-        applications.filter(
-          (application) =>
-            application.status === "new"
-        ).length,
-
-      inProgress:
-        applications.filter(
-          (application) =>
-            application.status ===
-            "in_progress"
-        ).length,
-
-      approved:
-        approvedApplications.length,
-
-      rejected:
-        applications.filter(
-          (application) =>
-            application.status ===
-            "rejected"
-        ).length,
-
-      totalAmount:
-        approvedApplications.reduce(
-          (sum, application) =>
-            sum +
-            Number(
-              application.amount || 0
-            ),
-          0
-        ),
-    };
-  }, [applications]);
 
   function openApplicationDrawer(
     application
@@ -358,6 +418,8 @@ export default function ApplicationsPage() {
     setSuccessMessage(
       "Статус заявки обновлён"
     );
+
+    loadPageData(false);
   }
 
   async function handleManagerChange(
@@ -438,6 +500,8 @@ export default function ApplicationsPage() {
         ? "Менеджер назначен"
         : "Менеджер снят с заявки"
     );
+
+    loadPageData(false);
   }
 
   async function handleSaveApplication(
@@ -534,6 +598,7 @@ export default function ApplicationsPage() {
       "Заявка сохранена"
     );
     setDrawerLoading(false);
+    loadPageData(false);
   }
 
   async function handleMarkReceiptOpened(
@@ -591,6 +656,7 @@ export default function ApplicationsPage() {
         : "Квит отмечен открытым"
     );
     setDrawerLoading(false);
+    loadPageData(false);
   }
 
   async function handleDeleteApplication(
@@ -641,6 +707,7 @@ export default function ApplicationsPage() {
     setSuccessMessage(
       "Заявка удалена"
     );
+    loadPageData(false);
   }
 
   function handleDragStart(
@@ -769,6 +836,33 @@ export default function ApplicationsPage() {
           Обновить
         </button>
       </section>
+
+      <p className="applications-period-label">
+        Статистика {periodRange.label}
+        {managerFilter !== "all" &&
+        !isManager
+          ? ` · ${
+              managerFilter ===
+              "unassigned"
+                ? "без менеджера"
+                : getManagerName(
+                    managers.find(
+                      (manager) =>
+                        manager.id ===
+                        managerFilter
+                    )
+                  )
+            }`
+          : ""}
+      </p>
+
+      <p className="applications-period-hint">
+        «Всего», «Новые» и «В работе»
+        считаются по дате создания заявки.
+        «Успешно открыты» — по дате
+        открытия квита, «Отказы» — по дате
+        перехода в отказ.
+      </p>
 
       <section className="applications-stats">
         <StatCard
@@ -915,6 +1009,21 @@ export default function ApplicationsPage() {
           </select>
           )}
 
+          <PeriodFilter
+            preset={periodPreset}
+            customFrom={customFrom}
+            customTo={customTo}
+            onPresetChange={
+              setPeriodPreset
+            }
+            onCustomFromChange={
+              setCustomFrom
+            }
+            onCustomToChange={
+              setCustomTo
+            }
+          />
+
           <div className="applications-view-switcher">
             <button
               type="button"
@@ -947,6 +1056,14 @@ export default function ApplicationsPage() {
             </button>
           </div>
         </div>
+
+        {!isManager && (
+          <ManagerAnalytics
+            title={`Результат менеджеров ${periodRange.label}`}
+            rows={managerAnalytics}
+            loading={isLoading}
+          />
+        )}
 
         <div className="applications-result-line">
           Найдено заявок:{" "}
@@ -1246,14 +1363,9 @@ function ApplicationMobileCard({
             <span>Сумма</span>
 
             <strong>
-              {application.amount ===
-                null ||
-              application.amount ===
-                undefined
-                ? "Не указана"
-                : formatMoney(
-                    application.amount
-                  )}
+              {formatApplicationMoney(
+                application
+              )}
             </strong>
           </div>
         </div>
@@ -1560,14 +1672,9 @@ function ApplicationsKanban({
 
                         <div className="applications-kanban-card__footer">
                           <strong>
-                            {application.amount ===
-                              null ||
-                            application.amount ===
-                              undefined
-                              ? "Сумма не указана"
-                              : formatMoney(
-                                  application.amount
-                                )}
+                            {formatApplicationMoney(
+                              application
+                            )}
                           </strong>
 
                           <span>
@@ -1749,14 +1856,9 @@ function ApplicationsTable({
 
                 <td>
                   <strong className="application-amount">
-                    {application.amount ===
-                      null ||
-                    application.amount ===
-                      undefined
-                      ? "—"
-                      : formatMoney(
-                          application.amount
-                        )}
+                    {formatApplicationMoney(
+                      application
+                    )}
                   </strong>
                 </td>
 
@@ -1865,6 +1967,19 @@ function formatMoney(value) {
   ).format(
     Number(value || 0)
   );
+}
+
+function formatApplicationMoney(
+  application
+) {
+  const payout =
+    getApplicationPayout(application);
+
+  if (payout === null) {
+    return "Не указана";
+  }
+
+  return formatMoney(payout);
 }
 
 function formatDateTime(dateValue) {
