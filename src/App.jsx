@@ -16,6 +16,7 @@ import MyContacts from "./pages/MyContacts.jsx";
 import ApplicationsPage from "./pages/ApplicationsPage.jsx";
 import Dashboard from "./pages/Dashboard";
 import Incoming from "./pages/Incoming";
+import Writers from "./pages/Writers.jsx";
 import Login from "./pages/Login.jsx";
 import MailingDetails from "./pages/MailingDetails.jsx";
 import Mailings from "./pages/Mailings.jsx";
@@ -70,6 +71,21 @@ export default function App() {
       ]}
     >
       <Incoming />
+    </ProtectedRoute>
+  }
+/>
+
+            <Route
+  path="/writers"
+  element={
+    <ProtectedRoute
+      allowedRoles={[
+        "manager",
+        "admin",
+        "head",
+      ]}
+    >
+      <Writers />
     </ProtectedRoute>
   }
 />

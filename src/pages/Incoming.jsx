@@ -7,6 +7,7 @@ import {
 
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   ClipboardPaste,
   Clock3,
@@ -103,6 +104,13 @@ export default function Incoming() {
     identifiersValue,
     setIdentifiersValue,
   ] = useState("");
+
+  const [
+    incomingDate,
+    setIncomingDate,
+  ] = useState(
+    formatDateInput(new Date())
+  );
 
   const [loading, setLoading] =
     useState(true);
@@ -355,6 +363,9 @@ export default function Incoming() {
 
   function openModal() {
     setIdentifiersValue("");
+    setIncomingDate(
+      formatDateInput(new Date())
+    );
     setFormError("");
     setResult(null);
     setModalOpen(true);
@@ -368,6 +379,9 @@ export default function Incoming() {
     setModalOpen(false);
 
     setIdentifiersValue("");
+    setIncomingDate(
+      formatDateInput(new Date())
+    );
     setFormError("");
     setResult(null);
   }
@@ -411,6 +425,14 @@ export default function Incoming() {
       return;
     }
 
+    if (!incomingDate) {
+      setFormError(
+        "Укажите дату, когда эти люди написали"
+      );
+
+      return;
+    }
+
     setSaving(true);
 
     const registerResult =
@@ -421,6 +443,8 @@ export default function Incoming() {
 
           managerId:
             currentProfile.id,
+
+          incomingDate,
         });
 
     if (registerResult.error) {
@@ -1167,7 +1191,7 @@ const managerOptions =
 
                     <div className="incoming-card__details">
                       <DetailItem
-                        label="Получен входящий"
+                        label="Дата входящего"
                         value={formatDate(
                           response
                             .responded_at
@@ -1363,12 +1387,13 @@ const managerOptions =
                 </h2>
 
                 <p>
-                  Вставьте всех
-                  пользователей,
-                  которые вам написали.
-                  CRM сама определит,
-                  есть ли они в базе
-                  рассылок.
+                  Сначала выберите день,
+                  когда люди написали,
+                  затем вставьте ники
+                  или номера. Эта дата
+                  пойдёт в отчёты, даже
+                  если вы заносите
+                  контакты позже.
                 </p>
               </div>
 
@@ -1393,6 +1418,56 @@ const managerOptions =
                 handleSubmit
               }
             >
+              <label className="incoming-modal__field">
+                <span>
+                  Дата входящего
+                </span>
+
+                <div className="incoming-input">
+                  <CalendarDays
+                    size={19}
+                  />
+
+                  <input
+                    type="date"
+                    value={
+                      incomingDate
+                    }
+                    max={formatDateInput(
+                      new Date()
+                    )}
+                    required
+                    onChange={(
+                      event
+                    ) => {
+                      setIncomingDate(
+                        event.target
+                          .value
+                      );
+
+                      setFormError(
+                        ""
+                      );
+
+                      setResult(
+                        null
+                      );
+                    }}
+                    disabled={
+                      saving
+                    }
+                  />
+                </div>
+
+                <p className="incoming-modal__field-hint">
+                  Одна дата на всю
+                  пачку. По умолчанию
+                  стоит сегодня, но её
+                  можно изменить, если
+                  люди написали раньше.
+                </p>
+              </label>
+
               <label className="incoming-modal__field">
                 <span>
                   Telegram-ники и номера

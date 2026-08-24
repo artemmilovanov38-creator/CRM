@@ -85,6 +85,33 @@ export const PERIOD_PRESETS = [
   },
 ];
 
+export const WRITERS_PERIOD_PRESETS = [
+  {
+    id: "week",
+    label: "Текущая неделя",
+  },
+  {
+    id: "today",
+    label: "Сегодня",
+  },
+  {
+    id: "yesterday",
+    label: "Вчера",
+  },
+  {
+    id: "last7",
+    label: "За 7 дней",
+  },
+  {
+    id: "month",
+    label: "Текущий месяц",
+  },
+  {
+    id: "custom",
+    label: "Свой период",
+  },
+];
+
 export function getPeriodBounds(
   preset = "today",
   customFrom = "",
@@ -117,6 +144,24 @@ export function getPeriodBounds(
       rangeStart.getDate() - 1
     );
     rangeEndExclusive = todayStart;
+  }
+
+  if (preset === "week") {
+    const weekday = now.getDay();
+    const daysFromMonday =
+      weekday === 0 ? 6 : weekday - 1;
+
+    rangeStart = new Date(todayStart);
+    rangeStart.setDate(
+      rangeStart.getDate() - daysFromMonday
+    );
+
+    rangeEndExclusive = new Date(
+      rangeStart
+    );
+    rangeEndExclusive.setDate(
+      rangeEndExclusive.getDate() + 7
+    );
   }
 
   if (preset === "last7") {

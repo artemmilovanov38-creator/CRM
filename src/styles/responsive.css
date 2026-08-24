@@ -12,6 +12,7 @@
   .applications-page,
   .application-details-page,
   .incoming-page,
+  .writers-page,
   .manager-details-page,
   .managers-page,
   .users-page {
@@ -82,6 +83,7 @@
   .applications-page,
   .application-details-page,
   .incoming-page,
+  .writers-page,
   .manager-details-page,
   .managers-page,
   .users-page {
@@ -94,6 +96,7 @@
   .dashboard-header,
   .applications-header,
   .incoming-heading,
+  .writers-heading,
   .users-page__header,
   .managers-page__header,
   .mailing-contacts-header {
@@ -227,7 +230,8 @@
   .users-table-wrapper,
   .manager-applications-table-wrapper,
   .mailing-contacts-table-wrapper,
-  .mailing-managers-table-wrapper {
+  .mailing-managers-table-wrapper,
+  .writers-table-wrap {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
   }
@@ -264,6 +268,7 @@
   .applications-page,
   .application-details-page,
   .incoming-page,
+  .writers-page,
   .manager-details-page,
   .managers-page,
   .users-page {
@@ -642,7 +647,8 @@
   .users-table-wrapper,
   .manager-applications-table-wrapper,
   .mailing-contacts-table-wrapper,
-  .mailing-managers-table-wrapper {
+  .mailing-managers-table-wrapper,
+  .writers-table-wrap {
     margin-right: -2px;
     overflow-x: auto;
     border-radius: 12px;
@@ -758,6 +764,7 @@
   .applications-page,
   .application-details-page,
   .incoming-page,
+  .writers-page,
   .manager-details-page,
   .managers-page,
   .users-page {
@@ -4055,16 +4062,21 @@ gap:10px;
     width: 100%;
   }
 
+  .incoming-input,
   .incoming-textarea {
     width: 100%;
     min-width: 0;
   }
 
+  .incoming-input input,
   .incoming-textarea textarea {
     width: 100%;
     min-width: 0;
-    min-height: 170px;
     font-size: 16px;
+  }
+
+  .incoming-textarea textarea {
+    min-height: 170px;
   }
 
   .incoming-response-form__hint {

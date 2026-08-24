@@ -14,6 +14,7 @@ export default function PeriodFilter({
   preset,
   customFrom,
   customTo,
+  presets = PERIOD_PRESETS,
   onPresetChange,
   onCustomFromChange,
   onCustomToChange,
@@ -38,7 +39,7 @@ export default function PeriodFilter({
   return (
     <div className="period-filter">
       <div className="period-filter__presets">
-        {PERIOD_PRESETS.map(
+        {presets.map(
           (item) => (
             <button
               key={item.id}

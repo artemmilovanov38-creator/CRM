@@ -613,10 +613,22 @@
   gap: 8px;
 }
 
+.incoming-modal__field + .incoming-modal__field {
+  margin-top: 16px;
+}
+
 .incoming-modal__field > span {
   color: #8994a7;
   font-size: 10px;
   font-weight: 700;
+}
+
+.incoming-modal__field-hint {
+  margin: 0;
+  color: #667288;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .incoming-input {
@@ -646,10 +658,16 @@
   color: #e7eaf1;
   font: inherit;
   font-size: 14px;
+  color-scheme: dark;
 }
 
 .incoming-input input::placeholder {
   color: #59657a;
+}
+
+.incoming-input input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .incoming-response-form__divider {
@@ -945,6 +963,11 @@
         18px +
         env(safe-area-inset-bottom)
       );
+  }
+
+  .incoming-input {
+    width: 100%;
+    min-width: 0;
   }
 
   .incoming-modal__actions {

@@ -109,6 +109,104 @@ function normalizePhone(value) {
   return digits;
 }
 
+function parseIncomingDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const [year, month, day] = String(value)
+    .split("-")
+    .map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const parsed = new Date(
+    year,
+    month - 1,
+    day
+  );
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function startOfLocalDay(date) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  );
+}
+
+function resolveRespondedAt(incomingDate) {
+  const now = new Date();
+
+  if (
+    incomingDate == null ||
+    incomingDate === ""
+  ) {
+    return {
+      respondedAt: now.toISOString(),
+      error: null,
+    };
+  }
+
+  const parsed = parseIncomingDate(
+    incomingDate
+  );
+
+  if (!parsed) {
+    return {
+      respondedAt: null,
+      error: createServiceError(
+        "Укажите корректную дату входящего сообщения"
+      ),
+    };
+  }
+
+  const selectedStart =
+    startOfLocalDay(parsed);
+  const todayStart =
+    startOfLocalDay(now);
+
+  if (
+    selectedStart.getTime() >
+    todayStart.getTime()
+  ) {
+    return {
+      respondedAt: null,
+      error: createServiceError(
+        "Дата входящего не может быть в будущем"
+      ),
+    };
+  }
+
+  const respondedAt = new Date(
+    parsed.getFullYear(),
+    parsed.getMonth(),
+    parsed.getDate(),
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    now.getMilliseconds()
+  );
+
+  return {
+    respondedAt:
+      respondedAt.toISOString(),
+    error: null,
+  };
+}
+
 function normalizeIdentifier(value) {
   const raw = String(value || "").trim();
 
@@ -466,6 +564,7 @@ async function createExternalContact({
   normalizedTelegram = "",
   normalizedPhone = "",
   managerId,
+  respondedAt = null,
 }) {
   if (!managerId) {
     return {
@@ -477,6 +576,7 @@ async function createExternalContact({
   }
 
   const now = new Date().toISOString();
+  const incomingAt = respondedAt || now;
 
   const { data, error } = await supabase
     .from("mailing_contacts")
@@ -502,7 +602,7 @@ async function createExternalContact({
 
       is_external: true,
 
-      responded_at: now,
+      responded_at: incomingAt,
 
       sent_at: null,
 
@@ -544,6 +644,7 @@ async function registerSingleResponse({
   telegram = "",
   phone = "",
   managerId,
+  respondedAt = null,
 }) {
   const normalizedTelegram =
     normalizeTelegramUsername(telegram);
@@ -644,6 +745,8 @@ async function registerSingleResponse({
 
     const now =
       new Date().toISOString();
+    const incomingAt =
+      respondedAt || now;
 
     const {
       data: updatedContact,
@@ -652,7 +755,8 @@ async function registerSingleResponse({
       .from("mailing_contacts")
       .update({
         responded_at:
-          contact.responded_at || now,
+          contact.responded_at ||
+          incomingAt,
 
         manager_id: managerId,
 
@@ -713,6 +817,8 @@ async function registerSingleResponse({
     ) {
       const now =
         new Date().toISOString();
+      const incomingAt =
+        respondedAt || now;
 
       const {
         data: updatedOwnedContact,
@@ -720,7 +826,7 @@ async function registerSingleResponse({
       } = await supabase
         .from("mailing_contacts")
         .update({
-          responded_at: now,
+          responded_at: incomingAt,
           status:
             ownedContact.status ===
             "application"
@@ -836,6 +942,7 @@ async function registerSingleResponse({
     normalizedTelegram,
     normalizedPhone,
     managerId,
+    respondedAt,
   });
 
   if (createError) {
@@ -945,17 +1052,30 @@ export const incomingResponseService = {
     telegram = "",
     phone = "",
     managerId = null,
+    incomingDate = null,
   } = {}) {
+    const resolved =
+      resolveRespondedAt(incomingDate);
+
+    if (resolved.error) {
+      return {
+        data: null,
+        error: resolved.error,
+      };
+    }
+
     return registerSingleResponse({
       telegram,
       phone,
       managerId,
+      respondedAt: resolved.respondedAt,
     });
   },
 
   async registerResponses({
     value = "",
     managerId = null,
+    incomingDate = null,
   } = {}) {
     if (!managerId) {
       return {
@@ -963,6 +1083,16 @@ export const incomingResponseService = {
         error: createServiceError(
           "Не удалось определить текущего менеджера"
         ),
+      };
+    }
+
+    const resolved =
+      resolveRespondedAt(incomingDate);
+
+    if (resolved.error) {
+      return {
+        data: null,
+        error: resolved.error,
       };
     }
 
@@ -1003,6 +1133,8 @@ export const incomingResponseService = {
               : "",
 
           managerId,
+          respondedAt:
+            resolved.respondedAt,
         });
 
         if (error) {

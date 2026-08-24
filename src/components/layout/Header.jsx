@@ -17,6 +17,7 @@ import {
   ChartNoAxesCombined,
   CheckCheck,
   FileText,
+  Inbox,
   LogOut,
   Menu,
   PackageSearch,
@@ -52,6 +53,12 @@ const navigation = [
   icon: Send,
   path: "/incoming",
   roles: ["manager"],
+},
+{
+  title: "Все написавшие",
+  icon: Inbox,
+  path: "/writers",
+  roles: ["admin", "head", "manager"],
 },
 {
  

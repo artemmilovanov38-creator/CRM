@@ -74,7 +74,7 @@ export default function MobileMenu({
 
             return (
               <NavLink
-                key={item.path}
+                key={`${item.path}-${item.title}`}
                 to={item.path}
                 onClick={onClose}
                 className={({ isActive }) =>
