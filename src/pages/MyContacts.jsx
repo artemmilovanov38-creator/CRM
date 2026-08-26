@@ -24,6 +24,7 @@ import { applicationService } from "../services/applicationService";
 import mailingContactService from "../services/mailingContactService";
 import { productService } from "../services/productService";
 import { matchesSearch } from "../utils/searchMatch";
+import { useSearchParams } from "react-router-dom";
 
 import "../styles/MyContacts.css";
 
@@ -48,6 +49,8 @@ const applicationStatusConfig = {
 };
 
 export default function MyContacts() {
+  const [searchParams] = useSearchParams();
+
   const [contacts, setContacts] =
     useState([]);
 
@@ -63,7 +66,7 @@ export default function MyContacts() {
   ] = useState(null);
 
   const [searchValue, setSearchValue] =
-    useState("");
+    useState(searchParams.get("q") || "");
 
   const [statusFilter, setStatusFilter] =
     useState("all");
@@ -151,6 +154,14 @@ export default function MyContacts() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const queryFromUrl = searchParams.get("q");
+
+    if (queryFromUrl) {
+      setSearchValue(queryFromUrl);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const query = searchValue.trim();

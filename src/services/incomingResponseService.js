@@ -91,7 +91,7 @@ function mapWriteError(error) {
     combined.includes("mailing_id")
   ) {
     return createServiceError(
-      "Не удалось создать внешний входящий: mailing_id не может быть пустым. Примените миграцию схемы."
+      "Контакт не сохранился: в Supabase не применена миграция 014 (mailing_id ещё обязательный). Откройте SQL Editor и выполните supabase/migrations/014_create_incoming_external_contact.sql"
     );
   }
 
@@ -112,7 +112,9 @@ function isMissingRpc(error) {
   return (
     error?.code === "42883" ||
     error?.code === "PGRST202" ||
-    message.includes("find_incoming_contact_ids")
+    message.includes("find_incoming_contact_ids") ||
+    message.includes("create_incoming_external_contact") ||
+    message.includes("schema cache")
   );
 }
 
@@ -825,6 +827,55 @@ async function findOwnedContact({
   };
 }
 
+async function fetchContactById(contactId) {
+  if (!contactId) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select(CONTACT_FIELDS_PLAIN)
+    .eq("id", contactId)
+    .maybeSingle();
+
+  if (!error) {
+    return {
+      data: data || null,
+      error: null,
+    };
+  }
+
+  const fallback = await supabase
+    .from("mailing_contacts")
+    .select(
+      "id, mailing_id, full_name, phone, email, telegram_username, manager_id, status, responded_at, created_at, updated_at"
+    )
+    .eq("id", contactId)
+    .maybeSingle();
+
+  return {
+    data: fallback.data || null,
+    error: fallback.error || error,
+  };
+}
+
+function isUnknownColumnError(error) {
+  const combined = `${error?.code || ""} ${
+    error?.message || ""
+  } ${error?.details || ""}`.toLowerCase();
+
+  return (
+    combined.includes("pgrst204") ||
+    combined.includes("schema cache") ||
+    combined.includes("could not find") ||
+    (combined.includes("column") &&
+      combined.includes("source"))
+  );
+}
+
 async function createExternalContact({
   normalizedTelegram = "",
   normalizedPhone = "",
@@ -843,45 +894,92 @@ async function createExternalContact({
   const now = new Date().toISOString();
   const incomingAt = respondedAt;
 
+  const rpcResult = await supabase.rpc(
+    "create_incoming_external_contact",
+    {
+      p_telegram: normalizedTelegram || null,
+      p_phone: normalizedPhone || null,
+      p_responded_at: incomingAt,
+    }
+  );
+
+  if (!rpcResult.error && rpcResult.data) {
+    const saved = await fetchContactById(
+      rpcResult.data
+    );
+
+    if (saved.data) {
+      const createdAtMs = saved.data.created_at
+        ? new Date(saved.data.created_at).getTime()
+        : 0;
+
+      return {
+        data: saved.data,
+        error: null,
+        alreadyExists: createdAtMs < Date.now() - 15000,
+      };
+    }
+
+    return {
+      data: null,
+      error: createServiceError(
+        "Контакт записан, но не читается в «Мои контакты». Выполните миграцию 014 в Supabase SQL Editor."
+      ),
+      alreadyExists: false,
+    };
+  }
+
+  if (rpcResult.error && !isMissingRpc(rpcResult.error)) {
+    return {
+      data: null,
+      error: mapWriteError(rpcResult.error),
+      alreadyExists: false,
+    };
+  }
+
   const insertPayload = {
     mailing_id: null,
-
     full_name:
       normalizedTelegram ||
       normalizedPhone ||
       "Новый входящий",
-
-    phone:
-      normalizedPhone || null,
-
-    telegram_username:
-      normalizedTelegram || null,
-
+    phone: normalizedPhone || null,
+    telegram_username: normalizedTelegram || null,
     manager_id: managerId,
-
     status: "responded",
-
     source: "external",
-
     is_external: true,
-
     responded_at: incomingAt,
-
     sent_at: null,
-
     application_created_at: null,
-
-    comment:
-      "Входящий контакт вне рассылки",
-
+    comment: "Входящий контакт вне рассылки",
     updated_at: now,
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("mailing_contacts")
     .insert(insertPayload)
     .select(CONTACT_FIELDS_PLAIN)
     .maybeSingle();
+
+  if (error && isUnknownColumnError(error)) {
+    const {
+      source,
+      is_external,
+      ...legacyPayload
+    } = insertPayload;
+
+    const legacy = await supabase
+      .from("mailing_contacts")
+      .insert(legacyPayload)
+      .select(
+        "id, mailing_id, full_name, phone, email, telegram_username, manager_id, status, responded_at, created_at, updated_at"
+      )
+      .maybeSingle();
+
+    data = legacy.data;
+    error = legacy.error;
+  }
 
   if (error?.code === "23505") {
     const existingResult =
@@ -919,8 +1017,20 @@ async function createExternalContact({
     };
   }
 
+  const readable = await fetchContactById(data.id);
+
+  if (!readable.data) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Контакт не появился в «Мои контакты» сразу после сохранения. Выполните миграцию 014 в Supabase SQL Editor."
+      ),
+      alreadyExists: false,
+    };
+  }
+
   return {
-    data,
+    data: readable.data,
     error: null,
     alreadyExists: false,
   };
@@ -1042,31 +1152,42 @@ async function registerSingleResponse({
       new Date().toISOString();
     const incomingAt = respondedAt;
 
-    const {
+    const updatePayload = {
+      responded_at:
+        contact.responded_at ||
+        incomingAt,
+      manager_id: managerId,
+      status: "responded",
+      updated_at: now,
+    };
+
+    let {
       data: updatedContact,
       error: updateError,
     } = await supabase
       .from("mailing_contacts")
       .update({
-        responded_at:
-          contact.responded_at ||
-          incomingAt,
-
-        manager_id: managerId,
-
-        status: "responded",
-
-        source:
-          contact.source || "mailing",
-
+        ...updatePayload,
+        source: contact.source || "mailing",
         is_external: false,
-
-        updated_at: now,
       })
       .eq("id", contact.id)
-      .eq("manager_id", managerId)
       .select(CONTACT_FIELDS_PLAIN)
       .maybeSingle();
+
+    if (updateError && isUnknownColumnError(updateError)) {
+      const retry = await supabase
+        .from("mailing_contacts")
+        .update(updatePayload)
+        .eq("id", contact.id)
+        .select(
+          "id, mailing_id, full_name, phone, telegram_username, manager_id, status, responded_at"
+        )
+        .maybeSingle();
+
+      updatedContact = retry.data;
+      updateError = retry.error;
+    }
 
     if (updateError) {
       return {
@@ -1075,36 +1196,21 @@ async function registerSingleResponse({
       };
     }
 
-    if (!updatedContact) {
+    if (updatedContact) {
       return {
         data: {
           identifier,
           matched: true,
           foundInMailing: true,
           createdExternal: false,
-          alreadyResponded: Boolean(
-            contact.responded_at
-          ),
+          alreadyResponded:
+            Boolean(contact.responded_at),
           conflict: false,
-          contact,
+          contact: updatedContact,
         },
         error: null,
       };
     }
-
-    return {
-      data: {
-        identifier,
-        matched: true,
-        foundInMailing: true,
-        createdExternal: false,
-        alreadyResponded:
-          Boolean(contact.responded_at),
-        conflict: false,
-        contact: updatedContact,
-      },
-      error: null,
-    };
   }
 
   const {

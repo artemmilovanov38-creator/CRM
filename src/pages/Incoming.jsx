@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   AlertTriangle,
@@ -55,6 +56,7 @@ import { matchesSearch } from "../utils/searchMatch";
 import "../styles/Incoming.css";
 
 export default function Incoming() {
+  const navigate = useNavigate();
   const { profile, user } = useAuth();
 
   const currentProfile =
@@ -546,6 +548,41 @@ export default function Incoming() {
     setResult(
       registerResult.data
     );
+
+    const summary =
+      registerResult.data?.summary || {};
+    const failedItems =
+      registerResult.data?.failed || [];
+
+    if (
+      (summary.successful || 0) === 0 &&
+      failedItems.length > 0
+    ) {
+      setFormError(
+        failedItems[0]?.error ||
+          "Контакт не сохранился. Он не появится в «Мои контакты», пока ошибка не будет исправлена."
+      );
+      setSaving(false);
+      return;
+    }
+
+    const savedItems = [
+      ...(registerResult.data?.createdExternal || []),
+      ...(registerResult.data?.found || []),
+      ...(registerResult.data?.alreadyResponded || []),
+    ];
+
+    if (savedItems.length === 1) {
+      const query =
+        savedItems[0]?.identifier ||
+        "";
+
+      setSaving(false);
+      navigate(
+        `/my-contacts?q=${encodeURIComponent(query)}`
+      );
+      return;
+    }
 
     const today = formatDateInput(
       new Date()
@@ -1746,16 +1783,23 @@ function BulkResult({
         ?.length || 0
     ) > 0;
 
+  const nothingSaved =
+    (summary.successful || 0) === 0;
+
   return (
     <div className="incoming-bulk-result">
       <div className="incoming-bulk-result__heading">
-        <CheckCircle2
-          size={20}
-        />
+        {nothingSaved ? (
+          <XCircle size={20} />
+        ) : (
+          <CheckCircle2 size={20} />
+        )}
 
         <div>
           <strong>
-            Обработка завершена
+            {nothingSaved
+              ? "Контакт не добавлен"
+              : "Обработка завершена"}
           </strong>
 
           <span>
