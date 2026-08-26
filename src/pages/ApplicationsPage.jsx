@@ -163,6 +163,7 @@ export default function ApplicationsPage() {
 
       setError("");
 
+      try {
       const [
         applicationsResult,
         managersResult,
@@ -171,7 +172,9 @@ export default function ApplicationsPage() {
         applicationService.getApplications({
           dateFrom: periodRange.from,
           dateTo: periodRange.to,
-          managerId: managerIdForQuery,
+          managerId: isManager
+            ? user?.id
+            : managerIdForQuery,
         }),
         profileService.getManagers(),
         analyticsService.getApplicationStats({
@@ -212,13 +215,15 @@ export default function ApplicationsPage() {
       setApplications(
         (
           applicationsResult.data || []
-        ).map((application) => ({
+        )
+          .filter(Boolean)
+          .map((application) => ({
           ...application,
 
           status:
             application.status === "waiting"
               ? "new"
-              : application.status,
+              : application.status || "new",
         }))
       );
 
@@ -262,9 +267,21 @@ export default function ApplicationsPage() {
       } else {
         setManagerAnalytics([]);
       }
+      } catch (loadError) {
+        console.error(
+          "Ошибка загрузки заявок:",
+          loadError
+        );
 
-      if (showLoader) {
-        setIsLoading(false);
+        setError(
+          loadError?.message ||
+            "Не удалось загрузить заявки"
+        );
+        setApplications([]);
+      } finally {
+        if (showLoader) {
+          setIsLoading(false);
+        }
       }
     },
     [
@@ -1376,8 +1393,12 @@ function ApplicationMobileCard({
           <span>Статус</span>
 
           <select
-            className={`application-mobile-select application-mobile-select--${application.status}`}
-            value={application.status}
+            className={`application-mobile-select application-mobile-select--${getSelectStatus(
+              application.status
+            )}`}
+            value={getSelectStatus(
+              application.status
+            )}
             onChange={(event) =>
               onStatusChange(
                 application.id,
@@ -1418,7 +1439,10 @@ function ApplicationMobileCard({
               Не назначен
             </option>
 
-            {managers.map(
+            {getManagerOptions(
+              managers,
+              application.assigned_manager_id
+            ).map(
               (manager) => (
                 <option
                   key={manager.id}
@@ -1655,7 +1679,10 @@ function ApplicationsKanban({
                               Не назначен
                             </option>
 
-                            {managers.map(
+                            {getManagerOptions(
+                              managers,
+                              application.assigned_manager_id
+                            ).map(
                               (manager) => (
                                 <option
                                   key={manager.id}
@@ -1806,7 +1833,10 @@ function ApplicationsTable({
                       Не назначен
                     </option>
 
-                    {managers.map(
+                    {getManagerOptions(
+                      managers,
+                      application.assigned_manager_id
+                    ).map(
                       (manager) => (
                         <option
                           key={manager.id}
@@ -1823,9 +1853,13 @@ function ApplicationsTable({
 
                 <td>
                   <select
-                    className={`application-status-select application-status-select--${application.status}`}
-                    value={
+                    className={`application-status-select application-status-select--${getSelectStatus(
                       application.status
+                    )}`}
+                    value={
+                      getSelectStatus(
+                        application.status
+                      )
                     }
                     onClick={(event) =>
                       event.stopPropagation()
@@ -1925,6 +1959,42 @@ function getProductName(application) {
   );
 }
 
+function getManagerOptions(
+  managers,
+  currentManagerId
+) {
+  const options = Array.isArray(managers)
+    ? [...managers]
+    : [];
+
+  if (
+    currentManagerId &&
+    !options.some(
+      (manager) =>
+        manager.id === currentManagerId
+    )
+  ) {
+    options.push({
+      id: currentManagerId,
+      full_name: "Менеджер",
+    });
+  }
+
+  return options;
+}
+
+function getSelectStatus(status) {
+  if (
+    statusOptions.some(
+      (item) => item.value === status
+    )
+  ) {
+    return status;
+  }
+
+  return "new";
+}
+
 function getManagerName(manager) {
   return (
     manager?.full_name ||
@@ -1943,17 +2013,19 @@ function getStatusLabel(statusValue) {
 }
 
 function getInitials(fullName) {
-  if (!fullName) {
+  const name = String(fullName || "").trim();
+
+  if (!name) {
     return "К";
   }
 
-  return fullName
-    .trim()
+  return name
     .split(/\s+/)
+    .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0])
+    .map((part) => part[0] || "")
     .join("")
-    .toUpperCase();
+    .toUpperCase() || "К";
 }
 
 function formatMoney(value) {

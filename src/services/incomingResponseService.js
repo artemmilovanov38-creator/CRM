@@ -34,8 +34,86 @@ const CONTACT_FIELDS = `
   )
 `;
 
+const CONTACT_FIELDS_PLAIN = `
+  id,
+  mailing_id,
+  full_name,
+  phone,
+  email,
+  telegram_username,
+  manager_id,
+  status,
+  source,
+  is_external,
+  sent_at,
+  responded_at,
+  application_created_at,
+  comment,
+  created_at,
+  updated_at
+`;
+
 function createServiceError(message) {
   return new Error(message);
+}
+
+function mapWriteError(error) {
+  if (!error) {
+    return error;
+  }
+
+  const code = String(error.code || "");
+  const message = String(error.message || "");
+  const details = String(error.details || "");
+  const combined = `${message} ${details}`.toLowerCase();
+
+  if (
+    code === "42501" ||
+    combined.includes("row-level security") ||
+    combined.includes("violates row-level")
+  ) {
+    return createServiceError(
+      "Недостаточно прав, чтобы сохранить контакт. Проверьте, что в профиле роль «менеджер» и статус «Активен»."
+    );
+  }
+
+  if (
+    code === "23503" &&
+    combined.includes("manager_id")
+  ) {
+    return createServiceError(
+      "Профиль менеджера не найден. Обратитесь к администратору — запись в profiles должна совпадать с вашим аккаунтом."
+    );
+  }
+
+  if (
+    code === "23502" &&
+    combined.includes("mailing_id")
+  ) {
+    return createServiceError(
+      "Не удалось создать внешний входящий: mailing_id не может быть пустым. Примените миграцию схемы."
+    );
+  }
+
+  if (code === "23514") {
+    return createServiceError(
+      "Контакт не прошёл проверку статуса. Обновите страницу и попробуйте снова."
+    );
+  }
+
+  return error;
+}
+
+function isMissingRpc(error) {
+  const message = String(
+    error?.message || ""
+  ).toLowerCase();
+
+  return (
+    error?.code === "42883" ||
+    error?.code === "PGRST202" ||
+    message.includes("find_incoming_contact_ids")
+  );
 }
 
 const PAGE_SIZE = 1000;
@@ -155,8 +233,10 @@ function resolveRespondedAt(incomingDate) {
     incomingDate === ""
   ) {
     return {
-      respondedAt: now.toISOString(),
-      error: null,
+      respondedAt: null,
+      error: createServiceError(
+        "Укажите дату, когда эти люди написали"
+      ),
     };
   }
 
@@ -190,19 +270,88 @@ function resolveRespondedAt(incomingDate) {
     };
   }
 
+  // Полдень локального дня: календарная дата не съезжает
+  // из-за часового пояса при сохранении в timestamptz.
   const respondedAt = new Date(
     parsed.getFullYear(),
     parsed.getMonth(),
     parsed.getDate(),
-    now.getHours(),
-    now.getMinutes(),
-    now.getSeconds(),
-    now.getMilliseconds()
+    12,
+    0,
+    0,
+    0
   );
 
   return {
     respondedAt:
       respondedAt.toISOString(),
+    error: null,
+  };
+}
+
+async function getCurrentManagerId() {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user?.id) {
+    return {
+      managerId: null,
+      error:
+        userError ||
+        createServiceError(
+          "Не удалось определить текущего менеджера"
+        ),
+    };
+  }
+
+  const { data: profile, error } =
+    await supabase
+      .from("profiles")
+      .select("id, role, status")
+      .eq("id", user.id)
+      .maybeSingle();
+
+  // Если профиль не читается из-за RLS, всё равно пишем
+  // под auth.uid(). Политика INSERT проверяет роль через
+  // SECURITY DEFINER и не зависит от SELECT profiles.
+  if (error || !profile) {
+    return {
+      managerId: user.id,
+      error: null,
+    };
+  }
+
+  const role = String(profile.role || "")
+    .trim()
+    .toLowerCase();
+  const status = String(
+    profile.status || "active"
+  )
+    .trim()
+    .toLowerCase();
+
+  if (role && role !== "manager") {
+    return {
+      managerId: null,
+      error: createServiceError(
+        "Заносить написавших может только менеджер с ролью manager"
+      ),
+    };
+  }
+
+  if (status && status !== "active") {
+    return {
+      managerId: null,
+      error: createServiceError(
+        "Аккаунт менеджера неактивен. Обратитесь к администратору."
+      ),
+    };
+  }
+
+  return {
+    managerId: user.id,
     error: null,
   };
 }
@@ -324,7 +473,73 @@ function contactsMatchPhone(
   );
 }
 
-async function findMailingContactsByTelegram(
+async function fetchContactsByIds(ids) {
+  const uniqueIds = Array.from(
+    new Set((ids || []).filter(Boolean))
+  );
+
+  if (uniqueIds.length === 0) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select(CONTACT_FIELDS)
+    .in("id", uniqueIds);
+
+  if (error) {
+    const fallback = await supabase
+      .from("mailing_contacts")
+      .select(CONTACT_FIELDS_PLAIN)
+      .in("id", uniqueIds);
+
+    if (fallback.error) {
+      return {
+        data: [],
+        error,
+      };
+    }
+
+    return {
+      data: fallback.data || [],
+      error: null,
+    };
+  }
+
+  return {
+    data: data || [],
+    error: null,
+  };
+}
+
+async function findContactsByIdentifierRpc({
+  normalizedTelegram = "",
+  normalizedPhone = "",
+}) {
+  const { data, error } = await supabase.rpc(
+    "find_incoming_contact_ids",
+    {
+      p_telegram: normalizedTelegram || null,
+      p_phone: normalizedPhone || null,
+    }
+  );
+
+  if (error) {
+    return {
+      data: [],
+      error,
+    };
+  }
+
+  return fetchContactsByIds(
+    (data || []).map((row) => row.id)
+  );
+}
+
+async function findTelegramContactsFallback(
   normalizedTelegram
 ) {
   const withoutAt =
@@ -348,66 +563,169 @@ async function findMailingContactsByTelegram(
         "telegram_username",
         escapeLikeValue(value)
       )
-      .not("mailing_id", "is", null)
-      .order("created_at", {
-        ascending: false,
-      });
+      .limit(50);
 
     if (error) {
-      return {
-        data: [],
-        error,
-      };
+      const fallback = await supabase
+        .from("mailing_contacts")
+        .select(CONTACT_FIELDS_PLAIN)
+        .ilike(
+          "telegram_username",
+          escapeLikeValue(value)
+        )
+        .limit(50);
+
+      if (fallback.error) {
+        return {
+          data: [],
+          error,
+        };
+      }
+
+      for (const contact of fallback.data || []) {
+        contactsMap.set(contact.id, contact);
+      }
+
+      continue;
     }
 
     for (const contact of data || []) {
-      contactsMap.set(
-        contact.id,
-        contact
-      );
+      contactsMap.set(contact.id, contact);
     }
   }
 
-  const linkPattern =
-    `%t.me/${escapeLikeValue(withoutAt)}%`;
+  return {
+    data: Array.from(contactsMap.values()).filter(
+      (contact) =>
+        contactsMatchTelegram(
+          contact,
+          normalizedTelegram
+        )
+    ),
+    error: null,
+  };
+}
 
-  const {
-    data: linkData,
-    error: linkError,
-  } = await supabase
-    .from("mailing_contacts")
-    .select(CONTACT_FIELDS)
-    .ilike(
-      "telegram_username",
-      linkPattern
-    )
-    .not("mailing_id", "is", null)
-    .order("created_at", {
-      ascending: false,
-    });
+function phoneSearchVariants(normalizedPhone) {
+  const digits = String(normalizedPhone || "");
+  const variants = new Set([digits]);
 
-  if (linkError) {
-    return {
-      data: [],
-      error: linkError,
-    };
+  if (digits.startsWith("7") && digits.length === 11) {
+    variants.add(`+${digits}`);
+    variants.add(`8${digits.slice(1)}`);
+    variants.add(digits.slice(1));
   }
 
-  for (const contact of linkData || []) {
-    contactsMap.set(
-      contact.id,
-      contact
-    );
+  return Array.from(variants).filter(Boolean);
+}
+
+async function findPhoneContactsFallback(
+  normalizedPhone
+) {
+  const variants = phoneSearchVariants(
+    normalizedPhone
+  );
+  const contactsMap = new Map();
+
+  for (const value of variants) {
+    const { data, error } = await supabase
+      .from("mailing_contacts")
+      .select(CONTACT_FIELDS)
+      .eq("phone", value)
+      .limit(50);
+
+    if (error) {
+      const fallback = await supabase
+        .from("mailing_contacts")
+        .select(CONTACT_FIELDS_PLAIN)
+        .eq("phone", value)
+        .limit(50);
+
+      if (fallback.error) {
+        continue;
+      }
+
+      for (const contact of fallback.data || []) {
+        contactsMap.set(contact.id, contact);
+      }
+
+      continue;
+    }
+
+    for (const contact of data || []) {
+      contactsMap.set(contact.id, contact);
+    }
   }
 
   return {
-    data: Array.from(
-      contactsMap.values()
-    ).filter((contact) =>
-      contactsMatchTelegram(
-        contact,
+    data: Array.from(contactsMap.values()).filter(
+      (contact) =>
+        contactsMatchPhone(contact, normalizedPhone)
+    ),
+    error: null,
+  };
+}
+
+async function findContactsByIdentifier({
+  normalizedTelegram = "",
+  normalizedPhone = "",
+}) {
+  if (!normalizedTelegram && !normalizedPhone) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
+
+  const rpcResult = await findContactsByIdentifierRpc({
+    normalizedTelegram,
+    normalizedPhone,
+  });
+
+  if (!rpcResult.error) {
+    return {
+      data: (rpcResult.data || []).filter((contact) =>
         normalizedTelegram
-      )
+          ? contactsMatchTelegram(
+              contact,
+              normalizedTelegram
+            )
+          : contactsMatchPhone(
+              contact,
+              normalizedPhone
+            )
+      ),
+      error: null,
+    };
+  }
+
+  if (!isMissingRpc(rpcResult.error)) {
+    return rpcResult;
+  }
+
+  if (normalizedTelegram) {
+    return findTelegramContactsFallback(
+      normalizedTelegram
+    );
+  }
+
+  return findPhoneContactsFallback(normalizedPhone);
+}
+
+async function findMailingContactsByTelegram(
+  normalizedTelegram
+) {
+  const result = await findContactsByIdentifier({
+    normalizedTelegram,
+  });
+
+  if (result.error) {
+    return result;
+  }
+
+  return {
+    data: (result.data || []).filter(
+      (contact) => contact.mailing_id
     ),
     error: null,
   };
@@ -416,29 +734,17 @@ async function findMailingContactsByTelegram(
 async function findMailingContactsByPhone(
   normalizedPhone
 ) {
-  const { data, error } = await supabase
-    .from("mailing_contacts")
-    .select(CONTACT_FIELDS)
-    .not("phone", "is", null)
-    .not("mailing_id", "is", null)
-    .order("created_at", {
-      ascending: false,
-    });
+  const result = await findContactsByIdentifier({
+    normalizedPhone,
+  });
 
-  if (error) {
-    return {
-      data: [],
-      error,
-    };
+  if (result.error) {
+    return result;
   }
 
   return {
-    data: (data || []).filter(
-      (contact) =>
-        contactsMatchPhone(
-          contact,
-          normalizedPhone
-        )
+    data: (result.data || []).filter(
+      (contact) => contact.mailing_id
     ),
     error: null,
   };
@@ -448,56 +754,27 @@ async function findExternalContact({
   normalizedTelegram = "",
   normalizedPhone = "",
 }) {
-  const { data, error } = await supabase
-    .from("mailing_contacts")
-    .select(CONTACT_FIELDS)
-    .is("mailing_id", null)
-    .eq("is_external", true)
-    .order("created_at", {
-      ascending: false,
-    });
+  const result = await findContactsByIdentifier({
+    normalizedTelegram,
+    normalizedPhone,
+  });
 
-  if (error) {
+  if (result.error) {
     return {
       data: null,
-      error,
+      error: result.error,
     };
   }
 
-  const contacts = data || [];
-
-  if (normalizedTelegram) {
-    return {
-      data:
-        contacts.find(
-          (contact) =>
-            contactsMatchTelegram(
-              contact,
-              normalizedTelegram
-            )
-        ) || null,
-
-      error: null,
-    };
-  }
-
-  if (normalizedPhone) {
-    return {
-      data:
-        contacts.find(
-          (contact) =>
-            contactsMatchPhone(
-              contact,
-              normalizedPhone
-            )
-        ) || null,
-
-      error: null,
-    };
-  }
+  const contact = (result.data || []).find(
+    (item) =>
+      item.is_external ||
+      item.source === "external" ||
+      !item.mailing_id
+  );
 
   return {
-    data: null,
+    data: contact || null,
     error: null,
   };
 }
@@ -526,32 +803,20 @@ async function findOwnedContact({
     };
   }
 
-  const { data, error } = await supabase
-    .from("mailing_contacts")
-    .select(CONTACT_FIELDS)
-    .eq("manager_id", managerId)
-    .order("created_at", {
-      ascending: false,
-    });
+  const result = await findContactsByIdentifier({
+    normalizedTelegram,
+    normalizedPhone,
+  });
 
-  if (error) {
+  if (result.error) {
     return {
       data: null,
-      error,
+      error: result.error,
     };
   }
 
-  const contact = (data || []).find(
-    (item) =>
-      normalizedTelegram
-        ? contactsMatchTelegram(
-            item,
-            normalizedTelegram
-          )
-        : contactsMatchPhone(
-            item,
-            normalizedPhone
-          )
+  const contact = (result.data || []).find(
+    (item) => item.manager_id === managerId
   );
 
   return {
@@ -576,45 +841,47 @@ async function createExternalContact({
   }
 
   const now = new Date().toISOString();
-  const incomingAt = respondedAt || now;
+  const incomingAt = respondedAt;
+
+  const insertPayload = {
+    mailing_id: null,
+
+    full_name:
+      normalizedTelegram ||
+      normalizedPhone ||
+      "Новый входящий",
+
+    phone:
+      normalizedPhone || null,
+
+    telegram_username:
+      normalizedTelegram || null,
+
+    manager_id: managerId,
+
+    status: "responded",
+
+    source: "external",
+
+    is_external: true,
+
+    responded_at: incomingAt,
+
+    sent_at: null,
+
+    application_created_at: null,
+
+    comment:
+      "Входящий контакт вне рассылки",
+
+    updated_at: now,
+  };
 
   const { data, error } = await supabase
     .from("mailing_contacts")
-    .insert({
-      mailing_id: null,
-
-      full_name:
-        normalizedTelegram ||
-        normalizedPhone ||
-        "Новый входящий",
-
-      phone:
-        normalizedPhone || null,
-
-      telegram_username:
-        normalizedTelegram || null,
-
-      manager_id: managerId,
-
-      status: "responded",
-
-      source: "external",
-
-      is_external: true,
-
-      responded_at: incomingAt,
-
-      sent_at: null,
-
-      application_created_at: null,
-
-      comment:
-        "Входящий контакт вне рассылки",
-
-      updated_at: now,
-    })
-    .select(CONTACT_FIELDS)
-    .single();
+    .insert(insertPayload)
+    .select(CONTACT_FIELDS_PLAIN)
+    .maybeSingle();
 
   if (error?.code === "23505") {
     const existingResult =
@@ -633,9 +900,28 @@ async function createExternalContact({
     }
   }
 
+  if (error) {
+    return {
+      data: null,
+      error: mapWriteError(error),
+      alreadyExists: false,
+    };
+  }
+
+  if (!data) {
+    return {
+      data: null,
+      error: mapWriteError({
+        code: "42501",
+        message: "row-level security",
+      }),
+      alreadyExists: false,
+    };
+  }
+
   return {
     data,
-    error,
+    error: null,
     alreadyExists: false,
   };
 }
@@ -669,6 +955,15 @@ async function registerSingleResponse({
       data: null,
       error: createServiceError(
         "Не удалось определить текущего менеджера"
+      ),
+    };
+  }
+
+  if (!respondedAt) {
+    return {
+      data: null,
+      error: createServiceError(
+        "Укажите дату, когда эти люди написали"
       ),
     };
   }
@@ -745,8 +1040,7 @@ async function registerSingleResponse({
 
     const now =
       new Date().toISOString();
-    const incomingAt =
-      respondedAt || now;
+    const incomingAt = respondedAt;
 
     const {
       data: updatedContact,
@@ -770,13 +1064,31 @@ async function registerSingleResponse({
         updated_at: now,
       })
       .eq("id", contact.id)
-      .select(CONTACT_FIELDS)
-      .single();
+      .eq("manager_id", managerId)
+      .select(CONTACT_FIELDS_PLAIN)
+      .maybeSingle();
 
     if (updateError) {
       return {
         data: null,
-        error: updateError,
+        error: mapWriteError(updateError),
+      };
+    }
+
+    if (!updatedContact) {
+      return {
+        data: {
+          identifier,
+          matched: true,
+          foundInMailing: true,
+          createdExternal: false,
+          alreadyResponded: Boolean(
+            contact.responded_at
+          ),
+          conflict: false,
+          contact,
+        },
+        error: null,
       };
     }
 
@@ -817,8 +1129,7 @@ async function registerSingleResponse({
     ) {
       const now =
         new Date().toISOString();
-      const incomingAt =
-        respondedAt || now;
+      const incomingAt = respondedAt;
 
       const {
         data: updatedOwnedContact,
@@ -835,13 +1146,36 @@ async function registerSingleResponse({
           updated_at: now,
         })
         .eq("id", ownedContact.id)
-        .select(CONTACT_FIELDS)
-        .single();
+        .eq("manager_id", managerId)
+        .is("responded_at", null)
+        .select(CONTACT_FIELDS_PLAIN)
+        .maybeSingle();
 
       if (ownedUpdateError) {
         return {
           data: null,
-          error: ownedUpdateError,
+          error: mapWriteError(
+            ownedUpdateError
+          ),
+        };
+      }
+
+      if (!updatedOwnedContact) {
+        return {
+          data: {
+            identifier,
+            matched: Boolean(
+              ownedContact.mailing_id
+            ),
+            foundInMailing: Boolean(
+              ownedContact.mailing_id
+            ),
+            createdExternal: false,
+            alreadyResponded: true,
+            conflict: false,
+            contact: ownedContact,
+          },
+          error: null,
         };
       }
 
@@ -854,11 +1188,11 @@ async function registerSingleResponse({
           foundInMailing: Boolean(
             updatedOwnedContact?.mailing_id
           ),
-          createdExternal: false,
-          alreadyResponded: true,
-          conflict: false,
-          contact:
-            updatedOwnedContact,
+            createdExternal: false,
+            alreadyResponded: false,
+            conflict: false,
+            contact:
+              updatedOwnedContact,
         },
         error: null,
       };
@@ -1014,10 +1348,10 @@ export const incomingResponseService = {
     dateFrom = null,
     dateTo = null,
   } = {}) {
-    return fetchAllPages(() => {
+    const buildQuery = (fields) => () => {
       let query = supabase
         .from("mailing_contacts")
-        .select(CONTACT_FIELDS)
+        .select(fields)
         .not("responded_at", "is", null)
         .order("responded_at", {
           ascending: false,
@@ -1045,7 +1379,19 @@ export const incomingResponseService = {
       }
 
       return query;
-    });
+    };
+
+    const withEmbeds = await fetchAllPages(
+      buildQuery(CONTACT_FIELDS)
+    );
+
+    if (!withEmbeds.error) {
+      return withEmbeds;
+    }
+
+    return fetchAllPages(
+      buildQuery(CONTACT_FIELDS_PLAIN)
+    );
   },
 
   async registerResponse({
@@ -1054,6 +1400,15 @@ export const incomingResponseService = {
     managerId = null,
     incomingDate = null,
   } = {}) {
+    const actor = await getCurrentManagerId();
+
+    if (actor.error) {
+      return {
+        data: null,
+        error: actor.error,
+      };
+    }
+
     const resolved =
       resolveRespondedAt(incomingDate);
 
@@ -1067,7 +1422,7 @@ export const incomingResponseService = {
     return registerSingleResponse({
       telegram,
       phone,
-      managerId,
+      managerId: actor.managerId || managerId,
       respondedAt: resolved.respondedAt,
     });
   },
@@ -1077,7 +1432,19 @@ export const incomingResponseService = {
     managerId = null,
     incomingDate = null,
   } = {}) {
-    if (!managerId) {
+    const actor = await getCurrentManagerId();
+
+    if (actor.error) {
+      return {
+        data: null,
+        error: actor.error,
+      };
+    }
+
+    const resolvedManagerId =
+      actor.managerId || managerId;
+
+    if (!resolvedManagerId) {
       return {
         data: null,
         error: createServiceError(
@@ -1132,7 +1499,7 @@ export const incomingResponseService = {
               ? identifier.phone
               : "",
 
-          managerId,
+          managerId: resolvedManagerId,
           respondedAt:
             resolved.respondedAt,
         });
@@ -1191,6 +1558,24 @@ export const incomingResponseService = {
           });
 
           continue;
+        }
+
+        if (data?.contact) {
+          if (data.contact.mailing_id) {
+            found.push({
+              identifier:
+                data.identifier,
+              contact:
+                data.contact,
+            });
+          } else {
+            createdExternal.push({
+              identifier:
+                data.identifier,
+              contact:
+                data.contact,
+            });
+          }
         }
       } catch (error) {
         failed.push({

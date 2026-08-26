@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 
-const APPLICATION_FIELDS = `
+const APPLICATION_COLUMNS = `
   id,
   full_name,
   phone,
@@ -21,38 +21,31 @@ const APPLICATION_FIELDS = `
   opened_at,
   rejected_at,
   created_at,
-  updated_at,
-
-  product_data:products (
-    id,
-    name,
-    opening_price,
-    is_active
-  ),
-
-  mailing_contact:mailing_contacts (
-    id,
-    mailing_id,
-    full_name,
-    phone,
-    email,
-    telegram_username,
-    manager_id,
-    status,
-    sent_at,
-    responded_at,
-    application_created_at
-  ),
-
-  assigned_manager:profiles!applications_assigned_manager_id_fkey (
-    id,
-    full_name,
-    email,
-    role,
-    status,
-    avatar
-  )
+  updated_at
 `;
+
+const PRODUCT_LOOKUP_FIELDS =
+  "id, name, opening_price, is_active";
+
+const PROFILE_LOOKUP_FIELDS =
+  "id, full_name, email, role, status, avatar";
+
+const CONTACT_LOOKUP_FIELDS = `
+  id,
+  mailing_id,
+  full_name,
+  phone,
+  email,
+  telegram_username,
+  manager_id,
+  status,
+  sent_at,
+  responded_at,
+  application_created_at
+`;
+
+const APPLICATION_PAGE_SIZE = 200;
+const LOOKUP_CHUNK_SIZE = 200;
 
 const ALLOWED_APPLICATION_STATUSES = [
   "new",
@@ -137,6 +130,12 @@ function isPrivilegedRole(role) {
   return PRIVILEGED_ROLES.includes(role);
 }
 
+function normalizeActorRole(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
 async function getCurrentActor() {
   const {
     data: { user },
@@ -155,26 +154,50 @@ async function getCurrentActor() {
     };
   }
 
-  const { data: profile, error } =
+  const { data: profile } =
     await supabase
       .from("profiles")
       .select("id, role, status")
       .eq("id", user.id)
       .maybeSingle();
 
-  if (error) {
-    return {
-      user,
-      profile: null,
-      error,
-    };
-  }
+  /*
+   * Владелец заявки — assigned_manager_id.
+   * Если RLS скрыл строку profiles, всё равно
+   * фильтруем по auth.uid(), иначе вкладка
+   * «Заявки» не открывается только у тех
+   * менеджеров, чей профиль не читается.
+   */
+  const resolvedProfile = profile
+    ? {
+        ...profile,
+        role: normalizeActorRole(
+          profile.role
+        ) || "manager",
+        status:
+          normalizeActorRole(
+            profile.status
+          ) || "active",
+      }
+    : {
+        id: user.id,
+        role: "manager",
+        status: "active",
+      };
 
   return {
     user,
-    profile,
+    profile: resolvedProfile,
     error: null,
   };
+}
+
+function getActorOwnerId(actor) {
+  return (
+    actor?.profile?.id ||
+    actor?.user?.id ||
+    null
+  );
 }
 
 function applyManagerScope(
@@ -183,16 +206,161 @@ function applyManagerScope(
   field = "assigned_manager_id"
 ) {
   if (
-    actor?.profile &&
-    !isPrivilegedRole(actor.profile.role)
+    isPrivilegedRole(
+      actor?.profile?.role
+    )
   ) {
-    return query.eq(
-      field,
-      actor.profile.id
-    );
+    return query;
   }
 
-  return query;
+  const ownerId = getActorOwnerId(actor);
+
+  if (!ownerId) {
+    return query;
+  }
+
+  return query.eq(field, ownerId);
+}
+
+function uniqueIds(values) {
+  return Array.from(
+    new Set(
+      (values || []).filter(
+        (value) =>
+          value !== null &&
+          value !== undefined &&
+          value !== ""
+      )
+    )
+  );
+}
+
+async function fetchRowsByIds(
+  table,
+  columns,
+  ids
+) {
+  const rows = [];
+  const list = uniqueIds(ids);
+
+  for (
+    let index = 0;
+    index < list.length;
+    index += LOOKUP_CHUNK_SIZE
+  ) {
+    const chunk = list.slice(
+      index,
+      index + LOOKUP_CHUNK_SIZE
+    );
+
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .in("id", chunk);
+
+    if (error) {
+      console.error(
+        `Не удалось загрузить связанные ${table}:`,
+        error
+      );
+      break;
+    }
+
+    rows.push(...(data || []));
+  }
+
+  return rows;
+}
+
+function normalizeApplicationStatus(status) {
+  if (status === "waiting") {
+    return "new";
+  }
+
+  if (
+    ALLOWED_APPLICATION_STATUSES.includes(
+      status
+    )
+  ) {
+    return status;
+  }
+
+  return status || "new";
+}
+
+async function hydrateApplications(rows) {
+  const list = Array.isArray(rows)
+    ? rows.filter(Boolean)
+    : [];
+
+  if (list.length === 0) {
+    return [];
+  }
+
+  const [
+    products,
+    managers,
+    contacts,
+  ] = await Promise.all([
+    fetchRowsByIds(
+      "products",
+      PRODUCT_LOOKUP_FIELDS,
+      list.map((row) => row.product_id)
+    ),
+    fetchRowsByIds(
+      "profiles",
+      PROFILE_LOOKUP_FIELDS,
+      list.map(
+        (row) => row.assigned_manager_id
+      )
+    ),
+    fetchRowsByIds(
+      "mailing_contacts",
+      CONTACT_LOOKUP_FIELDS,
+      list.map(
+        (row) => row.mailing_contact_id
+      )
+    ),
+  ]);
+
+  const productsById = new Map(
+    products.map((item) => [item.id, item])
+  );
+  const managersById = new Map(
+    managers.map((item) => [item.id, item])
+  );
+  const contactsById = new Map(
+    contacts.map((item) => [item.id, item])
+  );
+
+  return list.map((row) => ({
+    ...row,
+    status: normalizeApplicationStatus(
+      row.status
+    ),
+    product_data:
+      productsById.get(row.product_id) ||
+      null,
+    assigned_manager:
+      managersById.get(
+        row.assigned_manager_id
+      ) || null,
+    mailing_contact:
+      contactsById.get(
+        row.mailing_contact_id
+      ) || null,
+  }));
+}
+
+async function hydrateApplication(row) {
+  if (!row) {
+    return null;
+  }
+
+  const [hydrated] =
+    await hydrateApplications([row]);
+
+  return hydrated || null;
 }
 
 async function assertCanModifyApplication(
@@ -848,7 +1016,7 @@ export const applicationService = {
   } = {}) {
     const actor = await getCurrentActor();
 
-    if (!actor.profile) {
+    if (!actor.user) {
       return {
         data: [],
         error:
@@ -859,14 +1027,14 @@ export const applicationService = {
       };
     }
 
-    const pageSize = 1000;
+    const pageSize = APPLICATION_PAGE_SIZE;
     const rows = [];
     let from = 0;
 
     while (from < 100000) {
       let query = supabase
         .from("applications")
-        .select(APPLICATION_FIELDS)
+        .select(APPLICATION_COLUMNS)
         .order("created_at", {
           ascending: false,
         });
@@ -876,23 +1044,22 @@ export const applicationService = {
         actor
       );
 
-      if (
-        isPrivilegedRole(
-          actor.profile.role
-        ) &&
-        managerId
-      ) {
-        if (managerId === "unassigned") {
+      if (managerId === "unassigned") {
+        if (
+          isPrivilegedRole(
+            actor.profile?.role
+          )
+        ) {
           query = query.is(
             "assigned_manager_id",
             null
           );
-        } else {
-          query = query.eq(
-            "assigned_manager_id",
-            managerId
-          );
         }
+      } else if (managerId) {
+        query = query.eq(
+          "assigned_manager_id",
+          managerId
+        );
       }
 
       if (dateFrom) {
@@ -917,7 +1084,9 @@ export const applicationService = {
 
       if (error) {
         return {
-          data: rows,
+          data: await hydrateApplications(
+            rows
+          ),
           error,
         };
       }
@@ -933,14 +1102,10 @@ export const applicationService = {
     }
 
     return {
-      data: rows,
+      data: await hydrateApplications(rows),
       error: null,
     };
   },
-
-  /**
-   * Получить заявки одного контакта.
-   */
   async getApplicationsByContactId(
     mailingContactId
   ) {
@@ -955,7 +1120,7 @@ export const applicationService = {
 
     const actor = await getCurrentActor();
 
-    if (!actor.profile) {
+    if (!actor.user) {
       return {
         data: [],
         error:
@@ -968,7 +1133,7 @@ export const applicationService = {
 
     let query = supabase
       .from("applications")
-      .select(APPLICATION_FIELDS)
+      .select(APPLICATION_COLUMNS)
       .eq(
         "mailing_contact_id",
         mailingContactId
@@ -985,9 +1150,18 @@ export const applicationService = {
     const { data, error } =
       await query;
 
+    if (error) {
+      return {
+        data: [],
+        error,
+      };
+    }
+
     return {
-      data: data || [],
-      error,
+      data: await hydrateApplications(
+        data || []
+      ),
+      error: null,
     };
   },
 
@@ -1001,7 +1175,7 @@ export const applicationService = {
   ) {
     const actor = await getCurrentActor();
 
-    if (!actor.profile) {
+    if (!actor.user) {
       return {
         data: [],
         error:
@@ -1014,7 +1188,7 @@ export const applicationService = {
 
     let query = supabase
       .from("applications")
-      .select(APPLICATION_FIELDS)
+      .select(APPLICATION_COLUMNS)
       .order("created_at", {
         ascending: false,
       });
@@ -1041,9 +1215,18 @@ export const applicationService = {
     const { data, error } =
       await query;
 
+    if (error) {
+      return {
+        data: [],
+        error,
+      };
+    }
+
     return {
-      data: data || [],
-      error,
+      data: await hydrateApplications(
+        data || []
+      ),
+      error: null,
     };
   },
 
@@ -1059,7 +1242,7 @@ export const applicationService = {
   ) {
     const actor = await getCurrentActor();
 
-    if (!actor.profile) {
+    if (!actor.user) {
       return {
         data: [],
         error:
@@ -1077,7 +1260,7 @@ export const applicationService = {
     while (from < 100000) {
       let query = supabase
         .from("applications")
-        .select(APPLICATION_FIELDS)
+        .select(APPLICATION_COLUMNS)
         .eq("status", "approved")
         .not("approved_at", "is", null)
         .order("approved_at", {
@@ -1127,7 +1310,7 @@ export const applicationService = {
     }
 
     return {
-      data: rows,
+      data: await hydrateApplications(rows),
       error: null,
     };
   },
@@ -1149,7 +1332,7 @@ export const applicationService = {
 
     const actor = await getCurrentActor();
 
-    if (!actor.profile) {
+    if (!actor.user) {
       return {
         data: null,
         error:
@@ -1162,7 +1345,7 @@ export const applicationService = {
 
     let query = supabase
       .from("applications")
-      .select(APPLICATION_FIELDS)
+      .select(APPLICATION_COLUMNS)
       .eq("id", applicationId);
 
     query = applyManagerScope(
@@ -1173,9 +1356,16 @@ export const applicationService = {
     const { data, error } =
       await query.maybeSingle();
 
+    if (error) {
+      return {
+        data: null,
+        error,
+      };
+    }
+
     return {
-      data,
-      error,
+      data: await hydrateApplication(data),
+      error: null,
     };
   },
 
@@ -1332,8 +1522,8 @@ export const applicationService = {
     const { data, error } = await supabase
       .from("applications")
       .insert(payload)
-      .select(APPLICATION_FIELDS)
-      .single();
+      .select(APPLICATION_COLUMNS)
+      .maybeSingle();
 
     if (isUniqueViolation(error)) {
       return {
@@ -1345,9 +1535,16 @@ export const applicationService = {
       };
     }
 
+    if (error) {
+      return {
+        data: null,
+        error,
+      };
+    }
+
     return {
-      data,
-      error,
+      data: await hydrateApplication(data),
+      error: null,
     };
   },
 
@@ -1925,8 +2122,8 @@ export const applicationService = {
       .from("applications")
       .update(payload)
       .eq("id", applicationId)
-      .select(APPLICATION_FIELDS)
-      .single();
+      .select(APPLICATION_COLUMNS)
+      .maybeSingle();
 
     if (isUniqueViolation(error)) {
       return {
@@ -1937,9 +2134,16 @@ export const applicationService = {
       };
     }
 
+    if (error) {
+      return {
+        data: null,
+        error,
+      };
+    }
+
     return {
-      data,
-      error,
+      data: await hydrateApplication(data),
+      error: null,
     };
   },
 

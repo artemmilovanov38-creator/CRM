@@ -631,6 +631,37 @@
   line-height: 1.5;
 }
 
+.incoming-date-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.incoming-date-presets__button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #2b3445;
+  border-radius: 999px;
+  background: #151b26;
+  color: #9aa6bb;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.incoming-date-presets__button--active,
+.incoming-date-presets__button:hover {
+  border-color: #7162e8;
+  background: rgba(113, 98, 232, 0.14);
+  color: #dcd6ff;
+}
+
+.incoming-date-presets__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .incoming-input {
   display: flex;
   min-height: 50px;

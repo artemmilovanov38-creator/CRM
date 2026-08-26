@@ -39,6 +39,15 @@ function formatUser(authUser, profile) {
     return createFallbackUser(authUser);
   }
 
+  const role = String(profile.role || "")
+    .trim()
+    .toLowerCase();
+  const status = String(
+    profile.status || "active"
+  )
+    .trim()
+    .toLowerCase();
+
   return {
     id: authUser.id,
     email: profile.email || authUser.email || "",
@@ -46,8 +55,8 @@ function formatUser(authUser, profile) {
       profile.full_name ||
       authUser.email?.split("@")[0] ||
       "Пользователь",
-    role: profile.role || "manager",
-    status: profile.status || "active",
+    role: role || "manager",
+    status: status || "active",
     avatar: profile.avatar || null,
     createdAt: profile.created_at || null,
     updatedAt: profile.updated_at || null,
@@ -270,6 +279,7 @@ export function AuthProvider({ children }) {
   const value = useMemo(
     () => ({
       user,
+      profile: user,
       isAuthenticated: Boolean(user),
       isAuthLoading,
       login,

@@ -456,7 +456,7 @@ export default function Writers() {
                   <dl className="writers-card__meta">
                     <div>
                       <dt>Написал</dt>
-                      <dd>{formatDateTime(row.responded_at)}</dd>
+                      <dd>{formatDate(row.responded_at)}</dd>
                     </div>
                     <div>
                       <dt>Менеджер</dt>
@@ -537,7 +537,7 @@ function WriterRow({ row, expanded, onToggle }) {
             />
           </button>
         </td>
-        <td>{formatDateTime(row.responded_at)}</td>
+        <td>{formatDate(row.responded_at)}</td>
         <td>
           <span
             className={
@@ -584,7 +584,7 @@ function ApplicationDetails({ row, compact = false }) {
       }
     >
       <div className="writers-apps__intro">
-        Написал {formatDateTime(row.responded_at)} ·{" "}
+        Написал {formatDate(row.responded_at)} ·{" "}
         {row.mailingName} · принял {row.managerName}
       </div>
 
@@ -699,6 +699,24 @@ function formatApplicationSummary(row) {
     row.applicationsCount,
     ["заявка", "заявки", "заявок"]
   )}`;
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
 }
 
 function formatDateTime(value) {

@@ -1459,6 +1459,56 @@ const managerOptions =
                   />
                 </div>
 
+                <div className="incoming-date-presets">
+                  <button
+                    type="button"
+                    className={
+                      incomingDate ===
+                      formatDateInput(
+                        new Date()
+                      )
+                        ? "incoming-date-presets__button incoming-date-presets__button--active"
+                        : "incoming-date-presets__button"
+                    }
+                    disabled={saving}
+                    onClick={() => {
+                      setIncomingDate(
+                        formatDateInput(
+                          new Date()
+                        )
+                      );
+                      setFormError("");
+                      setResult(null);
+                    }}
+                  >
+                    Сегодня
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      incomingDate ===
+                      formatDateInput(
+                        shiftDays(-1)
+                      )
+                        ? "incoming-date-presets__button incoming-date-presets__button--active"
+                        : "incoming-date-presets__button"
+                    }
+                    disabled={saving}
+                    onClick={() => {
+                      setIncomingDate(
+                        formatDateInput(
+                          shiftDays(-1)
+                        )
+                      );
+                      setFormError("");
+                      setResult(null);
+                    }}
+                  >
+                    Вчера
+                  </button>
+                </div>
+
                 <p className="incoming-modal__field-hint">
                   Одна дата на всю
                   пачку. По умолчанию
@@ -2147,10 +2197,14 @@ function formatDate(value) {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
     }
   ).format(date);
+}
+
+function shiftDays(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date;
 }
 
 /*

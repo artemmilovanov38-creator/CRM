@@ -411,7 +411,22 @@ export default function ApplicationDrawer({
                     Не назначен
                   </option>
 
-                  {managers.map(
+                  {(
+                    form.assigned_manager_id &&
+                    !managers.some(
+                      (manager) =>
+                        manager.id ===
+                        form.assigned_manager_id
+                    )
+                      ? [
+                          {
+                            id: form.assigned_manager_id,
+                            full_name: "Менеджер",
+                          },
+                          ...managers,
+                        ]
+                      : managers
+                  ).map(
                     (manager) => (
                       <option
                         key={manager.id}

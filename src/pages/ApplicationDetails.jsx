@@ -222,9 +222,12 @@ setProducts(productsResult.data || []);
   source: data.source || "manual",
 
   product_id: data.product_id || "",
-  product: data.product || "",
+  product: data.product_data?.name || data.product || "",
 
-  status: data.status || "new",
+  status:
+    data.status === "waiting"
+      ? "new"
+      : data.status || "new",
   assigned_manager_id:
     data.assigned_manager_id || "",
   amount:
@@ -896,6 +899,16 @@ setProducts(productsResult.data || []);
       Выберите продукт
     </option>
 
+    {form.product_id &&
+      !products.some(
+        (product) =>
+          product.id === form.product_id
+      ) && (
+        <option value={form.product_id}>
+          {form.product || "Текущий продукт"}
+        </option>
+      )}
+
     {products.map((product) => (
       <option
         key={product.id}
@@ -918,6 +931,20 @@ setProducts(productsResult.data || []);
                   onChange={handleChange}
                 >
                   <option value="">Не назначен</option>
+                  {form.assigned_manager_id &&
+                    !managers.some(
+                      (manager) =>
+                        manager.id ===
+                        form.assigned_manager_id
+                    ) && (
+                      <option
+                        value={
+                          form.assigned_manager_id
+                        }
+                      >
+                        Менеджер
+                      </option>
+                    )}
                   {managers.map((manager) => (
                     <option key={manager.id} value={manager.id}>
                       {manager.full_name || manager.email}
