@@ -1034,10 +1034,7 @@ export const applicationService = {
     while (from < 100000) {
       let query = supabase
         .from("applications")
-        .select(APPLICATION_COLUMNS)
-        .order("created_at", {
-          ascending: false,
-        });
+        .select(APPLICATION_COLUMNS);
 
       query = applyManagerScope(
         query,
@@ -1075,6 +1072,10 @@ export const applicationService = {
           dateTo
         );
       }
+
+      query = query.order("created_at", {
+        ascending: false,
+      });
 
       const { data, error } =
         await query.range(

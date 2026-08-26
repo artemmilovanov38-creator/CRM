@@ -328,7 +328,12 @@ export const analyticsService = {
     const createdBase = () =>
       applyManagerId(
         applyRange(
-          supabase.from("applications"),
+          supabase
+            .from("applications")
+            .select("id", {
+              count: "exact",
+              head: true,
+            }),
           "created_at",
           dateFrom,
           dateTo
@@ -346,35 +351,18 @@ export const analyticsService = {
       rejectedEventResult,
       amountRpc,
     ] = await Promise.all([
+      countExact(createdBase()),
       countExact(
-        createdBase().select("id", {
-          count: "exact",
-          head: true,
-        })
+        createdBase().eq("status", "new")
       ),
       countExact(
-        createdBase()
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("status", "new")
+        createdBase().eq(
+          "status",
+          "in_progress"
+        )
       ),
       countExact(
-        createdBase()
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("status", "in_progress")
-      ),
-      countExact(
-        createdBase()
-          .select("id", {
-            count: "exact",
-            head: true,
-          })
-          .eq("status", "waiting")
+        createdBase().eq("status", "waiting")
       ),
       countExact(
         applyManagerId(

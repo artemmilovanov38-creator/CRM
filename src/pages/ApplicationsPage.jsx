@@ -175,15 +175,26 @@ export default function ApplicationsPage() {
           managerId: isManager
             ? user?.id
             : managerIdForQuery,
-        }),
-        profileService.getManagers(),
+        }).catch((error) => ({
+          data: [],
+          error,
+        })),
+        profileService.getManagers().catch(
+          (error) => ({
+            data: [],
+            error,
+          })
+        ),
         analyticsService.getApplicationStats({
           managerId: isManager
             ? user?.id
             : managerIdForQuery,
           dateFrom: periodRange.from,
           dateTo: periodRange.to,
-        }),
+        }).catch((error) => ({
+          data: emptyApplicationStats(),
+          error,
+        })),
       ]);
 
       if (applicationsResult.error) {
