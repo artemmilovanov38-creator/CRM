@@ -38,6 +38,7 @@ import {
   formatDateInput,
   getPeriodBounds,
 } from "../utils/periodRange";
+import { matchesSearch } from "../utils/searchMatch";
 
 const statusOptions = [
   {
@@ -310,42 +311,28 @@ export default function ApplicationsPage() {
 
   const filteredApplications = useMemo(
     () => {
-      const normalizedSearch = search
-        .trim()
-        .toLowerCase();
-
       return applications.filter(
         (application) => {
           const productName =
-            getProductName(application)
-              .toLowerCase();
+            getProductName(application);
 
-          const searchableValue = [
-            application.full_name,
-            application.phone,
-            application.telegram,
-            application.source,
-            productName,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-
-          const matchesSearch =
-            !normalizedSearch ||
-            searchableValue.includes(
-              normalizedSearch
-            );
+          const matchesQuery = matchesSearch(
+            [
+              application.full_name,
+              application.phone,
+              application.telegram,
+              application.source,
+              productName,
+            ],
+            search
+          );
 
           const matchesStatus =
             statusFilter === "all" ||
             application.status ===
               statusFilter;
 
-          return (
-            matchesSearch &&
-            matchesStatus
-          );
+          return matchesQuery && matchesStatus;
         }
       );
     },

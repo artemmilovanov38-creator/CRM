@@ -23,6 +23,7 @@ import ContactDrawer from "../components/mailings/ContactDrawer";
 import { applicationService } from "../services/applicationService";
 import mailingContactService from "../services/mailingContactService";
 import { productService } from "../services/productService";
+import { matchesSearch } from "../utils/searchMatch";
 
 import "../styles/MyContacts.css";
 
@@ -151,6 +152,71 @@ export default function MyContacts() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const query = searchValue.trim();
+
+    if (!query || loading) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(
+      async () => {
+        const alreadyVisible =
+          contacts.some((contact) =>
+            matchesSearch(
+              [
+                contact.full_name,
+                contact.phone,
+                contact.email,
+                contact.telegram_username,
+                contact.telegram,
+              ],
+              query
+            )
+          );
+
+        if (alreadyVisible) {
+          return;
+        }
+
+        const result =
+          await mailingContactService.searchMyContacts(
+            query
+          );
+
+        if (
+          cancelled ||
+          result.error ||
+          !result.data?.length
+        ) {
+          return;
+        }
+
+        setContacts((current) => {
+          const knownIds = new Set(
+            current.map((contact) => contact.id)
+          );
+          const extra = result.data.filter(
+            (contact) => !knownIds.has(contact.id)
+          );
+
+          if (extra.length === 0) {
+            return current;
+          }
+
+          return [...extra, ...current];
+        });
+      },
+      250
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [contacts, loading, searchValue]);
+
   const applicationsByContact =
     useMemo(() => {
       return applications.reduce(
@@ -205,56 +271,44 @@ export default function MyContacts() {
   ]);
 
   const filteredContacts = useMemo(() => {
-    const search = searchValue
-      .trim()
-      .toLowerCase();
-
     return preparedContacts.filter(
       (contact) => {
-        const searchableValue = [
-          contact.full_name,
-          contact.phone,
-          contact.email,
-          contact.telegram_username,
-          contact.mailing?.name,
-          contact.mailing?.title,
-          contact.latest_application
-            ?.product_data?.name,
-          contact.latest_application
-            ?.product,
-          applicationStatusConfig[
+        const matchesQuery = matchesSearch(
+          [
+            contact.full_name,
+            contact.phone,
+            contact.email,
+            contact.telegram_username,
+            contact.telegram,
+            contact.mailing?.name,
+            contact.mailing?.title,
             contact.latest_application
-              ?.status
+              ?.product_data?.name,
+            contact.latest_application
+              ?.product,
+            applicationStatusConfig[
+              contact.latest_application
+                ?.status
+            ],
+            ...(contact.applications || [])
+              .flatMap((application) => [
+                application.product_data
+                  ?.name,
+                application.product,
+                applicationStatusConfig[
+                  application.status
+                ],
+              ]),
           ],
-          ...(contact.applications || [])
-            .flatMap((application) => [
-              application.product_data
-                ?.name,
-              application.product,
-              applicationStatusConfig[
-                application.status
-              ],
-            ]),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        const matchesSearch =
-          !search ||
-          searchableValue.includes(
-            search
-          );
+          searchValue
+        );
 
         const matchesStatus =
           statusFilter === "all" ||
           contact.status ===
             statusFilter;
 
-        return (
-          matchesSearch &&
-          matchesStatus
-        );
+        return matchesQuery && matchesStatus;
       }
     );
   }, [
@@ -524,9 +578,9 @@ export default function MyContacts() {
           </strong>
 
           <span>
-            Вы ещё не занесли ответивших
-            пользователей или контакты не
-            подходят под выбранный фильтр.
+            {searchValue.trim()
+              ? "Ник ищется и с @, и без него. Если человека только что занесли другой датой — он всё равно должен быть в этом списке."
+              : "Вы ещё не занесли ответивших пользователей или контакты не подходят под выбранный фильтр."}
           </span>
         </div>
       ) : (

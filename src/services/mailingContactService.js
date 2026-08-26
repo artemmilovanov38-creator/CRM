@@ -1,5 +1,11 @@
 import { supabase } from "../lib/supabase";
 import { profileService } from "./profileService";
+import {
+  escapeIlike,
+  stripTelegramPrefix,
+} from "../utils/searchMatch";
+
+const MY_CONTACTS_PAGE_SIZE = 200;
 
 const normalizePhone = (value) => {
   if (!value) return null;
@@ -1143,6 +1149,46 @@ const autoAssignManagers = async (mailingId) => {
   };
 };
 
+const hydrateContactMailings = async (
+  contacts
+) => {
+  const mailingIds = [
+    ...new Set(
+      (contacts || [])
+        .map((contact) => contact.mailing_id)
+        .filter(Boolean)
+    ),
+  ];
+
+  if (mailingIds.length === 0) {
+    return contacts;
+  }
+
+  const { data, error } = await supabase
+    .from("mailings")
+    .select(
+      "id, name, title, supplier, status, mailing_method, created_at"
+    )
+    .in("id", mailingIds);
+
+  if (error || !data) {
+    return contacts;
+  }
+
+  const mailingsById = Object.fromEntries(
+    data.map((mailing) => [mailing.id, mailing])
+  );
+
+  return contacts.map((contact) => ({
+    ...contact,
+    mailing:
+      (contact.mailing_id &&
+        mailingsById[contact.mailing_id]) ||
+      contact.mailing ||
+      null,
+  }));
+};
+
 const getMyContacts = async () => {
   const {
     data: userData,
@@ -1167,37 +1213,114 @@ const getMyContacts = async () => {
     };
   }
 
-  const { data, error } = await supabase
-    .from("mailing_contacts")
-    .select(`
-      *,
-      manager:profiles (
-        id,
-        full_name,
-        email
-      ),
-      mailing:mailings (
-        id,
-        name,
-        title,
-        supplier,
-        status,
-        mailing_method,
-        created_at
-      )
-    `)
-    .eq("manager_id", currentUser.id)
-    .order("created_at", {
-      ascending: false,
-    });
+  const rows = [];
+  let from = 0;
+
+  while (from < 100000) {
+    const { data, error } = await supabase
+      .from("mailing_contacts")
+      .select("*")
+      .eq("manager_id", currentUser.id)
+      .order("created_at", {
+        ascending: false,
+      })
+      .range(
+        from,
+        from + MY_CONTACTS_PAGE_SIZE - 1
+      );
+
+    if (error) {
+      return {
+        data: await hydrateContactMailings(rows),
+        error,
+      };
+    }
+
+    const chunk = data || [];
+    rows.push(...chunk);
+
+    if (chunk.length < MY_CONTACTS_PAGE_SIZE) {
+      break;
+    }
+
+    from += MY_CONTACTS_PAGE_SIZE;
+  }
 
   return {
-    data: data || [],
-    error,
+    data: await hydrateContactMailings(rows),
+    error: null,
   };
 };
+
+const searchMyContacts = async (query) => {
+  const {
+    data: userData,
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    return {
+      data: [],
+      error: userError,
+    };
+  }
+
+  const currentUser = userData?.user;
+
+  if (!currentUser?.id) {
+    return {
+      data: [],
+      error: new Error(
+        "Пользователь не авторизован."
+      ),
+    };
+  }
+
+  const needle = stripTelegramPrefix(query);
+  const escaped = escapeIlike(needle);
+
+  if (!escaped) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select("*")
+    .eq("manager_id", currentUser.id)
+    .or(
+      [
+        `telegram_username.ilike.%${escaped}%`,
+        `telegram_username.ilike.%@${escaped}%`,
+        `full_name.ilike.%${escaped}%`,
+        `phone.ilike.%${escaped}%`,
+      ].join(",")
+    )
+    .order("created_at", {
+      ascending: false,
+    })
+    .limit(100);
+
+  if (error) {
+    return {
+      data: [],
+      error,
+    };
+  }
+
+  return {
+    data: await hydrateContactMailings(
+      data || []
+    ),
+    error: null,
+  };
+};
+
 export const mailingContactService = {
   getMyContacts,
+  searchMyContacts,
   autoAssignManagers,
   normalizePhone,
   normalizeContact,

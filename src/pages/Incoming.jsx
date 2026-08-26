@@ -50,6 +50,7 @@ import {
   formatDateInput,
   getPeriodBounds,
 } from "../utils/periodRange";
+import { matchesSearch } from "../utils/searchMatch";
 
 import "../styles/Incoming.css";
 
@@ -134,6 +135,9 @@ export default function Incoming() {
     contactActionId,
     setContactActionId,
   ] = useState(null);
+
+  const [searchHits, setSearchHits] =
+    useState(null);
 
   const isManager =
     currentProfile?.role === "manager";
@@ -295,6 +299,81 @@ export default function Incoming() {
   useEffect(() => {
     loadResponses();
   }, [loadResponses]);
+
+  useEffect(() => {
+    const query = search.trim();
+
+    if (!query || !currentProfile?.id) {
+      setSearchHits(null);
+      return undefined;
+    }
+
+    const alreadyVisible = responses.some(
+      (response) =>
+        matchesSearch(
+          [
+            response.telegram_username,
+            response.full_name,
+            response.phone,
+          ],
+          query
+        )
+    );
+
+    if (alreadyVisible) {
+      setSearchHits(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(
+      async () => {
+        const result =
+          await incomingResponseService.getResponses(
+            {
+              managerId: isManager
+                ? currentProfile.id
+                : managerFilter === "all"
+                  ? null
+                  : managerFilter,
+              dateFrom: null,
+              dateTo: null,
+            }
+          );
+
+        if (cancelled || result.error) {
+          return;
+        }
+
+        const matched = (
+          result.data || []
+        ).filter((response) =>
+          matchesSearch(
+            [
+              response.telegram_username,
+              response.full_name,
+              response.phone,
+            ],
+            query
+          )
+        );
+
+        setSearchHits(matched);
+      },
+      250
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    currentProfile?.id,
+    isManager,
+    managerFilter,
+    responses,
+    search,
+  ]);
 
   /*
    * =====================================================
@@ -468,9 +547,17 @@ export default function Incoming() {
       registerResult.data
     );
 
-    await loadResponses(
-      false
+    const today = formatDateInput(
+      new Date()
     );
+
+    if (incomingDate && incomingDate !== today) {
+      setCustomFrom(incomingDate);
+      setCustomTo(incomingDate);
+      setPeriodPreset("custom");
+    } else {
+      await loadResponses(false);
+    }
 
     setSaving(false);
   }
@@ -668,16 +755,12 @@ const managerOptions =
 
   const filteredResponses =
   useMemo(() => {
-    const normalizedSearch =
-      search
-        .trim()
-        .toLowerCase();
+    const source =
+      search.trim() && searchHits
+        ? searchHits
+        : responses;
 
-    if (!normalizedSearch) {
-      return responses;
-    }
-
-    return responses.filter(
+    return source.filter(
       (response) => {
         const isExternal =
           Boolean(
@@ -687,37 +770,28 @@ const managerOptions =
             "external" ||
           !response.mailing_id;
 
-        const searchableValue = [
-          response.telegram_username,
-          response.full_name,
-          response.phone,
-          response.status,
-          response.source,
-
-          isExternal
-            ? "вне рассылки внешний входящий"
-            : "рассылка",
-
-          response.mailing?.name,
-
-          response.manager
-            ?.full_name,
-
-          response.manager
-            ?.email,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        return searchableValue.includes(
-          normalizedSearch
+        return matchesSearch(
+          [
+            response.telegram_username,
+            response.full_name,
+            response.phone,
+            response.status,
+            response.source,
+            isExternal
+              ? "вне рассылки внешний входящий"
+              : "рассылка",
+            response.mailing?.name,
+            response.manager?.full_name,
+            response.manager?.email,
+          ],
+          search
         );
       }
     );
   }, [
     responses,
     search,
+    searchHits,
   ]);
 
   /*
@@ -1017,7 +1091,7 @@ const managerOptions =
 
           <span>
             {search
-              ? "Измените поисковый запрос."
+              ? "Ник ищется и с @, и без него. Если человека занесли другой датой, он всё равно должен найтись."
               : periodPreset !== "all"
                 ? `За выбранный период ${periodRange.shortLabel} входящих нет. Попробуйте другой день или «Все даты».`
                 : isManager
