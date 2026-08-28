@@ -24,6 +24,7 @@ import {
   getApplicationPayout,
   isApplicationReceiptOpened,
 } from "../../services/applicationService";
+import { getTelegramHref } from "../../utils/telegram";
 
 const statusOptions = [
   {
@@ -804,23 +805,7 @@ function getStatusLabel(value) {
 }
 
 function getTelegramLink(value) {
-  if (!value) {
-    return null;
-  }
-
-  const username = String(value)
-    .trim()
-    .replace(
-      /^https?:\/\/t\.me\//i,
-      ""
-    )
-    .replace(/^@/, "");
-
-  if (!username) {
-    return null;
-  }
-
-  return `https://t.me/${username}`;
+  return getTelegramHref(value);
 }
 
 function formatDate(value) {

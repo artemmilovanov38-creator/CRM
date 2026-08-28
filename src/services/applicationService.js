@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { formatTelegramDisplay } from "../utils/telegram";
 
 const APPLICATION_COLUMNS = `
   id,
@@ -404,23 +405,9 @@ function normalizeText(value) {
 }
 
 function normalizeTelegram(value) {
-  const normalizedValue =
-    normalizeText(value);
-
-  if (!normalizedValue) {
-    return null;
-  }
-
-  return normalizedValue
-    .replace(
-      /^https?:\/\/t\.me\//i,
-      ""
-    )
-    .replace(/^t\.me\//i, "")
-    .replace(/^@+/, "")
-    .split(/[/?#]/)[0]
-    .trim()
-    .toLowerCase();
+  return formatTelegramDisplay(value, false, {
+    strict: false,
+  });
 }
 
 function normalizePhone(value) {

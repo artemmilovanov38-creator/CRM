@@ -4,6 +4,10 @@ import {
   escapeIlike,
   stripTelegramPrefix,
 } from "../utils/searchMatch";
+import {
+  formatTelegramDisplay,
+  telegramKey,
+} from "../utils/telegram";
 
 const MY_CONTACTS_PAGE_SIZE = 200;
 
@@ -29,45 +33,7 @@ const normalizePhone = (value) => {
 };
 
 const normalizeTelegram = (value) => {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return null;
-  }
-
-  const username = String(value)
-    .trim()
-    .replace(
-      /^https?:\/\/t\.me\//i,
-      ""
-    )
-    .replace(
-      /^t\.me\//i,
-      ""
-    )
-    .replace(/^@+/, "")
-    .split(/[/?#]/)[0]
-    .trim();
-
-  if (!username) {
-    return null;
-  }
-
-  /*
-   * Telegram username:
-   * 5–32 символа,
-   * буквы, цифры, underscore.
-   */
-  if (
-    !/^[a-zA-Z0-9_]{5,32}$/.test(
-      username
-    )
-  ) {
-    return null;
-  }
-
-  return `@${username.toLowerCase()}`;
+  return formatTelegramDisplay(value);
 };
 const getActiveManagers = async () => {
   const { data, error } = await supabase
@@ -291,14 +257,10 @@ const normalizeContact = (
     fullName &&
     telegram
   ) {
-    const normalizedNameAsTelegram =
-      normalizeTelegram(
-        fullName
-      );
-
     if (
-      normalizedNameAsTelegram ===
-      telegram
+      telegramKey(fullName) &&
+      telegramKey(fullName) ===
+        telegramKey(telegram)
     ) {
       fullName = null;
     }
@@ -545,12 +507,9 @@ const importContacts = async (mailingId, contacts) => {
       ? String(contact.phone).trim()
       : null;
 
-    const telegramKey =
+    const contactTelegramKey = telegramKey(
       contact.telegram_username
-        ? String(contact.telegram_username)
-            .trim()
-            .toLowerCase()
-        : null;
+    );
 
     /*
      * Если совпал телефон —
@@ -568,8 +527,8 @@ const importContacts = async (mailingId, contacts) => {
      * это дубль.
      */
     if (
-      telegramKey &&
-      usedTelegrams.has(telegramKey)
+      contactTelegramKey &&
+      usedTelegrams.has(contactTelegramKey)
     ) {
       continue;
     }
@@ -578,8 +537,8 @@ const importContacts = async (mailingId, contacts) => {
       usedPhones.add(phoneKey);
     }
 
-    if (telegramKey) {
-      usedTelegrams.add(telegramKey);
+    if (contactTelegramKey) {
+      usedTelegrams.add(contactTelegramKey);
     }
 
     uniqueContacts.push(contact);
@@ -620,64 +579,63 @@ const importContacts = async (mailingId, contacts) => {
     ...new Set(
       uniqueContacts
         .map((contact) =>
-          contact.telegram_username
-            ? String(
-                contact.telegram_username
-              )
-                .trim()
-                .toLowerCase()
-            : null
+          telegramKey(
+            contact.telegram_username
+          )
         )
         .filter(Boolean)
     ),
   ];
 
-  for (
-    let index = 0;
-    index < telegramsToCheck.length;
-    index += CHECK_CHUNK_SIZE
-  ) {
-    const chunk = telegramsToCheck.slice(
-      index,
-      index + CHECK_CHUNK_SIZE
-    );
+  if (telegramsToCheck.length > 0) {
+    let from = 0;
+    const pageSize = 500;
 
-    const {
-      data,
-      error,
-    } = await supabase
-      .from("mailing_contacts")
-      .select("telegram_username")
-      .eq("mailing_id", mailingId)
-      .in("telegram_username", chunk);
+    while (from < 100000) {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("mailing_contacts")
+        .select("telegram_username")
+        .eq("mailing_id", mailingId)
+        .not("telegram_username", "is", null)
+        .range(from, from + pageSize - 1);
 
-    if (error) {
-      console.error(
-        "Ошибка проверки Telegram:",
-        error
-      );
+      if (error) {
+        console.error(
+          "Ошибка проверки Telegram:",
+          error
+        );
 
-      return {
-        data: [],
-        error: new Error(
-          `Не удалось проверить существующие Telegram-контакты: ${
-            error.message ||
-            "ошибка базы данных"
-          }`
-        ),
-      };
-    }
-
-    for (const row of data || []) {
-      if (!row.telegram_username) {
-        continue;
+        return {
+          data: [],
+          error: new Error(
+            `Не удалось проверить существующие Telegram-контакты: ${
+              error.message ||
+              "ошибка базы данных"
+            }`
+          ),
+        };
       }
 
-      existingTelegrams.add(
-        String(row.telegram_username)
-          .trim()
-          .toLowerCase()
-      );
+      const chunk = data || [];
+
+      for (const row of chunk) {
+        const key = telegramKey(
+          row.telegram_username
+        );
+
+        if (key) {
+          existingTelegrams.add(key);
+        }
+      }
+
+      if (chunk.length < pageSize) {
+        break;
+      }
+
+      from += pageSize;
     }
   }
 
@@ -758,12 +716,9 @@ const importContacts = async (mailingId, contacts) => {
         ? String(contact.phone).trim()
         : null;
 
-      const telegramKey =
+      const contactTelegramKey = telegramKey(
         contact.telegram_username
-          ? String(contact.telegram_username)
-              .trim()
-              .toLowerCase()
-          : null;
+      );
 
       if (
         phoneKey &&
@@ -773,9 +728,9 @@ const importContacts = async (mailingId, contacts) => {
       }
 
       if (
-        telegramKey &&
+        contactTelegramKey &&
         existingTelegrams.has(
-          telegramKey
+          contactTelegramKey
         )
       ) {
         return false;

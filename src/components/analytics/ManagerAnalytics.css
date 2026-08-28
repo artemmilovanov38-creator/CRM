@@ -19,6 +19,25 @@
   font-size: 13px;
 }
 
+.manager-analytics__error {
+  margin: 0 0 10px;
+  color: #fca5a5;
+  font-size: 13px;
+}
+
+.manager-analytics__retry {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #3a4558;
+  border-radius: 8px;
+  background: #1a2230;
+  color: #e8eef8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .manager-analytics__table-wrap {
   overflow-x: auto;
 }

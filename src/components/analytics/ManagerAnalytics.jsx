@@ -4,6 +4,8 @@ export default function ManagerAnalytics({
   title,
   rows = [],
   loading = false,
+  error = "",
+  onRetry,
 }) {
   if (loading) {
     return (
@@ -12,6 +14,26 @@ export default function ManagerAnalytics({
         <p className="manager-analytics__hint">
           Считаем показатели менеджеров...
         </p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="manager-analytics">
+        <h2>{title}</h2>
+        <p className="manager-analytics__error">
+          {error}
+        </p>
+        {onRetry ? (
+          <button
+            className="manager-analytics__retry"
+            type="button"
+            onClick={onRetry}
+          >
+            Повторить
+          </button>
+        ) : null}
       </section>
     );
   }

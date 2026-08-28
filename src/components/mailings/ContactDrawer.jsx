@@ -33,6 +33,7 @@ import {
 } from "../../services/applicationService";
 
 import "../../styles/ContactDrawer.css";
+import { getTelegramHref } from "../../utils/telegram";
 
 const contactStatusNames = {
   new: "Новый",
@@ -356,10 +357,9 @@ export default function ContactDrawer({
       contact.telegram_username
     );
 
-  const telegramLink =
-    telegramUsername
-      ? `https://t.me/${telegramUsername}`
-      : null;
+  const telegramLink = getTelegramHref(
+    contact.telegram_username
+  );
 
   async function handleCreateApplication() {
     if (

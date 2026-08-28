@@ -19,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -39,6 +40,7 @@ import {
   getPeriodBounds,
 } from "../utils/periodRange";
 import { matchesSearch } from "../utils/searchMatch";
+import { formatServiceError } from "../utils/serviceError";
 
 const statusOptions = [
   {
@@ -90,7 +92,7 @@ export default function ApplicationsPage() {
     useState(formatDateInput(new Date()));
 
   const [stats, setStats] =
-    useState(emptyApplicationStats);
+    useState(() => emptyApplicationStats());
 
   const [
     managerAnalytics,
@@ -103,8 +105,16 @@ export default function ApplicationsPage() {
   const [isLoading, setIsLoading] =
     useState(true);
 
+  const [analyticsLoading, setAnalyticsLoading] =
+    useState(false);
+
   const [error, setError] =
     useState("");
+
+  const [analyticsError, setAnalyticsError] =
+    useState("");
+
+  const requestIdRef = useRef(0);
 
   const [
     successMessage,
@@ -158,141 +168,256 @@ export default function ApplicationsPage() {
 
   const loadPageData = useCallback(
     async (showLoader = true) => {
+      if (!user?.id) {
+        if (showLoader) {
+          setIsLoading(false);
+        }
+
+        setAnalyticsLoading(false);
+        return;
+      }
+
+      const requestId = ++requestIdRef.current;
+      const isStale = () =>
+        requestId !== requestIdRef.current;
+
       if (showLoader) {
         setIsLoading(true);
       }
 
+      let listErrorMessage = "";
       setError("");
-
-      try {
-      const [
-        applicationsResult,
-        managersResult,
-        statsResult,
-      ] = await Promise.all([
-        applicationService.getApplications({
-          dateFrom: periodRange.from,
-          dateTo: periodRange.to,
-          managerId: isManager
-            ? user?.id
-            : managerIdForQuery,
-        }).catch((error) => ({
-          data: [],
-          error,
-        })),
-        profileService.getManagers().catch(
-          (error) => ({
-            data: [],
-            error,
-          })
-        ),
-        analyticsService.getApplicationStats({
-          managerId: isManager
-            ? user?.id
-            : managerIdForQuery,
-          dateFrom: periodRange.from,
-          dateTo: periodRange.to,
-        }).catch((error) => ({
-          data: emptyApplicationStats(),
-          error,
-        })),
-      ]);
-
-      if (applicationsResult.error) {
-        console.error(
-          "Ошибка загрузки заявок:",
-          applicationsResult.error
-        );
-
-        setError(
-          applicationsResult.error.message ||
-            "Не удалось загрузить заявки"
-        );
-      }
-
-      if (managersResult.error) {
-        console.error(
-          "Ошибка загрузки менеджеров:",
-          managersResult.error
-        );
-      }
-
-      if (statsResult.error) {
-        console.error(
-          "Ошибка статистики заявок:",
-          statsResult.error
-        );
-      }
-
-      setApplications(
-        (
-          applicationsResult.data || []
-        )
-          .filter(Boolean)
-          .map((application) => ({
-          ...application,
-
-          status:
-            application.status === "waiting"
-              ? "new"
-              : application.status || "new",
-        }))
-      );
-
-      const loadedManagers = (
-        managersResult.data || []
-      ).filter(
-        (manager) =>
-          manager.status !== "blocked"
-      );
-
-      setManagers(loadedManagers);
-
-      setStats(
-        statsResult.data ||
-          emptyApplicationStats()
-      );
+      setAnalyticsError("");
 
       if (!isManager) {
+        setAnalyticsLoading(true);
+      } else {
+        setManagerAnalytics([]);
+        setAnalyticsLoading(false);
+      }
+
+      const scopedManagerId = isManager
+        ? user.id
+        : managerIdForQuery;
+
+      const applicationsPromise =
+        applicationService
+          .getApplications({
+            dateFrom: periodRange.from,
+            dateTo: periodRange.to,
+            managerId: scopedManagerId,
+          })
+          .catch((loadError) => ({
+            data: [],
+            error: loadError,
+          }));
+
+      const managersPromise = isManager
+        ? Promise.resolve({
+            data: [],
+            error: null,
+          })
+        : profileService.getManagers().catch(
+            (loadError) => ({
+              data: [],
+              error: loadError,
+            })
+          );
+
+      const statsPromise = analyticsService
+        .getApplicationStats({
+          managerId: scopedManagerId,
+          dateFrom: periodRange.from,
+          dateTo: periodRange.to,
+        })
+        .catch((loadError) => ({
+          data: emptyApplicationStats(),
+          error: loadError,
+        }));
+
+      try {
+        const applicationsResult =
+          await applicationsPromise;
+
+        if (isStale()) {
+          return;
+        }
+
+        if (applicationsResult.error) {
+          console.error(
+            "Ошибка загрузки заявок:",
+            applicationsResult.error
+          );
+
+          listErrorMessage = formatServiceError(
+            applicationsResult.error,
+            "Не удалось загрузить заявки"
+          );
+          setError(listErrorMessage);
+        }
+
+        setApplications(
+          (applicationsResult.data || [])
+            .filter(Boolean)
+            .map((application) => ({
+              ...application,
+              status:
+                application.status ===
+                "waiting"
+                  ? "new"
+                  : application.status ||
+                    "new",
+            }))
+        );
+      } catch (loadError) {
+        if (isStale()) {
+          return;
+        }
+
+        console.error(
+          "Ошибка загрузки заявок:",
+          loadError
+        );
+
+        listErrorMessage = formatServiceError(
+          loadError,
+          "Не удалось загрузить заявки"
+        );
+        setError(listErrorMessage);
+        setApplications([]);
+      } finally {
+        if (!isStale() && showLoader) {
+          setIsLoading(false);
+        }
+      }
+
+      if (isStale()) {
+        return;
+      }
+
+      let loadedManagers = [];
+
+      try {
+        const [managersResult, statsResult] =
+          await Promise.all([
+            managersPromise,
+            statsPromise,
+          ]);
+
+        if (isStale()) {
+          return;
+        }
+
+        if (managersResult.error) {
+          console.error(
+            "Ошибка загрузки менеджеров:",
+            managersResult.error
+          );
+        }
+
+        if (statsResult.error) {
+          console.error(
+            "Ошибка статистики заявок:",
+            statsResult.error
+          );
+
+          if (!listErrorMessage) {
+            setError(
+              formatServiceError(
+                statsResult.error,
+                "Не удалось загрузить статистику заявок"
+              )
+            );
+          }
+        }
+
+        loadedManagers = (
+          managersResult.data || []
+        ).filter(
+          (manager) =>
+            manager.status !== "blocked"
+        );
+
+        setManagers(loadedManagers);
+        setStats(
+          statsResult.data ||
+            emptyApplicationStats()
+        );
+      } catch (loadError) {
+        if (isStale()) {
+          return;
+        }
+
+        console.error(
+          "Ошибка статистики заявок:",
+          loadError
+        );
+      }
+
+      if (isStale()) {
+        return;
+      }
+
+      if (isManager) {
+        setAnalyticsLoading(false);
+        return;
+      }
+
+      try {
         const analyticsResult =
-          await analyticsService.getManagerPeriodAnalytics(
-            {
-              managerId:
-                managerIdForQuery,
-              dateFrom:
-                periodRange.from,
+          await analyticsService
+            .getManagerPeriodAnalytics({
+              managerId: managerIdForQuery,
+              dateFrom: periodRange.from,
               dateTo: periodRange.to,
               managers: loadedManagers,
-            }
-          );
+            })
+            .catch((loadError) => ({
+              data: [],
+              error: loadError,
+            }));
+
+        if (isStale()) {
+          return;
+        }
 
         if (analyticsResult.error) {
           console.error(
             "Ошибка аналитики менеджеров:",
             analyticsResult.error
           );
+
+          setAnalyticsError(
+            formatServiceError(
+              analyticsResult.error,
+              "Не удалось посчитать показатели менеджеров"
+            )
+          );
         }
 
         setManagerAnalytics(
           analyticsResult.data || []
         );
-      } else {
-        setManagerAnalytics([]);
-      }
       } catch (loadError) {
+        if (isStale()) {
+          return;
+        }
+
         console.error(
-          "Ошибка загрузки заявок:",
+          "Ошибка аналитики менеджеров:",
           loadError
         );
 
-        setError(
-          loadError?.message ||
-            "Не удалось загрузить заявки"
+        setAnalyticsError(
+          formatServiceError(
+            loadError,
+            "Не удалось посчитать показатели менеджеров"
+          )
         );
-        setApplications([]);
+        setManagerAnalytics([]);
       } finally {
-        if (showLoader) {
-          setIsLoading(false);
+        if (!isStale()) {
+          setAnalyticsLoading(false);
         }
       }
     },
@@ -307,6 +432,10 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     loadPageData();
+
+    return () => {
+      requestIdRef.current += 1;
+    };
   }, [loadPageData]);
 
   const filteredApplications = useMemo(
@@ -926,7 +1055,16 @@ export default function ApplicationsPage() {
 
       {error && (
         <div className="applications-alert applications-alert--error">
-          {error}
+          <span>{error}</span>
+
+          <button
+            className="applications-alert__retry"
+            type="button"
+            onClick={() => loadPageData()}
+            disabled={isLoading}
+          >
+            Повторить загрузку
+          </button>
         </div>
       )}
 
@@ -1076,7 +1214,9 @@ export default function ApplicationsPage() {
           <ManagerAnalytics
             title={`Результат менеджеров ${periodRange.label}`}
             rows={managerAnalytics}
-            loading={isLoading}
+            loading={analyticsLoading}
+            error={analyticsError}
+            onRetry={() => loadPageData(false)}
           />
         )}
 

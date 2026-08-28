@@ -23,6 +23,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/Managers.css";
 
 import { profileService } from "../services/profileService";
+import { getTelegramHref } from "../utils/telegram";
 
 const roleLabels = {
   head: "Руководитель",
@@ -639,23 +640,7 @@ function ContactRow({
 }
 
 function getTelegramLink(value) {
-  if (!value) {
-    return null;
-  }
-
-  const username = String(value)
-    .trim()
-    .replace(
-      /^https?:\/\/t\.me\//i,
-      ""
-    )
-    .replace(/^@/, "");
-
-  if (!username) {
-    return null;
-  }
-
-  return `https://t.me/${username}`;
+  return getTelegramHref(value);
 }
 
 function getInitials(fullName) {

@@ -52,6 +52,7 @@ import {
   getPeriodBounds,
 } from "../utils/periodRange";
 import { matchesSearch } from "../utils/searchMatch";
+import { formatServiceError } from "../utils/serviceError";
 
 import "../styles/Incoming.css";
 
@@ -93,7 +94,7 @@ export default function Incoming() {
   );
 
   const [stats, setStats] =
-    useState(emptyIncomingStats);
+    useState(() => emptyIncomingStats());
 
   const [
     managerAnalytics,
@@ -118,6 +119,9 @@ export default function Incoming() {
   const [loading, setLoading] =
     useState(true);
 
+  const [analyticsLoading, setAnalyticsLoading] =
+    useState(false);
+
   const [saving, setSaving] =
     useState(false);
 
@@ -125,6 +129,9 @@ export default function Incoming() {
     useState(false);
 
   const [error, setError] =
+    useState("");
+
+  const [analyticsError, setAnalyticsError] =
     useState("");
 
   const [formError, setFormError] =
@@ -171,6 +178,7 @@ export default function Incoming() {
           setLoading(false);
         }
 
+        setAnalyticsLoading(false);
         return;
       }
 
@@ -179,6 +187,7 @@ export default function Incoming() {
       }
 
       setError("");
+      setAnalyticsError("");
 
       const managerIdForQuery =
         isManager
@@ -187,106 +196,141 @@ export default function Incoming() {
             ? null
             : managerFilter;
 
-      const [
-        responseResult,
-        statsResult,
-        managersResult,
-      ] = await Promise.all([
-        incomingResponseService
-          .getResponses({
-            managerId:
-              managerIdForQuery,
-            dateFrom:
-              periodRange.from,
-            dateTo:
-              periodRange.to,
-          }),
-        analyticsService
-          .getIncomingStats({
-            managerId:
-              managerIdForQuery,
-            dateFrom:
-              periodRange.from,
-            dateTo:
-              periodRange.to,
-          }),
-        isManager
-          ? Promise.resolve({
-              data: [],
-              error: null,
-            })
-          : profileService.getManagers(),
-      ]);
-
-      if (responseResult.error) {
-        console.error(
-          "Ошибка загрузки откликов:",
-          responseResult.error
-        );
-
-        setError(
-          responseResult.error.message ||
-            "Не удалось загрузить входящие контакты"
-        );
-
-        setResponses([]);
-      } else {
-        setResponses(
-          responseResult.data || []
-        );
-      }
-
-      if (statsResult.error) {
-        console.error(
-          "Ошибка статистики входящих:",
-          statsResult.error
-        );
-      }
-
-      setStats(
-        statsResult.data ||
-          emptyIncomingStats()
-      );
-
-      const loadedManagers = (
-        managersResult.data || []
-      ).filter(
-        (manager) =>
-          manager.status !== "blocked"
-      );
-
-      setManagers(loadedManagers);
-
       if (!isManager) {
-        const analyticsResult =
-          await analyticsService
-            .getManagerPeriodAnalytics({
+        setAnalyticsLoading(true);
+      } else {
+        setManagerAnalytics([]);
+        setAnalyticsLoading(false);
+      }
+
+      try {
+        const [
+          responseResult,
+          statsResult,
+          managersResult,
+        ] = await Promise.all([
+          incomingResponseService
+            .getResponses({
               managerId:
                 managerIdForQuery,
               dateFrom:
                 periodRange.from,
               dateTo:
                 periodRange.to,
-              managers:
-                loadedManagers,
-            });
+            }),
+          analyticsService
+            .getIncomingStats({
+              managerId:
+                managerIdForQuery,
+              dateFrom:
+                periodRange.from,
+              dateTo:
+                periodRange.to,
+            }),
+          isManager
+            ? Promise.resolve({
+                data: [],
+                error: null,
+              })
+            : profileService.getManagers(),
+        ]);
 
-        if (analyticsResult.error) {
+        if (responseResult.error) {
           console.error(
-            "Ошибка аналитики менеджеров:",
-            analyticsResult.error
+            "Ошибка загрузки откликов:",
+            responseResult.error
+          );
+
+          setError(
+            formatServiceError(
+              responseResult.error,
+              "Не удалось загрузить входящие контакты"
+            )
+          );
+
+          setResponses([]);
+        } else {
+          setResponses(
+            responseResult.data || []
           );
         }
 
-        setManagerAnalytics(
-          analyticsResult.data || []
-        );
-      } else {
-        setManagerAnalytics([]);
-      }
+        if (statsResult.error) {
+          console.error(
+            "Ошибка статистики входящих:",
+            statsResult.error
+          );
+        }
 
-      if (showLoader) {
-        setLoading(false);
+        setStats(
+          statsResult.data ||
+            emptyIncomingStats()
+        );
+
+        const loadedManagers = (
+          managersResult.data || []
+        ).filter(
+          (manager) =>
+            manager.status !== "blocked"
+        );
+
+        setManagers(loadedManagers);
+
+        if (showLoader) {
+          setLoading(false);
+        }
+
+        if (!isManager) {
+          const analyticsResult =
+            await analyticsService
+              .getManagerPeriodAnalytics({
+                managerId:
+                  managerIdForQuery,
+                dateFrom:
+                  periodRange.from,
+                dateTo:
+                  periodRange.to,
+                managers:
+                  loadedManagers,
+              });
+
+          if (analyticsResult.error) {
+            console.error(
+              "Ошибка аналитики менеджеров:",
+              analyticsResult.error
+            );
+
+            setAnalyticsError(
+              formatServiceError(
+                analyticsResult.error,
+                "Не удалось посчитать показатели менеджеров"
+              )
+            );
+          }
+
+          setManagerAnalytics(
+            analyticsResult.data || []
+          );
+        }
+      } catch (loadError) {
+        console.error(
+          "Ошибка загрузки входящих:",
+          loadError
+        );
+
+        setError(
+          formatServiceError(
+            loadError,
+            "Не удалось загрузить входящие контакты"
+          )
+        );
+        setResponses([]);
+      } finally {
+        if (showLoader) {
+          setLoading(false);
+        }
+
+        setAnalyticsLoading(false);
       }
     },
     [
@@ -1078,7 +1122,9 @@ const managerOptions =
         <ManagerAnalytics
           title={`Результат менеджеров ${periodRange.label}`}
           rows={managerAnalytics}
-          loading={loading}
+          loading={analyticsLoading}
+          error={analyticsError}
+          onRetry={() => loadResponses(false)}
         />
       )}
 

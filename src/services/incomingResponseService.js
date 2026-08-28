@@ -1,4 +1,8 @@
 import { supabase } from "../lib/supabase";
+import {
+  formatTelegramDisplay,
+  telegramKey,
+} from "../utils/telegram";
 
 const CONTACT_FIELDS = `
   id,
@@ -155,16 +159,13 @@ async function fetchAllPages(buildQuery) {
 }
 
 function normalizeTelegramUsername(value) {
-  const cleaned = String(value || "")
-    .trim()
-    .replace(/^https?:\/\/t\.me\//i, "")
-    .replace(/^t\.me\//i, "")
-    .replace(/^@+/, "")
-    .split(/[/?#]/)[0]
-    .trim()
-    .toLowerCase();
+  return formatTelegramDisplay(value) || "";
+}
 
-  return cleaned ? `@${cleaned}` : "";
+function telegramMatchKey(value) {
+  const key = telegramKey(value);
+
+  return key ? `@${key}` : "";
 }
 
 function normalizePhone(value) {
@@ -373,14 +374,16 @@ function normalizeIdentifier(value) {
   ) {
     const telegram =
       normalizeTelegramUsername(raw);
+    const telegramMatch =
+      telegramMatchKey(raw);
 
-    if (!telegram) {
+    if (!telegram || !telegramMatch) {
       return null;
     }
 
     return {
       type: "telegram",
-      value: telegram,
+      value: telegramMatch,
       telegram,
       phone: "",
     };
@@ -455,9 +458,9 @@ function contactsMatchTelegram(
   }
 
   return (
-    normalizeTelegramUsername(
+    telegramMatchKey(
       contact?.telegram_username
-    ) === normalizedTelegram
+    ) === telegramMatchKey(normalizedTelegram)
   );
 }
 
@@ -1042,13 +1045,16 @@ async function registerSingleResponse({
   managerId,
   respondedAt = null,
 }) {
+  const telegramDisplay =
+    formatTelegramDisplay(telegram) || "";
   const normalizedTelegram =
-    normalizeTelegramUsername(telegram);
+    telegramMatchKey(telegram);
 
   const normalizedPhone =
     normalizePhone(phone);
 
   if (
+    !telegramDisplay &&
     !normalizedTelegram &&
     !normalizedPhone
   ) {
@@ -1079,6 +1085,7 @@ async function registerSingleResponse({
   }
 
   const identifier =
+    telegramDisplay ||
     normalizedTelegram ||
     normalizedPhone;
 
@@ -1379,7 +1386,9 @@ async function registerSingleResponse({
     error: createError,
     alreadyExists,
   } = await createExternalContact({
-    normalizedTelegram,
+    normalizedTelegram:
+      telegramDisplay ||
+      normalizedTelegram,
     normalizedPhone,
     managerId,
     respondedAt,

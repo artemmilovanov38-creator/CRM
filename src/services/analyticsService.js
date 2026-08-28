@@ -1,6 +1,8 @@
 import { supabase } from "../lib/supabase";
+import { formatServiceError } from "../utils/serviceError";
 
 const PAGE_SIZE = 1000;
+const QUERY_TIMEOUT_MS = 12000;
 
 function applyRange(query, column, dateFrom, dateTo) {
   let next = query;
@@ -28,13 +30,49 @@ function applyManagerId(query, column, managerId) {
   return query.eq(column, managerId);
 }
 
-async function countExact(query) {
-  const { count, error } = await query;
+async function withTimeout(promise, label) {
+  let timer = null;
 
-  return {
-    count: count || 0,
-    error,
-  };
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(
+        `${label}: превышено время ожидания`
+      );
+      error.code = "TIMEOUT";
+      reject(error);
+    }, QUERY_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      promise,
+      timeout,
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function countExact(query) {
+  try {
+    const { count, error } =
+      await withTimeout(
+        query,
+        "count"
+      );
+
+    return {
+      count: count || 0,
+      error,
+    };
+  } catch (error) {
+    return {
+      count: 0,
+      error,
+    };
+  }
 }
 
 async function fetchAllPages(buildQuery) {
@@ -115,20 +153,48 @@ function isMissingRejectedAt(error) {
 }
 
 async function tryRpc(name, params) {
-  const { data, error } =
-    await supabase.rpc(name, params);
+  try {
+    const { data, error } =
+      await withTimeout(
+        supabase.rpc(name, params),
+        name
+      );
 
-  if (error) {
+    if (error) {
+      return {
+        data: null,
+        error,
+      };
+    }
+
+    return {
+      data,
+      error: null,
+    };
+  } catch (error) {
     return {
       data: null,
       error,
     };
   }
+}
 
-  return {
-    data,
-    error: null,
-  };
+function mapAnalyticsError(error) {
+  if (!error) {
+    return null;
+  }
+
+  const mapped = new Error(
+    formatServiceError(
+      error,
+      "Не удалось загрузить аналитику"
+    )
+  );
+  mapped.code = error.code;
+  mapped.status = error.status;
+  mapped.cause = error;
+
+  return mapped;
 }
 
 export const analyticsService = {
@@ -325,6 +391,56 @@ export const analyticsService = {
     dateFrom = null,
     dateTo = null,
   } = {}) {
+    if (managerId !== "unassigned") {
+      const rpc = await tryRpc(
+        "get_application_period_stats",
+        {
+          p_from: dateFrom,
+          p_to: dateTo,
+          p_manager_id: managerId,
+        }
+      );
+
+      if (!rpc.error && rpc.data) {
+        let payload = rpc.data;
+
+        if (typeof payload === "string") {
+          try {
+            payload = JSON.parse(payload);
+          } catch {
+            payload = null;
+          }
+        }
+
+        if (payload) {
+          return {
+            data: {
+              total: Number(payload.total || 0),
+              newApplications: Number(
+                payload.new_applications || 0
+              ),
+              inProgress: Number(
+                payload.in_progress || 0
+              ),
+              approved: Number(
+                payload.opened || 0
+              ),
+              opened: Number(
+                payload.opened || 0
+              ),
+              rejected: Number(
+                payload.rejected || 0
+              ),
+              totalAmount: Number(
+                payload.total_amount || 0
+              ),
+            },
+            error: null,
+          };
+        }
+      }
+    }
+
     const createdBase = () =>
       applyManagerId(
         applyRange(
@@ -406,8 +522,8 @@ export const analyticsService = {
       ),
       managerId === "unassigned"
         ? Promise.resolve({
-            data: null,
-            error: { message: "skip" },
+            data: 0,
+            error: null,
           })
         : tryRpc("sum_opened_amount", {
             p_from: dateFrom,
@@ -415,55 +531,6 @@ export const analyticsService = {
             p_manager_id: managerId,
           }),
     ]);
-
-    let totalAmount = Number(
-      amountRpc.data || 0
-    );
-
-    if (amountRpc.error) {
-      const amountRows =
-        await fetchAllPages(() =>
-          applyManagerId(
-            applyRange(
-              supabase
-                .from("applications")
-                .select(
-                  "amount, opening_price_snapshot"
-                )
-                .not(
-                  "opened_at",
-                  "is",
-                  null
-                ),
-              "opened_at",
-              dateFrom,
-              dateTo
-            ),
-            "assigned_manager_id",
-            managerId
-          )
-        );
-
-      totalAmount = (
-        amountRows.data || []
-      ).reduce((sum, row) => {
-        const value =
-          row.amount !== null &&
-          row.amount !== undefined
-            ? Number(row.amount)
-            : Number(
-                row.opening_price_snapshot ||
-                  0
-              );
-
-        return (
-          sum +
-          (Number.isFinite(value)
-            ? value
-            : 0)
-        );
-      }, 0);
-    }
 
     const firstError = [
       totalResult.error,
@@ -493,9 +560,11 @@ export const analyticsService = {
         )
           ? 0
           : rejectedEventResult.count,
-        totalAmount,
+        totalAmount: Number(
+          amountRpc.data || 0
+        ),
       },
-      error: firstError,
+      error: mapAnalyticsError(firstError),
     };
   },
 
@@ -522,48 +591,66 @@ export const analyticsService = {
     );
 
     if (!rpc.error && Array.isArray(rpc.data)) {
-      const byId = new Map(
-        rpc.data.map((row) => [
-          row.manager_id,
-          row,
+      const names = new Map(
+        (managers || []).map((manager) => [
+          manager.id,
+          managerDisplayName(manager),
         ])
       );
 
-      const scopedManagers = managerId
-        ? managers.filter(
-            (manager) =>
-              manager.id === managerId
-          )
-        : managers;
+      const rows = rpc.data.map((row) => ({
+        id: row.manager_id,
+        name:
+          names.get(row.manager_id) ||
+          row.name ||
+          "Без имени",
+        responded: Number(
+          row.responded || 0
+        ),
+        applications: Number(
+          row.applications || 0
+        ),
+        opened: Number(row.opened || 0),
+        rejected: Number(
+          row.rejected || 0
+        ),
+      }));
 
-      const merged = scopedManagers.map(
-        (manager) => {
-          const row =
-            byId.get(manager.id);
+      if (
+        managers.length > 0 &&
+        rows.length === 0
+      ) {
+        const scopedManagers = managerId
+          ? managers.filter(
+              (manager) =>
+                manager.id === managerId
+            )
+          : managers;
 
-          return {
-            id: manager.id,
-            name: managerDisplayName(
-              manager
+        return {
+          data: scopedManagers
+            .map((manager) => ({
+              id: manager.id,
+              name: managerDisplayName(
+                manager
+              ),
+              responded: 0,
+              applications: 0,
+              opened: 0,
+              rejected: 0,
+            }))
+            .sort((a, b) =>
+              a.name.localeCompare(
+                b.name,
+                "ru"
+              )
             ),
-            responded: Number(
-              row?.responded || 0
-            ),
-            applications: Number(
-              row?.applications || 0
-            ),
-            opened: Number(
-              row?.opened || 0
-            ),
-            rejected: Number(
-              row?.rejected || 0
-            ),
-          };
-        }
-      );
+          error: null,
+        };
+      }
 
       return {
-        data: merged.sort((a, b) =>
+        data: rows.sort((a, b) =>
           a.name.localeCompare(
             b.name,
             "ru"
@@ -573,142 +660,14 @@ export const analyticsService = {
       };
     }
 
-    const scopedManagers = managerId
-      ? managers.filter(
-          (manager) =>
-            manager.id === managerId
-        )
-      : managers;
-
-    const rows = await Promise.all(
-      scopedManagers.map(
-        async (manager) => {
-          const [
-            responded,
-            applications,
-            opened,
-            rejected,
-          ] = await Promise.all([
-            countExact(
-              applyRange(
-                supabase
-                  .from("mailing_contacts")
-                  .select("id", {
-                    count: "exact",
-                    head: true,
-                  })
-                  .not(
-                    "responded_at",
-                    "is",
-                    null
-                  )
-                  .eq(
-                    "manager_id",
-                    manager.id
-                  ),
-                "responded_at",
-                dateFrom,
-                dateTo
-              )
-            ),
-            countExact(
-              applyRange(
-                supabase
-                  .from("applications")
-                  .select("id", {
-                    count: "exact",
-                    head: true,
-                  })
-                  .eq(
-                    "assigned_manager_id",
-                    manager.id
-                  ),
-                "created_at",
-                dateFrom,
-                dateTo
-              )
-            ),
-            countExact(
-              applyRange(
-                supabase
-                  .from("applications")
-                  .select("id", {
-                    count: "exact",
-                    head: true,
-                  })
-                  .eq(
-                    "assigned_manager_id",
-                    manager.id
-                  )
-                  .not(
-                    "opened_at",
-                    "is",
-                    null
-                  ),
-                "opened_at",
-                dateFrom,
-                dateTo
-              )
-            ),
-            countExact(
-              applyRange(
-                supabase
-                  .from("applications")
-                  .select("id", {
-                    count: "exact",
-                    head: true,
-                  })
-                  .eq(
-                    "assigned_manager_id",
-                    manager.id
-                  )
-                  .not(
-                    "rejected_at",
-                    "is",
-                    null
-                  ),
-                "rejected_at",
-                dateFrom,
-                dateTo
-              )
-            ),
-          ]);
-
-          return {
-            id: manager.id,
-            name: managerDisplayName(
-              manager
-            ),
-            responded: responded.count,
-            applications:
-              applications.count,
-            opened: opened.count,
-            rejected: rejected.count,
-            error:
-              responded.error ||
-              applications.error ||
-              opened.error ||
-              rejected.error,
-          };
-        }
-      )
-    );
-
     return {
-      data: rows
-        .map(
-          ({ error: _error, ...row }) =>
-            row
-        )
-        .sort((a, b) =>
-          a.name.localeCompare(
-            b.name,
-            "ru"
+      data: [],
+      error: mapAnalyticsError(
+        rpc.error ||
+          new Error(
+            "Не удалось посчитать аналитику менеджеров"
           )
-        ),
-      error: rows.find(
-        (row) => row.error
-      )?.error,
+      ),
     };
   },
 };

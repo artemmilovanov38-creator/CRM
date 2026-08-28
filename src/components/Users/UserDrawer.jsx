@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import "../../styles/UserDrawer.css";
+import { formatTelegramDisplay, getTelegramHref } from "../../utils/telegram";
 
 const emptyForm = {
   full_name: "",
@@ -82,19 +83,13 @@ function getUserForm(profile) {
 }
 
 function normalizeTelegram(value) {
-  return String(value || "")
-    .trim()
-    .replace(/^@/, "");
+  return formatTelegramDisplay(value, false, {
+    strict: false,
+  });
 }
 
 function getTelegramLink(value) {
-  const username = normalizeTelegram(value);
-
-  if (!username) {
-    return null;
-  }
-
-  return `https://t.me/${username}`;
+  return getTelegramHref(value);
 }
 
 function getInitials(value) {
