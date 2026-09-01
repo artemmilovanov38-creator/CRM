@@ -6,7 +6,11 @@ export default function ManagerAnalytics({
   loading = false,
   error = "",
   onRetry,
+  variant = "crm",
 }) {
+  const isApplications =
+    variant === "applications";
+
   if (loading) {
     return (
       <section className="manager-analytics">
@@ -47,14 +51,32 @@ export default function ManagerAnalytics({
       <h2>{title}</h2>
 
       <div className="manager-analytics__table-wrap">
-        <table className="manager-analytics__table">
+        <table
+          className={
+            isApplications
+              ? "manager-analytics__table manager-analytics__table--applications"
+              : "manager-analytics__table"
+          }
+        >
           <thead>
             <tr>
               <th>Менеджер</th>
-              <th>Написали</th>
-              <th>Заявок</th>
-              <th>Успешно</th>
-              <th>Отказов</th>
+              {isApplications ? (
+                <>
+                  <th>Заявок</th>
+                  <th>В работе</th>
+                  <th>Успешно</th>
+                  <th>Отказов</th>
+                  <th>Сумма успешных</th>
+                </>
+              ) : (
+                <>
+                  <th>Написали</th>
+                  <th>Заявок</th>
+                  <th>Успешно</th>
+                  <th>Отказов</th>
+                </>
+              )}
             </tr>
           </thead>
 
@@ -66,12 +88,28 @@ export default function ManagerAnalytics({
                     {row.name}
                   </strong>
                 </td>
-                <td>{row.responded}</td>
-                <td>
-                  {row.applications}
-                </td>
-                <td>{row.opened}</td>
-                <td>{row.rejected}</td>
+                {isApplications ? (
+                  <>
+                    <td>{row.applications}</td>
+                    <td>{row.inProgress}</td>
+                    <td>{row.opened}</td>
+                    <td>{row.rejected}</td>
+                    <td>
+                      {formatMoney(
+                        row.totalAmount
+                      )}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td>{row.responded}</td>
+                    <td>
+                      {row.applications}
+                    </td>
+                    <td>{row.opened}</td>
+                    <td>{row.rejected}</td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
@@ -85,21 +123,54 @@ export default function ManagerAnalytics({
             key={`${row.id}-card`}
           >
             <strong>{row.name}</strong>
-            <span>
-              написали {row.responded}
-            </span>
-            <span>
-              заявок {row.applications}
-            </span>
-            <span>
-              успешно {row.opened}
-            </span>
-            <span>
-              отказов {row.rejected}
-            </span>
+            {isApplications ? (
+              <>
+                <span>
+                  заявок {row.applications}
+                </span>
+                <span>
+                  в работе {row.inProgress}
+                </span>
+                <span>
+                  успешно {row.opened}
+                </span>
+                <span>
+                  отказов {row.rejected}
+                </span>
+                <span>
+                  сумма{" "}
+                  {formatMoney(
+                    row.totalAmount
+                  )}
+                </span>
+              </>
+            ) : (
+              <>
+                <span>
+                  написали {row.responded}
+                </span>
+                <span>
+                  заявок {row.applications}
+                </span>
+                <span>
+                  успешно {row.opened}
+                </span>
+                <span>
+                  отказов {row.rejected}
+                </span>
+              </>
+            )}
           </article>
         ))}
       </div>
     </section>
   );
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "RUB",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
 }

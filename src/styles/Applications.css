@@ -180,6 +180,9 @@
 
 .applications-filter {
   padding: 0 12px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .applications-refresh-button {
@@ -1670,6 +1673,7 @@ font-size:14px;
   flex-wrap: wrap;
   align-items: stretch;
   gap: 12px;
+  min-width: 0;
 }
 
 .applications-search {
@@ -1680,10 +1684,18 @@ font-size:14px;
 .applications-filter {
   flex: 1 1 160px;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.applications-filter--product {
+  flex: 1 1 180px;
 }
 
 .applications-toolbar .period-filter {
   flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .applications-view-switcher {
@@ -1702,10 +1714,12 @@ font-size:14px;
 @media (max-width: 760px) {
   .applications-search,
   .applications-filter,
+  .applications-filter--product,
   .applications-toolbar .period-filter,
   .applications-view-switcher {
     flex-basis: 100%;
     width: 100%;
+    max-width: 100%;
   }
 
   .applications-panel .manager-analytics {

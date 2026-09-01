@@ -48,6 +48,10 @@
   border-collapse: collapse;
 }
 
+.manager-analytics__table--applications {
+  min-width: 680px;
+}
+
 .manager-analytics__table th,
 .manager-analytics__table td {
   padding: 10px 8px;

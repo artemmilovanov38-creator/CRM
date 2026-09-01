@@ -27,6 +27,7 @@ import "../styles/Applications.css";
 
 import { useAuth } from "../context/AuthContext";
 import { applicationService, getApplicationPayout } from "../services/applicationService";
+import { productService } from "../services/productService";
 import { profileService } from "../services/profileService";
 import {
   analyticsService,
@@ -81,6 +82,12 @@ export default function ApplicationsPage() {
 
   const [managerFilter, setManagerFilter] =
     useState("all");
+
+  const [productFilter, setProductFilter] =
+    useState("all");
+
+  const [products, setProducts] =
+    useState([]);
 
   const [periodPreset, setPeriodPreset] =
     useState("all");
@@ -166,6 +173,20 @@ export default function ApplicationsPage() {
       ? null
       : managerFilter;
 
+  const productIdForQuery =
+    productFilter === "all"
+      ? null
+      : productFilter;
+
+  const selectedProduct = useMemo(
+    () =>
+      products.find(
+        (product) =>
+          product.id === productFilter
+      ) || null,
+    [products, productFilter]
+  );
+
   const loadPageData = useCallback(
     async (showLoader = true) => {
       if (!user?.id) {
@@ -206,6 +227,7 @@ export default function ApplicationsPage() {
             dateFrom: periodRange.from,
             dateTo: periodRange.to,
             managerId: scopedManagerId,
+            productId: productIdForQuery,
           })
           .catch((loadError) => ({
             data: [],
@@ -224,11 +246,19 @@ export default function ApplicationsPage() {
             })
           );
 
+      const productsPromise = productService
+        .getProducts()
+        .catch((loadError) => ({
+          data: [],
+          error: loadError,
+        }));
+
       const statsPromise = analyticsService
         .getApplicationStats({
           managerId: scopedManagerId,
           dateFrom: periodRange.from,
           dateTo: periodRange.to,
+          productId: productIdForQuery,
         })
         .catch((loadError) => ({
           data: emptyApplicationStats(),
@@ -298,11 +328,15 @@ export default function ApplicationsPage() {
       let loadedManagers = [];
 
       try {
-        const [managersResult, statsResult] =
-          await Promise.all([
-            managersPromise,
-            statsPromise,
-          ]);
+        const [
+          managersResult,
+          productsResult,
+          statsResult,
+        ] = await Promise.all([
+          managersPromise,
+          productsPromise,
+          statsPromise,
+        ]);
 
         if (isStale()) {
           return;
@@ -331,6 +365,13 @@ export default function ApplicationsPage() {
           }
         }
 
+        if (productsResult.error) {
+          console.error(
+            "Ошибка загрузки продуктов:",
+            productsResult.error
+          );
+        }
+
         loadedManagers = (
           managersResult.data || []
         ).filter(
@@ -339,6 +380,7 @@ export default function ApplicationsPage() {
         );
 
         setManagers(loadedManagers);
+        setProducts(productsResult.data || []);
         setStats(
           statsResult.data ||
             emptyApplicationStats()
@@ -366,10 +408,11 @@ export default function ApplicationsPage() {
       try {
         const analyticsResult =
           await analyticsService
-            .getManagerPeriodAnalytics({
+            .getApplicationManagerAnalytics({
               managerId: managerIdForQuery,
               dateFrom: periodRange.from,
               dateTo: periodRange.to,
+              productId: productIdForQuery,
               managers: loadedManagers,
             })
             .catch((loadError) => ({
@@ -426,6 +469,7 @@ export default function ApplicationsPage() {
       managerIdForQuery,
       periodRange.from,
       periodRange.to,
+      productIdForQuery,
       user?.id,
     ]
   );
@@ -998,6 +1042,12 @@ export default function ApplicationsPage() {
                   )
             }`
           : ""}
+        {productFilter !== "all"
+          ? ` · ${
+              selectedProduct?.name ||
+              "выбранный продукт"
+            }`
+          : ""}
       </p>
 
       <p className="applications-period-hint">
@@ -1162,6 +1212,30 @@ export default function ApplicationsPage() {
           </select>
           )}
 
+          <select
+            className="applications-filter applications-filter--product"
+            value={productFilter}
+            aria-label="Фильтр по продукту"
+            onChange={(event) =>
+              setProductFilter(
+                event.target.value
+              )
+            }
+          >
+            <option value="all">
+              Все продукты
+            </option>
+
+            {products.map((product) => (
+              <option
+                key={product.id}
+                value={product.id}
+              >
+                {product.name}
+              </option>
+            ))}
+          </select>
+
           <PeriodFilter
             preset={periodPreset}
             customFrom={customFrom}
@@ -1212,11 +1286,19 @@ export default function ApplicationsPage() {
 
         {!isManager && (
           <ManagerAnalytics
-            title={`Результат менеджеров ${periodRange.label}`}
+            title={`Результат менеджеров ${periodRange.label}${
+              productFilter !== "all"
+                ? ` · ${
+                    selectedProduct?.name ||
+                    "продукт"
+                  }`
+                : ""
+            }`}
             rows={managerAnalytics}
             loading={analyticsLoading}
             error={analyticsError}
             onRetry={() => loadPageData(false)}
+            variant="applications"
           />
         )}
 
@@ -2092,8 +2174,7 @@ function StatCard({
 function getProductName(application) {
   return (
     application?.product_data?.name ||
-    application?.product ||
-    "Не указан"
+    "Продукт не указан"
   );
 }
 

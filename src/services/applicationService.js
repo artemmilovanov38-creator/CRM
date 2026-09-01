@@ -1000,6 +1000,7 @@ export const applicationService = {
     dateFrom = null,
     dateTo = null,
     managerId = null,
+    productId = null,
   } = {}) {
     const actor = await getCurrentActor();
 
@@ -1043,6 +1044,13 @@ export const applicationService = {
         query = query.eq(
           "assigned_manager_id",
           managerId
+        );
+      }
+
+      if (productId) {
+        query = query.eq(
+          "product_id",
+          productId
         );
       }
 

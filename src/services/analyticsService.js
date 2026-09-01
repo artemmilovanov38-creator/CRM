@@ -30,6 +30,86 @@ function applyManagerId(query, column, managerId) {
   return query.eq(column, managerId);
 }
 
+function applyProductId(query, productId) {
+  if (!productId) {
+    return query;
+  }
+
+  return query.eq("product_id", productId);
+}
+
+function openedAmount(row) {
+  const amount = Number(
+    row?.amount ??
+      row?.opening_price_snapshot ??
+      0
+  );
+
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function emptyApplicationManagerRow(manager) {
+  return {
+    id: manager?.id,
+    name: managerDisplayName(manager),
+    applications: 0,
+    inProgress: 0,
+    opened: 0,
+    rejected: 0,
+    totalAmount: 0,
+  };
+}
+
+function mapApplicationManagerRows(
+  rows,
+  managers = [],
+  managerId = null
+) {
+  const names = new Map(
+    (managers || []).map((manager) => [
+      manager.id,
+      managerDisplayName(manager),
+    ])
+  );
+
+  const mapped = (rows || []).map((row) => ({
+    id: row.manager_id,
+    name:
+      names.get(row.manager_id) ||
+      row.name ||
+      "Без имени",
+    applications: Number(
+      row.applications || 0
+    ),
+    inProgress: Number(
+      row.in_progress || 0
+    ),
+    opened: Number(row.opened || 0),
+    rejected: Number(row.rejected || 0),
+    totalAmount: Number(
+      row.total_amount || 0
+    ),
+  }));
+
+  if (managers.length > 0 && mapped.length === 0) {
+    const scopedManagers = managerId
+      ? managers.filter(
+          (manager) => manager.id === managerId
+        )
+      : managers;
+
+    return scopedManagers
+      .map(emptyApplicationManagerRow)
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, "ru")
+      );
+  }
+
+  return mapped.sort((a, b) =>
+    a.name.localeCompare(b.name, "ru")
+  );
+}
+
 async function withTimeout(promise, label) {
   let timer = null;
 
@@ -390,15 +470,22 @@ export const analyticsService = {
     managerId = null,
     dateFrom = null,
     dateTo = null,
+    productId = null,
   } = {}) {
     if (managerId !== "unassigned") {
+      const rpcParams = {
+        p_from: dateFrom,
+        p_to: dateTo,
+        p_manager_id: managerId,
+      };
+
+      if (productId) {
+        rpcParams.p_product_id = productId;
+      }
+
       const rpc = await tryRpc(
         "get_application_period_stats",
-        {
-          p_from: dateFrom,
-          p_to: dateTo,
-          p_manager_id: managerId,
-        }
+        rpcParams
       );
 
       if (!rpc.error && rpc.data) {
@@ -442,20 +529,23 @@ export const analyticsService = {
     }
 
     const createdBase = () =>
-      applyManagerId(
-        applyRange(
-          supabase
-            .from("applications")
-            .select("id", {
-              count: "exact",
-              head: true,
-            }),
-          "created_at",
-          dateFrom,
-          dateTo
+      applyProductId(
+        applyManagerId(
+          applyRange(
+            supabase
+              .from("applications")
+              .select("id", {
+                count: "exact",
+                head: true,
+              }),
+            "created_at",
+            dateFrom,
+            dateTo
+          ),
+          "assigned_manager_id",
+          managerId
         ),
-        "assigned_manager_id",
-        managerId
+        productId
       );
 
     const [
@@ -481,55 +571,57 @@ export const analyticsService = {
         createdBase().eq("status", "waiting")
       ),
       countExact(
-        applyManagerId(
-          applyRange(
-            supabase
-              .from("applications")
-              .select("id", {
-                count: "exact",
-                head: true,
-              })
-              .not("opened_at", "is", null),
-            "opened_at",
-            dateFrom,
-            dateTo
+        applyProductId(
+          applyManagerId(
+            applyRange(
+              supabase
+                .from("applications")
+                .select("id", {
+                  count: "exact",
+                  head: true,
+                })
+                .not("opened_at", "is", null),
+              "opened_at",
+              dateFrom,
+              dateTo
+            ),
+            "assigned_manager_id",
+            managerId
           ),
-          "assigned_manager_id",
-          managerId
+          productId
         )
       ),
       countExact(
-        applyManagerId(
-          applyRange(
-            supabase
-              .from("applications")
-              .select("id", {
-                count: "exact",
-                head: true,
-              })
-              .not(
-                "rejected_at",
-                "is",
-                null
-              ),
-            "rejected_at",
-            dateFrom,
-            dateTo
+        applyProductId(
+          applyManagerId(
+            applyRange(
+              supabase
+                .from("applications")
+                .select("id", {
+                  count: "exact",
+                  head: true,
+                })
+                .not(
+                  "rejected_at",
+                  "is",
+                  null
+                ),
+              "rejected_at",
+              dateFrom,
+              dateTo
+            ),
+            "assigned_manager_id",
+            managerId
           ),
-          "assigned_manager_id",
-          managerId
+          productId
         )
       ),
-      managerId === "unassigned"
-        ? Promise.resolve({
-            data: 0,
-            error: null,
-          })
-        : tryRpc("sum_opened_amount", {
-            p_from: dateFrom,
-            p_to: dateTo,
-            p_manager_id: managerId,
-          }),
+      this.sumOpenedAmount({
+        managerId,
+        dateFrom,
+        dateTo,
+        productId,
+      }),
     ]);
 
     const firstError = [
@@ -564,6 +656,266 @@ export const analyticsService = {
           amountRpc.data || 0
         ),
       },
+      error: mapAnalyticsError(firstError),
+    };
+  },
+
+  async sumOpenedAmount({
+    managerId = null,
+    dateFrom = null,
+    dateTo = null,
+    productId = null,
+  } = {}) {
+    if (managerId !== "unassigned") {
+      const rpcParams = {
+        p_from: dateFrom,
+        p_to: dateTo,
+        p_manager_id: managerId,
+      };
+
+      if (productId) {
+        rpcParams.p_product_id = productId;
+      }
+
+      const rpc = await tryRpc(
+        "sum_opened_amount",
+        rpcParams
+      );
+
+      if (!rpc.error && rpc.data != null) {
+        return {
+          data: Number(rpc.data || 0),
+          error: null,
+        };
+      }
+    }
+
+    const result = await fetchAllPages(
+      () =>
+        applyProductId(
+          applyManagerId(
+            applyRange(
+              supabase
+                .from("applications")
+                .select(
+                  "amount, opening_price_snapshot"
+                )
+                .not("opened_at", "is", null),
+              "opened_at",
+              dateFrom,
+              dateTo
+            ),
+            "assigned_manager_id",
+            managerId
+          ),
+          productId
+        )
+    );
+
+    const total = (result.data || []).reduce(
+      (sum, row) => sum + openedAmount(row),
+      0
+    );
+
+    return {
+      data: total,
+      error: result.error,
+    };
+  },
+
+  async getApplicationManagerAnalytics({
+    managerId = null,
+    dateFrom = null,
+    dateTo = null,
+    productId = null,
+    managers = [],
+  } = {}) {
+    if (managerId === "unassigned") {
+      return {
+        data: [],
+        error: null,
+      };
+    }
+
+    const rpc = await tryRpc(
+      "get_application_manager_analytics",
+      {
+        p_from: dateFrom,
+        p_to: dateTo,
+        p_manager_id: managerId,
+        p_product_id: productId,
+      }
+    );
+
+    if (!rpc.error && Array.isArray(rpc.data)) {
+      return {
+        data: mapApplicationManagerRows(
+          rpc.data,
+          managers,
+          managerId
+        ),
+        error: null,
+      };
+    }
+
+    return this.aggregateApplicationManagerAnalytics({
+      managerId,
+      dateFrom,
+      dateTo,
+      productId,
+      managers,
+    });
+  },
+
+  async aggregateApplicationManagerAnalytics({
+    managerId = null,
+    dateFrom = null,
+    dateTo = null,
+    productId = null,
+    managers = [],
+  } = {}) {
+    const scopedQuery = (query) =>
+      applyProductId(
+        applyManagerId(
+          query,
+          "assigned_manager_id",
+          managerId
+        ),
+        productId
+      );
+
+    const [
+      createdResult,
+      openedResult,
+      rejectedResult,
+    ] = await Promise.all([
+      fetchAllPages(() =>
+        scopedQuery(
+          applyRange(
+            supabase
+              .from("applications")
+              .select(
+                "id, assigned_manager_id, status"
+              ),
+            "created_at",
+            dateFrom,
+            dateTo
+          )
+        )
+      ),
+      fetchAllPages(() =>
+        scopedQuery(
+          applyRange(
+            supabase
+              .from("applications")
+              .select(
+                "id, assigned_manager_id, amount, opening_price_snapshot"
+              )
+              .not("opened_at", "is", null),
+            "opened_at",
+            dateFrom,
+            dateTo
+          )
+        )
+      ),
+      fetchAllPages(() =>
+        scopedQuery(
+          applyRange(
+            supabase
+              .from("applications")
+              .select("id, assigned_manager_id")
+              .not("rejected_at", "is", null),
+            "rejected_at",
+            dateFrom,
+            dateTo
+          )
+        )
+      ),
+    ]);
+
+    const firstError =
+      createdResult.error ||
+      openedResult.error ||
+      rejectedResult.error;
+
+    const byId = new Map();
+
+    const ensureRow = (id) => {
+      if (!id) {
+        return null;
+      }
+
+      if (!byId.has(id)) {
+        const profile = (managers || []).find(
+          (manager) => manager.id === id
+        );
+
+        byId.set(
+          id,
+          emptyApplicationManagerRow(
+            profile || { id }
+          )
+        );
+      }
+
+      return byId.get(id);
+    };
+
+    for (const row of createdResult.data || []) {
+      const item = ensureRow(
+        row.assigned_manager_id
+      );
+
+      if (!item) {
+        continue;
+      }
+
+      item.applications += 1;
+
+      if (row.status === "in_progress") {
+        item.inProgress += 1;
+      }
+    }
+
+    for (const row of openedResult.data || []) {
+      const item = ensureRow(
+        row.assigned_manager_id
+      );
+
+      if (!item) {
+        continue;
+      }
+
+      item.opened += 1;
+      item.totalAmount += openedAmount(row);
+    }
+
+    for (const row of rejectedResult.data || []) {
+      const item = ensureRow(
+        row.assigned_manager_id
+      );
+
+      if (!item) {
+        continue;
+      }
+
+      item.rejected += 1;
+    }
+
+    const scopedManagers = managerId
+      ? (managers || []).filter(
+          (manager) => manager.id === managerId
+        )
+      : managers || [];
+
+    for (const manager of scopedManagers) {
+      ensureRow(manager.id);
+    }
+
+    return {
+      data: [...byId.values()].sort((a, b) =>
+        a.name.localeCompare(b.name, "ru")
+      ),
       error: mapAnalyticsError(firstError),
     };
   },
