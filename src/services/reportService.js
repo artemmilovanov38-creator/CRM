@@ -1,4 +1,9 @@
 import { supabase } from "../lib/supabase";
+import {
+  applicationMatchesDateOnlyPeriod,
+  getOpenedAt,
+  isDateOnlyInRange,
+} from "../utils/applicationEvents";
 
 const APPLICATION_REPORT_FIELDS = `
   id,
@@ -15,6 +20,9 @@ const APPLICATION_REPORT_FIELDS = `
   amount,
   comment,
   approved_at,
+  opened_at,
+  rejected_at,
+  in_progress_at,
   opening_price_snapshot,
   created_at,
   updated_at,
@@ -222,110 +230,44 @@ function calculateApplicationSalary(
 }
 
 /**
- * Дата, по которой заявка попадает
- * в отчёт.
- *
- * Для успешной заявки используется
- * approved_at.
- *
- * Для остальных статусов используется
- * created_at.
+ * Дата успешного открытия для отчёта
+ * и зарплаты.
  */
-function getApplicationReportDate(
+function getApplicationOpenedAt(
   application
 ) {
-  if (
-    application?.status === "approved"
-  ) {
-    return (
-      application.approved_at ||
-      application.updated_at ||
-      application.created_at ||
-      null
-    );
+  return getOpenedAt(application);
+}
+
+function isEventInReportPeriod(
+  value,
+  dateFrom,
+  dateTo
+) {
+  if (!dateFrom && !dateTo) {
+    return Boolean(value);
   }
 
-  return (
-    application?.created_at ||
-    null
+  return isDateOnlyInRange(
+    value,
+    dateFrom,
+    dateTo
   );
 }
 
-function getApplicationReportDateKey(
-  application
-) {
-  const value =
-    getApplicationReportDate(
-      application
-    );
-
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (
-    Number.isNaN(date.getTime())
-  ) {
-    return "";
-  }
-
-  return [
-    date.getFullYear(),
-
-    String(
-      date.getMonth() + 1
-    ).padStart(2, "0"),
-
-    String(
-      date.getDate()
-    ).padStart(2, "0"),
-  ].join("-");
-}
-
-function getStartOfDayTimestamp(
-  dateValue
-) {
+function isValidDateOnly(dateValue) {
   if (!dateValue) {
-    return null;
+    return false;
   }
 
-  const date = new Date(
-    `${dateValue}T00:00:00`
-  );
+  const date = new Date(`${dateValue}T00:00:00`);
 
-  if (
-    Number.isNaN(date.getTime())
-  ) {
-    return null;
-  }
-
-  return date.getTime();
+  return !Number.isNaN(date.getTime());
 }
 
-function getEndOfDayTimestamp(
-  dateValue
-) {
-  if (!dateValue) {
-    return null;
-  }
-
-  const date = new Date(
-    `${dateValue}T23:59:59.999`
-  );
-
-  if (
-    Number.isNaN(date.getTime())
-  ) {
-    return null;
-  }
-
-  return date.getTime();
-}
-
-function isApplicationInsidePeriod(
+function applicationMatchesStatusPeriod(
   application,
+  status,
   dateFrom,
   dateTo
 ) {
@@ -333,53 +275,43 @@ function isApplicationInsidePeriod(
     return true;
   }
 
-  const reportDate =
-    getApplicationReportDate(
-      application
+  if (status === "approved") {
+    return isEventInReportPeriod(
+      getApplicationOpenedAt(application),
+      dateFrom,
+      dateTo
     );
-
-  if (!reportDate) {
-    return false;
   }
 
-  const timestamp =
-    new Date(reportDate).getTime();
-
-  if (
-    Number.isNaN(timestamp)
-  ) {
-    return false;
+  if (status === "rejected") {
+    return isEventInReportPeriod(
+      application?.rejected_at,
+      dateFrom,
+      dateTo
+    );
   }
 
-  if (dateFrom) {
-    const startTimestamp =
-      getStartOfDayTimestamp(
-        dateFrom
-      );
-
-    if (
-      startTimestamp === null ||
-      timestamp < startTimestamp
-    ) {
-      return false;
-    }
+  if (status === "in_progress") {
+    return isEventInReportPeriod(
+      application?.in_progress_at,
+      dateFrom,
+      dateTo
+    );
   }
 
-  if (dateTo) {
-    const endTimestamp =
-      getEndOfDayTimestamp(
-        dateTo
-      );
-
-    if (
-      endTimestamp === null ||
-      timestamp > endTimestamp
-    ) {
-      return false;
-    }
+  if (status === "new") {
+    return isEventInReportPeriod(
+      application?.created_at,
+      dateFrom,
+      dateTo
+    );
   }
 
-  return true;
+  return applicationMatchesDateOnlyPeriod(
+    application,
+    dateFrom,
+    dateTo
+  );
 }
 
 export const reportService = {
@@ -390,10 +322,10 @@ export const reportService = {
    * источнику и статусу применяются
    * в Supabase.
    *
-   * Период применяется после загрузки,
-   * потому что для successful-заявок
-   * используется approved_at, а для
-   * остальных — created_at.
+   * Период применяется после загрузки:
+   * создание — created_at, переход в работу —
+   * in_progress_at, открытие — opened_at,
+   * отказ — rejected_at.
    */
   async getApplications({
     dateFrom = null,
@@ -405,12 +337,7 @@ export const reportService = {
     status = null,
     mailingId = null,
   } = {}) {
-    if (
-      dateFrom &&
-      getStartOfDayTimestamp(
-        dateFrom
-      ) === null
-    ) {
+    if (dateFrom && !isValidDateOnly(dateFrom)) {
       return {
         data: [],
         error: createServiceError(
@@ -419,12 +346,7 @@ export const reportService = {
       };
     }
 
-    if (
-      dateTo &&
-      getEndOfDayTimestamp(
-        dateTo
-      ) === null
-    ) {
+    if (dateTo && !isValidDateOnly(dateTo)) {
       return {
         data: [],
         error: createServiceError(
@@ -508,8 +430,9 @@ export const reportService = {
     const applications =
       (data || []).filter(
         (application) =>
-          isApplicationInsidePeriod(
+          applicationMatchesStatusPeriod(
             application,
+            status,
             dateFrom,
             dateTo
           )
@@ -522,16 +445,20 @@ export const reportService = {
       ) => {
         const firstDate =
           new Date(
-            getApplicationReportDate(
+            getApplicationOpenedAt(
               firstApplication
-            ) || 0
+            ) ||
+              firstApplication.created_at ||
+              0
           ).getTime();
 
         const secondDate =
           new Date(
-            getApplicationReportDate(
+            getApplicationOpenedAt(
               secondApplication
-            ) || 0
+            ) ||
+              secondApplication.created_at ||
+              0
           ).getTime();
 
         return firstDate - secondDate;
@@ -635,6 +562,11 @@ export const reportService = {
       ])
     );
 
+    const period = {
+      dateFrom: filters.dateFrom || null,
+      dateTo: filters.dateTo || null,
+    };
+
     return {
       data: {
         applications,
@@ -644,25 +576,29 @@ export const reportService = {
         metrics:
           calculateMetrics(
             applications,
-            productMap
+            productMap,
+            period
           ),
 
         statusStats:
           calculateStatusStats(
-            applications
+            applications,
+            period
           ),
 
         productStats:
           calculateProductStats(
             applications,
             products,
-            productMap
+            productMap,
+            period
           ),
 
         sourceStats:
           calculateSourceStats(
             applications,
-            productMap
+            productMap,
+            period
           ),
 
         managerStats:
@@ -670,13 +606,15 @@ export const reportService = {
             applications,
             managers,
             products,
-            productMap
+            productMap,
+            period
           ),
 
         dailyStats:
           calculateDailyStats(
             applications,
-            productMap
+            productMap,
+            period
           ),
       },
 
@@ -687,71 +625,75 @@ export const reportService = {
 
 function calculateMetrics(
   applications,
-  productMap
+  productMap,
+  period = {}
 ) {
-  const totalApplications =
-    applications.length;
+  const { dateFrom = null, dateTo = null } =
+    period;
 
-  const approvedApplications =
-    applications.filter(
-      (application) =>
-        application.status ===
-        "approved"
-    );
-
-  const rejectedApplications =
-    applications.filter(
-      (application) =>
-        application.status ===
-        "rejected"
-    );
-
-  const activeApplications =
-    applications.filter(
-      (application) =>
-        [
-          "new",
-          "in_progress",
-        ].includes(
-          application.status
-        )
-    );
-
-  const newApplications =
-    applications.filter(
-      (application) =>
-        application.status === "new"
+  const createdApplications =
+    applications.filter((application) =>
+      isEventInReportPeriod(
+        application.created_at,
+        dateFrom,
+        dateTo
+      )
     );
 
   const inProgressApplications =
-    applications.filter(
-      (application) =>
-        application.status ===
-        "in_progress"
+    applications.filter((application) =>
+      isEventInReportPeriod(
+        application.in_progress_at,
+        dateFrom,
+        dateTo
+      )
     );
 
+  const openedApplications =
+    applications.filter((application) =>
+      isEventInReportPeriod(
+        getApplicationOpenedAt(application),
+        dateFrom,
+        dateTo
+      )
+    );
+
+  const paidApplications =
+    openedApplications.filter(
+      (application) =>
+        application.status === "approved"
+    );
+
+  const rejectedApplications =
+    applications.filter((application) =>
+      isEventInReportPeriod(
+        application.rejected_at,
+        dateFrom,
+        dateTo
+      )
+    );
+
+  const totalApplications =
+    createdApplications.length;
+
   const totalAmount =
-    applications.reduce(
+    createdApplications.reduce(
       (sum, application) =>
         sum +
-        toSafeNumber(
-          application.amount
-        ),
+        toSafeNumber(application.amount),
       0
     );
 
   const approvedAmount =
-    approvedApplications.reduce(
+    paidApplications.reduce(
       (sum, application) =>
         sum +
-        toSafeNumber(
-          application.amount
-        ),
+        toSafeNumber(application.amount),
       0
     );
 
   const salaryFund =
-    approvedApplications.reduce(
+    paidApplications.reduce(
       (sum, application) =>
         sum +
         calculateApplicationSalary(
@@ -762,13 +704,12 @@ function calculateMetrics(
     );
 
   const applicationsWithoutProduct =
-    applications.filter(
-      (application) =>
-        !getProductId(application)
+    createdApplications.filter(
+      (application) => !getProductId(application)
     ).length;
 
   const approvedWithoutRate =
-    approvedApplications.filter(
+    paidApplications.filter(
       (application) =>
         calculateApplicationSalary(
           application,
@@ -779,92 +720,181 @@ function calculateMetrics(
   const conversion =
     totalApplications > 0
       ? roundNumber(
-          (
-            approvedApplications.length /
-            totalApplications
-          ) * 100
+          (paidApplications.length /
+            totalApplications) *
+            100
         )
       : 0;
 
   return {
     totalApplications,
-
-    approved:
-      approvedApplications.length,
-
-    rejected:
-      rejectedApplications.length,
-
-    active:
-      activeApplications.length,
-
-    new:
-      newApplications.length,
-
-    inProgress:
-      inProgressApplications.length,
-
+    approved: openedApplications.length,
+    rejected: rejectedApplications.length,
+    active: inProgressApplications.length,
+    new: totalApplications,
+    inProgress: inProgressApplications.length,
     waiting: 0,
-
     conversion,
     totalAmount,
     approvedAmount,
     salaryFund,
     applicationsWithoutProduct,
     approvedWithoutRate,
-
     averageApplicationAmount:
       totalApplications > 0
         ? Math.round(
-            totalAmount /
-              totalApplications
+            totalAmount / totalApplications
           )
         : 0,
-
     averageApprovedAmount:
-      approvedApplications.length > 0
+      paidApplications.length > 0
         ? Math.round(
             approvedAmount /
-              approvedApplications.length
+              paidApplications.length
           )
         : 0,
   };
 }
 
 function calculateStatusStats(
-  applications
+  applications,
+  period = {}
 ) {
-  const total =
-    applications.length;
+  const { dateFrom = null, dateTo = null } =
+    period;
 
-  return APPLICATION_STATUSES.map(
-    (status) => {
-      const count =
-        applications.filter(
-          (application) =>
-            application.status ===
-            status.key
-        ).length;
+  const counts = {
+    new: 0,
+    in_progress: 0,
+    approved: 0,
+    rejected: 0,
+  };
 
-      return {
-        ...status,
-        count,
-
-        percent:
-          total > 0
-            ? roundNumber(
-                (count / total) * 100
-              )
-            : 0,
-      };
+  applications.forEach((application) => {
+    if (
+      isEventInReportPeriod(
+        application.created_at,
+        dateFrom,
+        dateTo
+      )
+    ) {
+      counts.new += 1;
     }
+
+    if (
+      isEventInReportPeriod(
+        application.in_progress_at,
+        dateFrom,
+        dateTo
+      )
+    ) {
+      counts.in_progress += 1;
+    }
+
+    if (
+      isEventInReportPeriod(
+        getApplicationOpenedAt(application),
+        dateFrom,
+        dateTo
+      )
+    ) {
+      counts.approved += 1;
+    }
+
+    if (
+      isEventInReportPeriod(
+        application.rejected_at,
+        dateFrom,
+        dateTo
+      )
+    ) {
+      counts.rejected += 1;
+    }
+  });
+
+  const total =
+    counts.new +
+    counts.in_progress +
+    counts.approved +
+    counts.rejected;
+
+  return APPLICATION_STATUSES.map((status) => {
+    const count = counts[status.key] || 0;
+
+    return {
+      ...status,
+      count,
+      percent:
+        total > 0
+          ? roundNumber((count / total) * 100)
+          : 0,
+    };
+  });
+}
+
+function getPeriodEventFlags(
+  application,
+  dateFrom,
+  dateTo
+) {
+  const openedAt = getApplicationOpenedAt(
+    application
   );
+
+  return {
+    created: isEventInReportPeriod(
+      application?.created_at,
+      dateFrom,
+      dateTo
+    ),
+    inProgress: isEventInReportPeriod(
+      application?.in_progress_at,
+      dateFrom,
+      dateTo
+    ),
+    opened: isEventInReportPeriod(
+      openedAt,
+      dateFrom,
+      dateTo
+    ),
+    rejected: isEventInReportPeriod(
+      application?.rejected_at,
+      dateFrom,
+      dateTo
+    ),
+    paid:
+      application?.status === "approved" &&
+      isEventInReportPeriod(
+        openedAt,
+        dateFrom,
+        dateTo
+      ),
+  };
+}
+
+function getApplicationDateKey(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 function calculateProductStats(
   applications,
   products,
-  productMap
+  productMap,
+  period = {}
 ) {
   const statsMap = new Map();
 
@@ -959,67 +989,54 @@ function calculateProductStats(
       const item =
         statsMap.get(mapKey);
 
-      item.applications += 1;
+      const events = getPeriodEventFlags(
+        application,
+        period.dateFrom,
+        period.dateTo
+      );
 
-      item.amount +=
-        toSafeNumber(
-          application.amount
-        );
+      if (events.created) {
+        item.applications += 1;
+        item.amount +=
+          toSafeNumber(application.amount);
+      }
 
-      if (
-        [
-          "new",
-          "in_progress",
-        ].includes(
-          application.status
-        )
-      ) {
+      if (events.inProgress) {
         item.active += 1;
       }
 
-      if (
-        application.status ===
-        "approved"
-      ) {
-        const rate =
-          calculateApplicationSalary(
-            application,
-            productMap
-          );
+      if (events.opened) {
+        const rate = events.paid
+          ? calculateApplicationSalary(
+              application,
+              productMap
+            )
+          : 0;
 
         item.approved += 1;
 
         item.approvedAmount +=
-          toSafeNumber(
-            application.amount
-          );
+          toSafeNumber(application.amount);
 
-        item.salary += rate;
+        if (events.paid) {
+          item.salary += rate;
 
-        const rateKey =
-          String(rate);
+          const rateKey = String(rate);
 
-        if (!item.rateGroups[rateKey]) {
-          item.rateGroups[rateKey] = {
-            rate,
-            openings: 0,
-            salary: 0,
-          };
+          if (!item.rateGroups[rateKey]) {
+            item.rateGroups[rateKey] = {
+              rate,
+              openings: 0,
+              salary: 0,
+            };
+          }
+
+          item.rateGroups[rateKey].openings += 1;
+          item.rateGroups[rateKey].salary += rate;
         }
-
-        item.rateGroups[
-          rateKey
-        ].openings += 1;
-
-        item.rateGroups[
-          rateKey
-        ].salary += rate;
       }
 
-      if (
-        application.status ===
-        "rejected"
-      ) {
+      if (events.rejected) {
         item.rejected += 1;
       }
     }
@@ -1077,7 +1094,8 @@ function calculateProductStats(
 
 function calculateSourceStats(
   applications,
-  productMap
+  productMap,
+  period = {}
 ) {
   const sourceMap = new Map();
 
@@ -1108,46 +1126,37 @@ function calculateSourceStats(
       const sourceItem =
         sourceMap.get(source);
 
-      sourceItem.applications += 1;
+      const events = getPeriodEventFlags(
+        application,
+        period.dateFrom,
+        period.dateTo
+      );
 
-      sourceItem.amount +=
-        toSafeNumber(
-          application.amount
-        );
+      if (events.created) {
+        sourceItem.applications += 1;
+        sourceItem.amount +=
+          toSafeNumber(application.amount);
+      }
 
-      if (
-        [
-          "new",
-          "in_progress",
-        ].includes(
-          application.status
-        )
-      ) {
+      if (events.inProgress) {
         sourceItem.active += 1;
       }
 
-      if (
-        application.status ===
-        "approved"
-      ) {
+      if (events.opened) {
         sourceItem.approved += 1;
-
         sourceItem.approvedAmount +=
-          toSafeNumber(
-            application.amount
-          );
+          toSafeNumber(application.amount);
 
-        sourceItem.salary +=
-          calculateApplicationSalary(
-            application,
-            productMap
-          );
+        if (events.paid) {
+          sourceItem.salary +=
+            calculateApplicationSalary(
+              application,
+              productMap
+            );
+        }
       }
 
-      if (
-        application.status ===
-        "rejected"
-      ) {
+      if (events.rejected) {
         sourceItem.rejected += 1;
       }
     }
@@ -1180,7 +1189,8 @@ function calculateManagerStats(
   applications,
   managers,
   products,
-  productMap
+  productMap,
+  period = {}
 ) {
   const managerMap = new Map();
 
@@ -1283,50 +1293,40 @@ function calculateManagerStats(
       const manager =
         managerMap.get(managerId);
 
-      manager.applications += 1;
+      const events = getPeriodEventFlags(
+        application,
+        period.dateFrom,
+        period.dateTo
+      );
 
-      manager.amount +=
-        toSafeNumber(
-          application.amount
-        );
-
-      if (
-        application.status === "new"
-      ) {
+      if (events.created) {
+        manager.applications += 1;
+        manager.amount +=
+          toSafeNumber(application.amount);
         manager.new += 1;
         manager.active += 1;
       }
 
-      if (
-        application.status ===
-        "in_progress"
-      ) {
+      if (events.inProgress) {
         manager.inProgress += 1;
         manager.active += 1;
       }
 
-      if (
-        application.status ===
-        "approved"
-      ) {
+      if (events.opened) {
         manager.approved += 1;
-
         manager.approvedAmount +=
-          toSafeNumber(
-            application.amount
-          );
+          toSafeNumber(application.amount);
 
-        manager.salary +=
-          calculateApplicationSalary(
-            application,
-            productMap
-          );
+        if (events.paid) {
+          manager.salary +=
+            calculateApplicationSalary(
+              application,
+              productMap
+            );
+        }
       }
 
-      if (
-        application.status ===
-        "rejected"
-      ) {
+      if (events.rejected) {
         manager.rejected += 1;
       }
 
@@ -1387,68 +1387,45 @@ function calculateManagerStats(
           productKey
         ];
 
-      managerProduct.applications +=
-        1;
+      if (events.created) {
+        managerProduct.applications += 1;
+        managerProduct.amount +=
+          toSafeNumber(application.amount);
+      }
 
-      managerProduct.amount +=
-        toSafeNumber(
-          application.amount
-        );
-
-      if (
-        [
-          "new",
-          "in_progress",
-        ].includes(
-          application.status
-        )
-      ) {
+      if (events.inProgress) {
         managerProduct.active += 1;
       }
 
-      if (
-        application.status ===
-        "approved"
-      ) {
-        const rate =
-          calculateApplicationSalary(
-            application,
-            productMap
-          );
+      if (events.opened) {
+        const rate = events.paid
+          ? calculateApplicationSalary(
+              application,
+              productMap
+            )
+          : 0;
 
         managerProduct.approved += 1;
-        managerProduct.salary += rate;
 
-        const rateKey =
-          String(rate);
+        if (events.paid) {
+          managerProduct.salary += rate;
 
-        if (
-          !managerProduct
-            .rateGroups[rateKey]
-        ) {
-          managerProduct
-            .rateGroups[rateKey] = {
-            rate,
-            openings: 0,
-            salary: 0,
-          };
+          const rateKey = String(rate);
+
+          if (!managerProduct.rateGroups[rateKey]) {
+            managerProduct.rateGroups[rateKey] = {
+              rate,
+              openings: 0,
+              salary: 0,
+            };
+          }
+
+          managerProduct.rateGroups[rateKey].openings += 1;
+          managerProduct.rateGroups[rateKey].salary += rate;
         }
-
-        managerProduct
-          .rateGroups[
-            rateKey
-          ].openings += 1;
-
-        managerProduct
-          .rateGroups[
-            rateKey
-          ].salary += rate;
       }
 
-      if (
-        application.status ===
-        "rejected"
-      ) {
+      if (events.rejected) {
         managerProduct.rejected += 1;
       }
     }
@@ -1545,87 +1522,120 @@ function calculateManagerStats(
 
 function calculateDailyStats(
   applications,
-  productMap
+  productMap,
+  period = {}
 ) {
   const dailyMap = new Map();
 
-  applications.forEach(
-    (application) => {
-      const dateKey =
-        getApplicationReportDateKey(
-          application
-        );
+  function ensureDay(dateKey) {
+    if (!dateKey) {
+      return null;
+    }
 
-      if (!dateKey) {
-        return;
-      }
+    if (!dailyMap.has(dateKey)) {
+      dailyMap.set(dateKey, {
+        date: dateKey,
+        applications: 0,
+        new: 0,
+        inProgress: 0,
+        approved: 0,
+        rejected: 0,
+        active: 0,
+        amount: 0,
+        approvedAmount: 0,
+        salary: 0,
+      });
+    }
 
-      if (!dailyMap.has(dateKey)) {
-        dailyMap.set(dateKey, {
-          date: dateKey,
-          applications: 0,
-          new: 0,
-          inProgress: 0,
-          approved: 0,
-          rejected: 0,
-          active: 0,
-          amount: 0,
-          approvedAmount: 0,
-          salary: 0,
-        });
-      }
+    return dailyMap.get(dateKey);
+  }
 
-      const day =
-        dailyMap.get(dateKey);
+  applications.forEach((application) => {
+    const createdKey = getApplicationDateKey(
+      application.created_at
+    );
+    const inProgressKey = getApplicationDateKey(
+      application.in_progress_at
+    );
+    const openedKey = getApplicationDateKey(
+      getApplicationOpenedAt(application)
+    );
+    const rejectedKey = getApplicationDateKey(
+      application.rejected_at
+    );
 
-      day.applications += 1;
+    if (
+      isEventInReportPeriod(
+        application.created_at,
+        period.dateFrom,
+        period.dateTo
+      )
+    ) {
+      const day = ensureDay(createdKey);
 
-      day.amount +=
-        toSafeNumber(
-          application.amount
-        );
-
-      if (
-        application.status === "new"
-      ) {
+      if (day) {
+        day.applications += 1;
         day.new += 1;
         day.active += 1;
+        day.amount += toSafeNumber(
+          application.amount
+        );
       }
+    }
 
-      if (
-        application.status ===
-        "in_progress"
-      ) {
+    if (
+      isEventInReportPeriod(
+        application.in_progress_at,
+        period.dateFrom,
+        period.dateTo
+      )
+    ) {
+      const day = ensureDay(inProgressKey);
+
+      if (day) {
         day.inProgress += 1;
         day.active += 1;
       }
+    }
 
-      if (
-        application.status ===
-        "approved"
-      ) {
+    if (
+      isEventInReportPeriod(
+        getApplicationOpenedAt(application),
+        period.dateFrom,
+        period.dateTo
+      )
+    ) {
+      const day = ensureDay(openedKey);
+
+      if (day) {
         day.approved += 1;
+        day.approvedAmount += toSafeNumber(
+          application.amount
+        );
 
-        day.approvedAmount +=
-          toSafeNumber(
-            application.amount
-          );
-
-        day.salary +=
-          calculateApplicationSalary(
+        if (application.status === "approved") {
+          day.salary += calculateApplicationSalary(
             application,
             productMap
           );
+        }
       }
+    }
 
-      if (
-        application.status ===
-        "rejected"
-      ) {
+    if (
+      isEventInReportPeriod(
+        application.rejected_at,
+        period.dateFrom,
+        period.dateTo
+      )
+    ) {
+      const day = ensureDay(rejectedKey);
+
+      if (day) {
         day.rejected += 1;
       }
     }
-  );
+  });
 
   return Array.from(
     dailyMap.values()

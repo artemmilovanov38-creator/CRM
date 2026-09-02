@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
+  Clock3,
   FileText,
   Inbox,
   ListChecks,
@@ -24,6 +25,7 @@ import { useAuth } from "../context/AuthContext";
 import { writersDashboardService } from "../services/writersDashboardService";
 import { profileService } from "../services/profileService";
 import PeriodFilter from "../components/filters/PeriodFilter";
+import ApplicationTimeline from "../components/applications/ApplicationTimeline";
 import {
   formatDateInput,
   getPeriodBounds,
@@ -265,10 +267,12 @@ export default function Writers() {
           : ""}
       </p>
       <p className="writers-period-hint">
-        Написавшие фильтруются по дате входящего
-        сообщения. Заявки, открытия и отказы в
-        сводке считаются по этим же контактам,
-        даже если заявка появилась позже.
+        Написавшие считаются по дате входящего.
+        Созданные заявки — по created_at, переходы
+        в работу — по дате смены статуса, открытия
+        и отказы — по дате самого события. Список
+        ниже по-прежнему показывает людей, которые
+        написали в выбранный период.
       </p>
 
       <section className="writers-stats">
@@ -282,6 +286,11 @@ export default function Writers() {
           title="Создано заявок"
           value={stats.applications}
           variant="warning"
+        />
+        <StatCard
+          icon={Clock3}
+          title="В работу"
+          value={stats.inProgress || 0}
         />
         <StatCard
           icon={CheckCircle2}
@@ -657,6 +666,16 @@ function ApplicationDetails({ row, compact = false }) {
               <dd>{application.comment || "—"}</dd>
             </div>
           </dl>
+
+          <div className="writers-app__path">
+            <strong>Путь заявки</strong>
+            <ApplicationTimeline
+              application={application}
+              contact={row}
+              history={[]}
+              compact
+            />
+          </div>
         </article>
       ))}
     </div>

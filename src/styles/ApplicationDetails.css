@@ -208,6 +208,25 @@
   white-space: pre-wrap;
 }
 
+.application-details-stages {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #273144;
+}
+
+.application-details-stages h3 {
+  margin: 0;
+  color: #eef0f5;
+  font-size: 14px;
+}
+
+.application-details-stages p {
+  margin: 6px 0 14px;
+  color: #7e899c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .application-details-status {
   display: inline-flex;
   min-height: 25px;

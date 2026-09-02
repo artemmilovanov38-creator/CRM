@@ -201,6 +201,7 @@ export function emptyIncomingStats() {
   return {
     responded: 0,
     applications: 0,
+    inProgress: 0,
     opened: 0,
     rejected: 0,
     managers: 0,
@@ -229,6 +230,18 @@ function isMissingRejectedAt(error) {
     error?.code === "42703" ||
     error?.code === "PGRST204" ||
     message.includes("rejected_at")
+  );
+}
+
+function isMissingInProgressAt(error) {
+  const message = String(
+    error?.message || ""
+  ).toLowerCase();
+
+  return (
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    message.includes("in_progress_at")
   );
 }
 
@@ -304,6 +317,9 @@ export const analyticsService = {
             applications: Number(
               rpc.data.applications || 0
             ),
+            inProgress: Number(
+              rpc.data.in_progress || 0
+            ),
             opened: Number(
               rpc.data.opened || 0
             ),
@@ -325,6 +341,7 @@ export const analyticsService = {
     const [
       respondedResult,
       applicationsResult,
+      inProgressResult,
       openedResult,
       rejectedResult,
       externalResult,
@@ -361,6 +378,28 @@ export const analyticsService = {
                 head: true,
               }),
             "created_at",
+            dateFrom,
+            dateTo
+          ),
+          "assigned_manager_id",
+          managerId
+        )
+      ),
+      countExact(
+        applyManagerId(
+          applyRange(
+            supabase
+              .from("applications")
+              .select("id", {
+                count: "exact",
+                head: true,
+              })
+              .not(
+                "in_progress_at",
+                "is",
+                null
+              ),
+            "in_progress_at",
             dateFrom,
             dateTo
           ),
@@ -438,13 +477,15 @@ export const analyticsService = {
     const firstError = [
       respondedResult.error,
       applicationsResult.error,
+      inProgressResult.error,
       openedResult.error,
       rejectedResult.error,
       externalResult.error,
     ].find(
       (error) =>
         error &&
-        !isMissingRejectedAt(error)
+        !isMissingRejectedAt(error) &&
+        !isMissingInProgressAt(error)
     );
 
     return {
@@ -453,6 +494,11 @@ export const analyticsService = {
           respondedResult.count,
         applications:
           applicationsResult.count,
+        inProgress: isMissingInProgressAt(
+          inProgressResult.error
+        )
+          ? 0
+          : inProgressResult.count,
         opened: openedResult.count,
         rejected: isMissingRejectedAt(
           rejectedResult.error
@@ -550,25 +596,36 @@ export const analyticsService = {
 
     const [
       totalResult,
-      newResult,
       inProgressResult,
-      waitingResult,
       openedResult,
       rejectedEventResult,
       amountRpc,
     ] = await Promise.all([
       countExact(createdBase()),
       countExact(
-        createdBase().eq("status", "new")
-      ),
-      countExact(
-        createdBase().eq(
-          "status",
-          "in_progress"
+        applyProductId(
+          applyManagerId(
+            applyRange(
+              supabase
+                .from("applications")
+                .select("id", {
+                  count: "exact",
+                  head: true,
+                })
+                .not(
+                  "in_progress_at",
+                  "is",
+                  null
+                ),
+              "in_progress_at",
+              dateFrom,
+              dateTo
+            ),
+            "assigned_manager_id",
+            managerId
+          ),
+          productId
         )
-      ),
-      countExact(
-        createdBase().eq("status", "waiting")
       ),
       countExact(
         applyProductId(
@@ -626,9 +683,11 @@ export const analyticsService = {
 
     const firstError = [
       totalResult.error,
-      newResult.error,
-      inProgressResult.error,
-      waitingResult.error,
+      isMissingInProgressAt(
+        inProgressResult.error
+      )
+        ? null
+        : inProgressResult.error,
       openedResult.error,
       isMissingRejectedAt(
         rejectedEventResult.error
@@ -640,11 +699,12 @@ export const analyticsService = {
     return {
       data: {
         total: totalResult.count,
-        newApplications:
-          newResult.count +
-          waitingResult.count,
-        inProgress:
-          inProgressResult.count,
+        newApplications: totalResult.count,
+        inProgress: isMissingInProgressAt(
+          inProgressResult.error
+        )
+          ? 0
+          : inProgressResult.count,
         approved: openedResult.count,
         opened: openedResult.count,
         rejected: isMissingRejectedAt(
@@ -700,6 +760,7 @@ export const analyticsService = {
                 .select(
                   "amount, opening_price_snapshot"
                 )
+                .eq("status", "approved")
                 .not("opened_at", "is", null),
               "opened_at",
               dateFrom,
@@ -786,6 +847,7 @@ export const analyticsService = {
 
     const [
       createdResult,
+      inProgressResult,
       openedResult,
       rejectedResult,
     ] = await Promise.all([
@@ -795,7 +857,7 @@ export const analyticsService = {
             supabase
               .from("applications")
               .select(
-                "id, assigned_manager_id, status"
+                "id, assigned_manager_id"
               ),
             "created_at",
             dateFrom,
@@ -809,8 +871,28 @@ export const analyticsService = {
             supabase
               .from("applications")
               .select(
+                "id, assigned_manager_id"
+              )
+              .not(
+                "in_progress_at",
+                "is",
+                null
+              ),
+            "in_progress_at",
+            dateFrom,
+            dateTo
+          )
+        )
+      ),
+      fetchAllPages(() =>
+        scopedQuery(
+          applyRange(
+            supabase
+              .from("applications")
+              .select(
                 "id, assigned_manager_id, amount, opening_price_snapshot"
               )
+              .eq("status", "approved")
               .not("opened_at", "is", null),
             "opened_at",
             dateFrom,
@@ -835,6 +917,7 @@ export const analyticsService = {
 
     const firstError =
       createdResult.error ||
+      inProgressResult.error ||
       openedResult.error ||
       rejectedResult.error;
 
@@ -871,10 +954,18 @@ export const analyticsService = {
       }
 
       item.applications += 1;
+    }
 
-      if (row.status === "in_progress") {
-        item.inProgress += 1;
+    for (const row of inProgressResult.data || []) {
+      const item = ensureRow(
+        row.assigned_manager_id
+      );
+
+      if (!item) {
+        continue;
       }
+
+      item.inProgress += 1;
     }
 
     for (const row of openedResult.data || []) {
@@ -962,6 +1053,9 @@ export const analyticsService = {
         applications: Number(
           row.applications || 0
         ),
+        inProgress: Number(
+          row.in_progress || 0
+        ),
         opened: Number(row.opened || 0),
         rejected: Number(
           row.rejected || 0
@@ -988,6 +1082,7 @@ export const analyticsService = {
               ),
               responded: 0,
               applications: 0,
+              inProgress: 0,
               opened: 0,
               rejected: 0,
             }))

@@ -1,5 +1,6 @@
 import { supabase } from "../lib/supabase";
 import { getApplicationPayout } from "./applicationService";
+import { buildApplicationTimeline } from "../utils/applicationEvents";
 
 const PAGE_SIZE = 50;
 
@@ -39,6 +40,7 @@ const APPLICATION_FIELDS = `
   opened_at,
   approved_at,
   rejected_at,
+  in_progress_at,
   assigned_manager_id,
   product_data:products (
     id,
@@ -101,6 +103,7 @@ function emptyStats() {
   return {
     responded: 0,
     applications: 0,
+    inProgress: 0,
     opened: 0,
     rejected: 0,
     managers: 0,
@@ -240,51 +243,6 @@ async function resolveScope({
   };
 }
 
-function applyEmbeddedContactFilters(
-  query,
-  { dateFrom, dateTo, managerId, mailingId, externalOnly }
-) {
-  let next = query.not(
-    "mailing_contact.responded_at",
-    "is",
-    null
-  );
-
-  if (dateFrom) {
-    next = next.gte(
-      "mailing_contact.responded_at",
-      dateFrom
-    );
-  }
-
-  if (dateTo) {
-    next = next.lt(
-      "mailing_contact.responded_at",
-      dateTo
-    );
-  }
-
-  if (managerId) {
-    next = next.eq(
-      "mailing_contact.manager_id",
-      managerId
-    );
-  }
-
-  if (externalOnly) {
-    next = next.or(
-      "mailing_contact.is_external.eq.true,mailing_contact.mailing_id.is.null,mailing_contact.source.eq.external"
-    );
-  } else if (mailingId) {
-    next = next.eq(
-      "mailing_contact.mailing_id",
-      mailingId
-    );
-  }
-
-  return next;
-}
-
 async function countExact(query) {
   const { count, error } = await query;
 
@@ -313,49 +271,62 @@ async function getStatsFallback({
     { managerId, mailingId, externalOnly }
   );
 
-  const applicationsBase = () =>
-    applyEmbeddedContactFilters(
-      supabase
-        .from("applications")
-        .select(
-          "id, mailing_contact:mailing_contacts!inner(id)",
-          {
-            count: "exact",
-            head: true,
-          }
-        ),
-      {
-        dateFrom,
-        dateTo,
-        managerId,
-        mailingId,
-        externalOnly,
-      }
-    );
+  function applicationQuery(column) {
+    let query = supabase
+      .from("applications")
+      .select("id", {
+        count: "exact",
+        head: true,
+      });
+
+    if (column !== "created_at") {
+      query = query.not(column, "is", null);
+    }
+
+    if (dateFrom) {
+      query = query.gte(column, dateFrom);
+    }
+
+    if (dateTo) {
+      query = query.lt(column, dateTo);
+    }
+
+    if (managerId) {
+      query = query.eq(
+        "assigned_manager_id",
+        managerId
+      );
+    }
+
+    if (externalOnly) {
+      query = query.or(
+        "mailing_id.is.null"
+      );
+    } else if (mailingId) {
+      query = query.eq("mailing_id", mailingId);
+    }
+
+    return query;
+  }
 
   const [
     respondedResult,
     applicationsResult,
+    inProgressResult,
     openedResult,
     rejectedResult,
   ] = await Promise.all([
     countExact(writersQuery),
-    countExact(applicationsBase()),
-    countExact(
-      applicationsBase().or(
-        "status.eq.approved,opened_at.not.is.null,approved_at.not.is.null"
-      )
-    ),
-    countExact(
-      applicationsBase().or(
-        "status.eq.rejected,rejected_at.not.is.null"
-      )
-    ),
+    countExact(applicationQuery("created_at")),
+    countExact(applicationQuery("in_progress_at")),
+    countExact(applicationQuery("opened_at")),
+    countExact(applicationQuery("rejected_at")),
   ]);
 
   const firstError = [
     respondedResult.error,
     applicationsResult.error,
+    inProgressResult.error,
     openedResult.error,
     rejectedResult.error,
   ].find(Boolean);
@@ -379,6 +350,7 @@ async function getStatsFallback({
     data: {
       responded: respondedResult.count,
       applications: applicationsResult.count,
+      inProgress: inProgressResult.count,
       opened: openedResult.count,
       rejected: rejectedResult.count,
       managers: managersCount,
@@ -465,6 +437,7 @@ export const writersDashboardService = {
         data: {
           responded: Number(data.responded || 0),
           applications: Number(data.applications || 0),
+          inProgress: Number(data.in_progress || 0),
           opened: Number(data.opened || 0),
           rejected: Number(data.rejected || 0),
           managers: Number(data.managers || 0),
@@ -590,7 +563,13 @@ export const writersDashboardService = {
       data: contacts.map((contact) => {
         const applications = mapApplications(
           applicationsByContact.get(contact.id) || []
-        );
+        ).map((application) => ({
+          ...application,
+          timeline: buildApplicationTimeline({
+            application,
+            contact,
+          }),
+        }));
 
         return {
           ...contact,

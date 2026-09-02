@@ -1,0 +1,114 @@
+.app-timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-timeline--empty {
+  padding: 12px 0;
+  color: #7e899c;
+  font-size: 13px;
+}
+
+.app-timeline__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.app-timeline__marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.app-timeline__dot {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(113, 98, 232, 0.16);
+  color: #c4b5fd;
+}
+
+.app-timeline__item--incoming .app-timeline__dot {
+  background: rgba(96, 165, 250, 0.16);
+  color: #93c5fd;
+}
+
+.app-timeline__item--created .app-timeline__dot,
+.app-timeline__item--new .app-timeline__dot {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+}
+
+.app-timeline__item--in_progress .app-timeline__dot {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+}
+
+.app-timeline__item--approved .app-timeline__dot {
+  background: rgba(74, 222, 128, 0.16);
+  color: #4ade80;
+}
+
+.app-timeline__item--rejected .app-timeline__dot {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
+}
+
+.app-timeline__line {
+  flex: 1;
+  width: 2px;
+  min-height: 14px;
+  margin: 4px 0;
+  background: #2a3344;
+}
+
+.app-timeline__body {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.app-timeline__body strong {
+  color: #e8edf6;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.app-timeline__body time {
+  flex: 0 0 auto;
+  color: #7e899c;
+  font-size: 12px;
+}
+
+.app-timeline--compact .app-timeline__dot {
+  width: 22px;
+  height: 22px;
+}
+
+.app-timeline--compact .app-timeline__body {
+  padding-bottom: 10px;
+}
+
+.app-timeline--compact .app-timeline__body strong {
+  font-size: 12px;
+}
+
+.app-timeline--compact .app-timeline__body time {
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .app-timeline__body {
+    flex-direction: column;
+    gap: 4px;
+  }
+}

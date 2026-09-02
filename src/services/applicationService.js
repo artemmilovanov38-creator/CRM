@@ -1,5 +1,9 @@
 import { supabase } from "../lib/supabase";
 import { formatTelegramDisplay } from "../utils/telegram";
+import {
+  getOpenedAt,
+  isDateOnlyInRange,
+} from "../utils/applicationEvents";
 
 const APPLICATION_COLUMNS = `
   id,
@@ -21,6 +25,7 @@ const APPLICATION_COLUMNS = `
   approved_at,
   opened_at,
   rejected_at,
+  in_progress_at,
   created_at,
   updated_at
 `;
@@ -69,11 +74,7 @@ export function isApplicationReceiptOpened(
 export function getApplicationOpenedAt(
   application
 ) {
-  return (
-    application?.opened_at ||
-    application?.approved_at ||
-    null
-  );
+  return getOpenedAt(application);
 }
 
 export function getApplicationPayout(
@@ -1228,9 +1229,14 @@ export const applicationService = {
 
   /**
    * Получить только успешные открытия
-   * по дате перехода заявки в approved.
+   * по дате opened_at (с запасным
+   * approved_at для старых заявок).
    *
-   * Этот метод используется для зарплаты.
+   * В выборку входят заявки, которые
+   * СЕЙЧАС в статусе approved. Если
+   * успешное открытие отменили,
+   * сумма пропадает из зарплаты, но
+   * запись в истории остаётся.
    */
   async getApprovedApplicationsByPeriod(
     dateFrom,
@@ -1252,15 +1258,21 @@ export const applicationService = {
     const pageSize = 1000;
     const rows = [];
     let from = 0;
+    const openedFrom = dateFrom
+      ? `${dateFrom}T00:00:00`
+      : null;
+    const openedTo = dateTo
+      ? `${dateTo}T23:59:59.999`
+      : null;
 
     while (from < 100000) {
       let query = supabase
         .from("applications")
         .select(APPLICATION_COLUMNS)
         .eq("status", "approved")
-        .not("approved_at", "is", null)
-        .order("approved_at", {
+        .order("opened_at", {
           ascending: false,
+          nullsFirst: false,
         });
 
       query = applyManagerScope(
@@ -1268,17 +1280,17 @@ export const applicationService = {
         actor
       );
 
-      if (dateFrom) {
+      if (openedFrom) {
         query = query.gte(
-          "approved_at",
-          `${dateFrom}T00:00:00`
+          "opened_at",
+          openedFrom
         );
       }
 
-      if (dateTo) {
+      if (openedTo) {
         query = query.lte(
-          "approved_at",
-          `${dateTo}T23:59:59.999`
+          "opened_at",
+          openedTo
         );
       }
 
@@ -1305,8 +1317,19 @@ export const applicationService = {
       from += pageSize;
     }
 
+    const inPeriod = (rows || []).filter(
+      (application) =>
+        isDateOnlyInRange(
+          getOpenedAt(application),
+          openedFrom ? dateFrom : null,
+          openedTo ? dateTo : null
+        )
+    );
+
     return {
-      data: await hydrateApplications(rows),
+      data: await hydrateApplications(
+        inPeriod
+      ),
       error: null,
     };
   },

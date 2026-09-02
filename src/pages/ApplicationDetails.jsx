@@ -32,6 +32,7 @@ import { applicationHistoryService } from "../services/applicationHistoryService
 import { applicationMessageService } from "../services/applicationMessageService";
 import { notificationService } from "../services/notificationService";
 import { profileService } from "../services/profileService";
+import ApplicationTimeline from "../components/applications/ApplicationTimeline";
 
 const statusOptions = [
   { value: "new", label: "Новая" },
@@ -826,6 +827,18 @@ setProducts(productsResult.data || []);
               {application.comment || "Комментарий пока не добавлен"}
             </strong>
           </div>
+
+          <div className="application-details-stages">
+            <h3>Этапы заявки</h3>
+            <p>
+              Только известные даты. Если переход не
+              записан в истории, он не показывается.
+            </p>
+            <ApplicationTimeline
+              application={application}
+              history={history}
+            />
+          </div>
         </aside>
 
         <section className="application-details-content">
@@ -1099,7 +1112,7 @@ setProducts(productsResult.data || []);
                 <History size={20} />
                 <div>
                   <h2>История действий</h2>
-                  <p>Изменения заявки и действия сотрудников.</p>
+                  <p>Кто и что менял в заявке, включая статусы.</p>
                 </div>
               </div>
               <span>{history.length}</span>

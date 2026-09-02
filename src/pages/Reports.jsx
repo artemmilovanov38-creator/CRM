@@ -474,6 +474,22 @@ export default function Reports() {
               application.created_at
             ),
 
+          "Дата в работу":
+            formatDateTime(
+              application.in_progress_at
+            ),
+
+          "Дата открытия":
+            formatDateTime(
+              application.opened_at ||
+                application.approved_at
+            ),
+
+          "Дата отказа":
+            formatDateTime(
+              application.rejected_at
+            ),
+
           "Имя клиента":
             application.full_name ||
             "",
@@ -838,7 +854,7 @@ export default function Reports() {
             report.metrics
               .totalApplications
           )}
-          description="За выбранный период"
+          description="По дате создания"
         />
 
         <MetricCard
@@ -848,7 +864,7 @@ export default function Reports() {
           value={formatNumber(
             report.metrics.approved
           )}
-          description="Статус approved"
+          description="По дате открытия квита"
         />
 
         <MetricCard
@@ -856,9 +872,10 @@ export default function Reports() {
           iconClass="reports-metric-icon--orange"
           title="В работе"
           value={formatNumber(
-            report.metrics.active
+            report.metrics.inProgress ||
+              report.metrics.active
           )}
-          description="Новые и в работе"
+          description="По дате перехода в работу"
         />
 
         <MetricCard
@@ -868,7 +885,7 @@ export default function Reports() {
           value={formatNumber(
             report.metrics.rejected
           )}
-          description="Статус rejected"
+          description="По дате перехода в отказ"
         />
 
         <MetricCard
@@ -886,7 +903,7 @@ export default function Reports() {
           value={formatMoney(
             report.metrics.salaryFund
           )}
-          description="По ставкам продуктов"
+          description="По дате успешного открытия"
         />
       </section>
 

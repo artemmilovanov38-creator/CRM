@@ -73,6 +73,7 @@ export default function ManagerAnalytics({
                 <>
                   <th>Написали</th>
                   <th>Заявок</th>
+                  <th>В работе</th>
                   <th>Успешно</th>
                   <th>Отказов</th>
                 </>
@@ -105,6 +106,9 @@ export default function ManagerAnalytics({
                     <td>{row.responded}</td>
                     <td>
                       {row.applications}
+                    </td>
+                    <td>
+                      {row.inProgress || 0}
                     </td>
                     <td>{row.opened}</td>
                     <td>{row.rejected}</td>
@@ -151,6 +155,9 @@ export default function ManagerAnalytics({
                 </span>
                 <span>
                   заявок {row.applications}
+                </span>
+                <span>
+                  в работе {row.inProgress || 0}
                 </span>
                 <span>
                   успешно {row.opened}

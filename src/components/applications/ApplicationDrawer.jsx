@@ -1,12 +1,8 @@
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
 import {
   CalendarDays,
   CheckCircle2,
-  Clock3,
   ExternalLink,
   MessageCircle,
   Phone,
@@ -24,7 +20,9 @@ import {
   getApplicationPayout,
   isApplicationReceiptOpened,
 } from "../../services/applicationService";
+import { applicationHistoryService } from "../../services/applicationHistoryService";
 import { getTelegramHref } from "../../utils/telegram";
+import ApplicationTimeline from "./ApplicationTimeline";
 
 const statusOptions = [
   {
@@ -124,12 +122,35 @@ export default function ApplicationDrawer({
 }) {
   const [form, setForm] =
     useState(emptyForm);
+  const [history, setHistory] =
+    useState([]);
 
   useEffect(() => {
     setForm(
       getApplicationForm(application)
     );
   }, [application]);
+
+  useEffect(() => {
+    if (!isOpen || !application?.id) {
+      setHistory([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    applicationHistoryService
+      .getHistory(application.id)
+      .then((result) => {
+        if (!cancelled) {
+          setHistory(result.data || []);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, application?.id]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -584,64 +605,23 @@ export default function ApplicationDrawer({
           <section className="application-drawer-section">
             <div className="application-drawer-section-heading">
               <div>
-                <h3>История рассылки</h3>
+                <h3>Этапы заявки</h3>
 
                 <p>
-                  Путь клиента от рассылки
-                  до заявки.
+                  Хронология этой заявки:
+                  входящий, создание и
+                  смены статусов.
                 </p>
               </div>
 
               <CalendarDays size={18} />
             </div>
 
-            <div className="application-history">
-              <HistoryItem
-                icon={Send}
-                title="Рассылка"
-                value={formatDate(
-                  application
-                    .mailing_contact
-                    ?.sent_at
-                )}
-              />
-
-              <HistoryItem
-                icon={MessageCircle}
-                title="Ответ"
-                value={formatDate(
-                  application
-                    .mailing_contact
-                    ?.responded_at
-                )}
-              />
-
-              <HistoryItem
-                icon={CheckCircle2}
-                title="Заявка"
-                value={formatDate(
-                  application
-                    .mailing_contact
-                    ?.application_created_at ||
-                    application.created_at
-                )}
-              />
-
-              <HistoryItem
-                icon={Clock3}
-                title="До заявки"
-                value={formatDays(
-                  application
-                    .mailing_contact
-                    ?.sent_at,
-
-                  application
-                    .mailing_contact
-                    ?.application_created_at ||
-                    application.created_at
-                )}
-              />
-            </div>
+            <ApplicationTimeline
+              application={application}
+              history={history}
+              compact
+            />
           </section>
 
           <section className="application-drawer-section">
@@ -762,25 +742,6 @@ function QuickAction({
   );
 }
 
-function HistoryItem({
-  icon: Icon,
-  title,
-  value,
-}) {
-  return (
-    <article className="application-history-item">
-      <div className="application-history-item__icon">
-        <Icon size={17} />
-      </div>
-
-      <div>
-        <span>{title}</span>
-        <strong>{value}</strong>
-      </div>
-    </article>
-  );
-}
-
 function getInitials(value) {
   if (!value) {
     return "К";
@@ -829,52 +790,4 @@ function formatDate(value) {
       minute: "2-digit",
     }
   ).format(date);
-}
-
-function formatDays(
-  sentAt,
-  createdAt
-) {
-  if (!sentAt || !createdAt) {
-    return "Не рассчитано";
-  }
-
-  const sentDate =
-    new Date(sentAt);
-
-  const createdDate =
-    new Date(createdAt);
-
-  const difference =
-    createdDate.getTime() -
-    sentDate.getTime();
-
-  if (
-    Number.isNaN(sentDate.getTime()) ||
-    Number.isNaN(
-      createdDate.getTime()
-    ) ||
-    difference < 0
-  ) {
-    return "Не рассчитано";
-  }
-
-  const hours =
-    difference /
-    (1000 * 60 * 60);
-
-  if (hours < 1) {
-    return "Меньше часа";
-  }
-
-  if (hours < 24) {
-    return `${Math.round(
-      hours
-    )} ч.`;
-  }
-
-  const days =
-    Math.floor(hours / 24);
-
-  return `${days} дн.`;
 }

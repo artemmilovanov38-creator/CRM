@@ -964,11 +964,12 @@ const managerOptions =
       </p>
 
       <p className="incoming-period-hint">
-        Написавшие считаются по дате
-        входящего контакта. Заявки — по
-        дате создания. Успешные открытия
-        и отказы — по дате самого события,
-        а не по дате создания заявки.
+        Написавшие считаются по дате входящего
+        контакта. Заявки — по дате создания.
+        «В работу» — по дате перехода в этот
+        статус. Успешные открытия и отказы —
+        по дате самого события, а не по дате
+        создания заявки.
       </p>
 
       <section className="incoming-stats">
@@ -1002,6 +1003,14 @@ const managerOptions =
             stats.applications
           }
           variant="warning"
+        />
+
+        <StatCard
+          icon={Clock3}
+          title="В работу"
+          value={
+            stats.inProgress || 0
+          }
         />
 
         <StatCard
