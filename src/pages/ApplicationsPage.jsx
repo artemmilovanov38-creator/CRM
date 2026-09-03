@@ -42,6 +42,10 @@ import {
 } from "../utils/periodRange";
 import { matchesSearch } from "../utils/searchMatch";
 import { formatServiceError } from "../utils/serviceError";
+import {
+  applicationMatchesProductId,
+  applicationMatchesStatusAndPeriod,
+} from "../utils/applicationEvents";
 
 const statusOptions = [
   {
@@ -178,13 +182,65 @@ export default function ApplicationsPage() {
       ? null
       : productFilter;
 
+  const productOptions = useMemo(
+    () => {
+      const byId = new Map();
+
+      for (const product of products) {
+        if (!product?.id) {
+          continue;
+        }
+
+        byId.set(String(product.id), {
+          id: product.id,
+          name: product.name,
+        });
+      }
+
+      for (const application of applications) {
+        const id =
+          application.product_id ||
+          application.product_data?.id;
+
+        if (!id) {
+          continue;
+        }
+
+        const key = String(id);
+
+        if (byId.has(key)) {
+          continue;
+        }
+
+        byId.set(key, {
+          id,
+          name:
+            application.product_data
+              ?.name ||
+            application.product ||
+            "Продукт",
+        });
+      }
+
+      return [...byId.values()].sort(
+        (left, right) =>
+          String(left.name).localeCompare(
+            String(right.name),
+            "ru"
+          )
+      );
+    },
+    [products, applications]
+  );
+
   const selectedProduct = useMemo(
     () =>
-      products.find(
+      productOptions.find(
         (product) =>
-          product.id === productFilter
+          String(product.id) ===
+          String(productFilter)
       ) || null,
-    [products, productFilter]
+    [productOptions, productFilter]
   );
 
   const loadPageData = useCallback(
@@ -505,7 +561,27 @@ export default function ApplicationsPage() {
             application.status ===
               statusFilter;
 
-          return matchesQuery && matchesStatus;
+          const matchesProduct =
+            applicationMatchesProductId(
+              application,
+              productIdForQuery,
+              selectedProduct
+            );
+
+          const matchesPeriod =
+            applicationMatchesStatusAndPeriod(
+              application,
+              statusFilter,
+              periodRange.from,
+              periodRange.to
+            );
+
+          return (
+            matchesQuery &&
+            matchesStatus &&
+            matchesProduct &&
+            matchesPeriod
+          );
         }
       );
     },
@@ -513,6 +589,10 @@ export default function ApplicationsPage() {
       applications,
       search,
       statusFilter,
+      productIdForQuery,
+      selectedProduct,
+      periodRange.from,
+      periodRange.to,
     ]
   );
 
@@ -1228,10 +1308,10 @@ export default function ApplicationsPage() {
               Все продукты
             </option>
 
-            {products.map((product) => (
+            {productOptions.map((product) => (
               <option
                 key={product.id}
-                value={product.id}
+                value={String(product.id)}
               >
                 {product.name}
               </option>
@@ -2176,6 +2256,7 @@ function StatCard({
 function getProductName(application) {
   return (
     application?.product_data?.name ||
+    application?.product ||
     "Продукт не указан"
   );
 }

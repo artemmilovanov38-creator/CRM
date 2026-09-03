@@ -3,6 +3,8 @@ import { formatTelegramDisplay } from "../utils/telegram";
 import {
   getOpenedAt,
   isDateOnlyInRange,
+  normalizeProductName,
+  applicationMatchesProductId,
 } from "../utils/applicationEvents";
 
 const APPLICATION_COLUMNS = `
@@ -326,32 +328,73 @@ async function hydrateApplications(rows) {
   ]);
 
   const productsById = new Map(
-    products.map((item) => [item.id, item])
+    products.map((item) => [
+      String(item.id),
+      item,
+    ])
   );
+  const productsByName = new Map();
+
+  for (const item of products) {
+    const key = normalizeProductName(
+      item.name
+    );
+
+    if (key && !productsByName.has(key)) {
+      productsByName.set(key, item);
+    }
+  }
+
   const managersById = new Map(
-    managers.map((item) => [item.id, item])
+    managers.map((item) => [
+      String(item.id),
+      item,
+    ])
   );
   const contactsById = new Map(
-    contacts.map((item) => [item.id, item])
+    contacts.map((item) => [
+      String(item.id),
+      item,
+    ])
   );
 
-  return list.map((row) => ({
-    ...row,
-    status: normalizeApplicationStatus(
-      row.status
-    ),
-    product_data:
-      productsById.get(row.product_id) ||
-      null,
-    assigned_manager:
-      managersById.get(
-        row.assigned_manager_id
-      ) || null,
-    mailing_contact:
-      contactsById.get(
-        row.mailing_contact_id
-      ) || null,
-  }));
+  return list.map((row) => {
+    const productFromId = row.product_id
+      ? productsById.get(
+          String(row.product_id)
+        ) || null
+      : null;
+
+    const productFromName =
+      !row.product_id
+        ? productsByName.get(
+            normalizeProductName(
+              row.product
+            )
+          ) || null
+        : null;
+
+    return {
+      ...row,
+      status: normalizeApplicationStatus(
+        row.status
+      ),
+      product_data:
+        productFromId || productFromName,
+      assigned_manager:
+        managersById.get(
+          String(
+            row.assigned_manager_id || ""
+          )
+        ) || null,
+      mailing_contact:
+        contactsById.get(
+          String(
+            row.mailing_contact_id || ""
+          )
+        ) || null,
+    };
+  });
 }
 
 async function hydrateApplication(row) {
@@ -526,6 +569,337 @@ async function getProduct(productId) {
   return {
     data,
     error,
+  };
+}
+
+const APPLICATION_EVENT_DATE_COLUMNS = [
+  {
+    column: "created_at",
+    requireValue: false,
+  },
+  {
+    column: "in_progress_at",
+    requireValue: true,
+  },
+  {
+    column: "opened_at",
+    requireValue: true,
+  },
+  {
+    column: "approved_at",
+    requireValue: true,
+  },
+  {
+    column: "rejected_at",
+    requireValue: true,
+  },
+];
+
+function applyAssignedManagerFilter(
+  query,
+  actor,
+  managerId
+) {
+  let next = applyManagerScope(query, actor);
+
+  if (managerId === "unassigned") {
+    if (
+      isPrivilegedRole(
+        actor.profile?.role
+      )
+    ) {
+      next = next.is(
+        "assigned_manager_id",
+        null
+      );
+    }
+  } else if (managerId) {
+    next = next.eq(
+      "assigned_manager_id",
+      managerId
+    );
+  }
+
+  return next;
+}
+
+function applySingleDateRange(
+  query,
+  column,
+  dateFrom,
+  dateTo
+) {
+  let next = query;
+
+  if (dateFrom) {
+    next = next.gte(column, dateFrom);
+  }
+
+  if (dateTo) {
+    next = next.lt(column, dateTo);
+  }
+
+  return next;
+}
+
+async function fetchApplicationPages(
+  buildQuery
+) {
+  const pageSize = APPLICATION_PAGE_SIZE;
+  const rows = [];
+  let from = 0;
+
+  while (from < 100000) {
+    const { data, error } =
+      await buildQuery().range(
+        from,
+        from + pageSize - 1
+      );
+
+    if (error) {
+      return {
+        data: rows,
+        error,
+      };
+    }
+
+    const chunk = data || [];
+    rows.push(...chunk);
+
+    if (chunk.length < pageSize) {
+      break;
+    }
+
+    from += pageSize;
+  }
+
+  return {
+    data: rows,
+    error: null,
+  };
+}
+
+function mergeApplicationsById(groups) {
+  const byId = new Map();
+
+  for (const rows of groups) {
+    for (const row of rows || []) {
+      if (!row?.id || byId.has(row.id)) {
+        continue;
+      }
+
+      byId.set(row.id, row);
+    }
+  }
+
+  return [...byId.values()].sort(
+    (left, right) => {
+      const rightTime = new Date(
+        right.created_at || 0
+      ).getTime();
+      const leftTime = new Date(
+        left.created_at || 0
+      ).getTime();
+
+      return rightTime - leftTime;
+    }
+  );
+}
+
+function applyEventDateOrFilter(
+  query,
+  dateFrom,
+  dateTo
+) {
+  if (!dateFrom && !dateTo) {
+    return query;
+  }
+
+  const quote = (value) =>
+    `"${String(value).replaceAll(
+      '"',
+      '\\"'
+    )}"`;
+
+  const clauses =
+    APPLICATION_EVENT_DATE_COLUMNS.map(
+      ({ column, requireValue }) => {
+        const parts = [];
+
+        if (requireValue) {
+          parts.push(
+            `${column}.not.is.null`
+          );
+        }
+
+        if (dateFrom) {
+          parts.push(
+            `${column}.gte.${quote(dateFrom)}`
+          );
+        }
+
+        if (dateTo) {
+          parts.push(
+            `${column}.lt.${quote(dateTo)}`
+          );
+        }
+
+        if (parts.length === 1) {
+          return parts[0];
+        }
+
+        return `and(${parts.join(",")})`;
+      }
+    );
+
+  return query.or(clauses.join(","));
+}
+
+async function fetchApplicationsMatchingFilters({
+  actor,
+  managerId,
+  productId,
+  productName,
+  dateFrom,
+  dateTo,
+}) {
+  const buildQuery = ({
+    column = null,
+    matchProductId = false,
+    matchMissingProduct = false,
+  } = {}) => {
+    let query = supabase
+      .from("applications")
+      .select(APPLICATION_COLUMNS);
+
+    query = applyAssignedManagerFilter(
+      query,
+      actor,
+      managerId
+    );
+
+    if (matchProductId && productId) {
+      query = query.eq(
+        "product_id",
+        productId
+      );
+    } else if (matchMissingProduct) {
+      query = query.is("product_id", null);
+
+      if (productName) {
+        query = query.eq(
+          "product",
+          productName
+        );
+      }
+    }
+
+    if (column) {
+      const meta =
+        APPLICATION_EVENT_DATE_COLUMNS.find(
+          (item) => item.column === column
+        );
+
+      if (meta?.requireValue) {
+        query = query.not(
+          column,
+          "is",
+          null
+        );
+      }
+
+      query = applySingleDateRange(
+        query,
+        column,
+        dateFrom,
+        dateTo
+      );
+    } else {
+      query = applyEventDateOrFilter(
+        query,
+        dateFrom,
+        dateTo
+      );
+    }
+
+    return query.order("created_at", {
+      ascending: false,
+    });
+  };
+
+  const fetchByScope = async (scope) => {
+    const combined =
+      await fetchApplicationPages(() =>
+        buildQuery(scope)
+      );
+
+    if (
+      !combined.error ||
+      !(dateFrom || dateTo)
+    ) {
+      return combined;
+    }
+
+    const columnResults =
+      await Promise.all(
+        APPLICATION_EVENT_DATE_COLUMNS.map(
+          ({ column }) =>
+            fetchApplicationPages(() =>
+              buildQuery({
+                ...scope,
+                column,
+              })
+            )
+        )
+      );
+
+    const firstError = columnResults.find(
+      (result) => result.error
+    )?.error;
+
+    return {
+      data: mergeApplicationsById(
+        columnResults.map(
+          (result) => result.data
+        )
+      ),
+      error: firstError || null,
+    };
+  };
+
+  if (!productId) {
+    return fetchByScope({});
+  }
+
+  const byIdResult = await fetchByScope({
+    matchProductId: true,
+  });
+
+  if (byIdResult.error || !productName) {
+    return byIdResult;
+  }
+
+  const byNameResult = await fetchByScope({
+    matchMissingProduct: true,
+  });
+
+  if (byNameResult.error) {
+    return {
+      data: mergeApplicationsById([
+        byIdResult.data,
+      ]),
+      error: byIdResult.data.length
+        ? null
+        : byNameResult.error,
+    };
+  }
+
+  return {
+    data: mergeApplicationsById([
+      byIdResult.data,
+      byNameResult.data,
+    ]),
+    error: null,
   };
 }
 
@@ -1016,90 +1390,59 @@ export const applicationService = {
       };
     }
 
-    const pageSize = APPLICATION_PAGE_SIZE;
-    const rows = [];
-    let from = 0;
+    let productName = null;
 
-    while (from < 100000) {
-      let query = supabase
-        .from("applications")
-        .select(APPLICATION_COLUMNS);
+    if (productId) {
+      const {
+        data: selectedProduct,
+      } = await getProduct(productId);
 
-      query = applyManagerScope(
-        query,
-        actor
-      );
+      productName =
+        selectedProduct?.name || null;
+    }
 
-      if (managerId === "unassigned") {
-        if (
-          isPrivilegedRole(
-            actor.profile?.role
-          )
-        ) {
-          query = query.is(
-            "assigned_manager_id",
-            null
-          );
+    const {
+      data: rows,
+      error,
+    } = await fetchApplicationsMatchingFilters({
+      actor,
+      managerId,
+      productId,
+      productName,
+      dateFrom,
+      dateTo,
+    });
+
+    const hydrated = await hydrateApplications(
+      rows
+    );
+
+    const selectedProduct = productId
+      ? {
+          id: productId,
+          name: productName,
         }
-      } else if (managerId) {
-        query = query.eq(
-          "assigned_manager_id",
-          managerId
-        );
-      }
+      : null;
 
-      if (productId) {
-        query = query.eq(
-          "product_id",
-          productId
-        );
-      }
+    const data = productId
+      ? hydrated.filter((application) =>
+          applicationMatchesProductId(
+            application,
+            productId,
+            selectedProduct
+          )
+        )
+      : hydrated;
 
-      if (dateFrom) {
-        query = query.gte(
-          "created_at",
-          dateFrom
-        );
-      }
-
-      if (dateTo) {
-        query = query.lt(
-          "created_at",
-          dateTo
-        );
-      }
-
-      query = query.order("created_at", {
-        ascending: false,
-      });
-
-      const { data, error } =
-        await query.range(
-          from,
-          from + pageSize - 1
-        );
-
-      if (error) {
-        return {
-          data: await hydrateApplications(
-            rows
-          ),
-          error,
-        };
-      }
-
-      const chunk = data || [];
-      rows.push(...chunk);
-
-      if (chunk.length < pageSize) {
-        break;
-      }
-
-      from += pageSize;
+    if (error) {
+      return {
+        data,
+        error,
+      };
     }
 
     return {
-      data: await hydrateApplications(rows),
+      data,
       error: null,
     };
   },

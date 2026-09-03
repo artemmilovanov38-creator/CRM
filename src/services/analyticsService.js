@@ -30,12 +30,46 @@ function applyManagerId(query, column, managerId) {
   return query.eq(column, managerId);
 }
 
-function applyProductId(query, productId) {
+function applyProductId(
+  query,
+  productId,
+  productName = null
+) {
   if (!productId) {
     return query;
   }
 
-  return query.eq("product_id", productId);
+  if (!productName) {
+    return query.eq("product_id", productId);
+  }
+
+  return query.or(
+    `product_id.eq.${productId},and(product_id.is.null,product.eq."${String(
+      productName
+    ).replaceAll('"', '\\"')}")`
+  );
+}
+
+async function resolveProductName(productId) {
+  if (!productId) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("name")
+    .eq("id", productId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      "Не удалось получить название продукта для фильтра:",
+      error
+    );
+    return null;
+  }
+
+  return data?.name || null;
 }
 
 function openedAmount(row) {
@@ -518,16 +552,17 @@ export const analyticsService = {
     dateTo = null,
     productId = null,
   } = {}) {
-    if (managerId !== "unassigned") {
+    const productName = productId
+      ? await resolveProductName(productId)
+      : null;
+
+    if (managerId !== "unassigned" && !productId) {
       const rpcParams = {
         p_from: dateFrom,
         p_to: dateTo,
         p_manager_id: managerId,
+        p_product_id: null,
       };
-
-      if (productId) {
-        rpcParams.p_product_id = productId;
-      }
 
       const rpc = await tryRpc(
         "get_application_period_stats",
@@ -591,7 +626,8 @@ export const analyticsService = {
           "assigned_manager_id",
           managerId
         ),
-        productId
+        productId,
+        productName
       );
 
     const [
@@ -624,7 +660,8 @@ export const analyticsService = {
             "assigned_manager_id",
             managerId
           ),
-          productId
+          productId,
+          productName
         )
       ),
       countExact(
@@ -645,7 +682,8 @@ export const analyticsService = {
             "assigned_manager_id",
             managerId
           ),
-          productId
+          productId,
+          productName
         )
       ),
       countExact(
@@ -670,7 +708,8 @@ export const analyticsService = {
             "assigned_manager_id",
             managerId
           ),
-          productId
+          productId,
+          productName
         )
       ),
       this.sumOpenedAmount({
@@ -678,6 +717,7 @@ export const analyticsService = {
         dateFrom,
         dateTo,
         productId,
+        productName,
       }),
     ]);
 
@@ -725,17 +765,21 @@ export const analyticsService = {
     dateFrom = null,
     dateTo = null,
     productId = null,
+    productName = null,
   } = {}) {
-    if (managerId !== "unassigned") {
+    const resolvedProductName =
+      productName ??
+      (productId
+        ? await resolveProductName(productId)
+        : null);
+
+    if (managerId !== "unassigned" && !productId) {
       const rpcParams = {
         p_from: dateFrom,
         p_to: dateTo,
         p_manager_id: managerId,
+        p_product_id: null,
       };
-
-      if (productId) {
-        rpcParams.p_product_id = productId;
-      }
 
       const rpc = await tryRpc(
         "sum_opened_amount",
@@ -769,7 +813,8 @@ export const analyticsService = {
             "assigned_manager_id",
             managerId
           ),
-          productId
+          productId,
+          resolvedProductName
         )
     );
 
@@ -798,25 +843,31 @@ export const analyticsService = {
       };
     }
 
-    const rpc = await tryRpc(
-      "get_application_manager_analytics",
-      {
-        p_from: dateFrom,
-        p_to: dateTo,
-        p_manager_id: managerId,
-        p_product_id: productId,
-      }
-    );
+    const productName = productId
+      ? await resolveProductName(productId)
+      : null;
 
-    if (!rpc.error && Array.isArray(rpc.data)) {
-      return {
-        data: mapApplicationManagerRows(
-          rpc.data,
-          managers,
-          managerId
-        ),
-        error: null,
-      };
+    if (!productId) {
+      const rpc = await tryRpc(
+        "get_application_manager_analytics",
+        {
+          p_from: dateFrom,
+          p_to: dateTo,
+          p_manager_id: managerId,
+          p_product_id: null,
+        }
+      );
+
+      if (!rpc.error && Array.isArray(rpc.data)) {
+        return {
+          data: mapApplicationManagerRows(
+            rpc.data,
+            managers,
+            managerId
+          ),
+          error: null,
+        };
+      }
     }
 
     return this.aggregateApplicationManagerAnalytics({
@@ -824,6 +875,7 @@ export const analyticsService = {
       dateFrom,
       dateTo,
       productId,
+      productName,
       managers,
     });
   },
@@ -833,8 +885,15 @@ export const analyticsService = {
     dateFrom = null,
     dateTo = null,
     productId = null,
+    productName = null,
     managers = [],
   } = {}) {
+    const resolvedProductName =
+      productName ??
+      (productId
+        ? await resolveProductName(productId)
+        : null);
+
     const scopedQuery = (query) =>
       applyProductId(
         applyManagerId(
@@ -842,7 +901,8 @@ export const analyticsService = {
           "assigned_manager_id",
           managerId
         ),
-        productId
+        productId,
+        resolvedProductName
       );
 
     const [

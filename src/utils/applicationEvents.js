@@ -116,6 +116,115 @@ export function applicationHasEventInRange(
   );
 }
 
+export function normalizeProductName(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+export function sameEntityId(left, right) {
+  if (
+    left === null ||
+    left === undefined ||
+    right === null ||
+    right === undefined ||
+    left === "" ||
+    right === ""
+  ) {
+    return false;
+  }
+
+  return String(left) === String(right);
+}
+
+/**
+ * Фильтр по продукту конкретной заявки.
+ * Если есть product_id — сравниваем только ID.
+ * Текст product используем лишь когда ID нет.
+ */
+export function applicationMatchesProductId(
+  application,
+  productId,
+  selectedProduct = null
+) {
+  if (!productId) {
+    return true;
+  }
+
+  if (application?.product_id) {
+    return sameEntityId(
+      application.product_id,
+      productId
+    );
+  }
+
+  const selectedName = normalizeProductName(
+    selectedProduct?.name
+  );
+  const applicationName = normalizeProductName(
+    application?.product
+  );
+
+  if (!selectedName || !applicationName) {
+    return false;
+  }
+
+  return selectedName === applicationName;
+}
+
+/**
+ * Период вместе со статусом:
+ * новые — created_at, в работе — in_progress_at,
+ * успешные — opened_at, отказы — rejected_at.
+ * Без статуса — любая из этих дат.
+ */
+export function applicationMatchesStatusAndPeriod(
+  application,
+  statusFilter = "all",
+  rangeFrom = null,
+  rangeTo = null
+) {
+  if (!rangeFrom && !rangeTo) {
+    return true;
+  }
+
+  if (statusFilter === "approved") {
+    return isTimestampInRange(
+      getOpenedAt(application),
+      rangeFrom,
+      rangeTo
+    );
+  }
+
+  if (statusFilter === "rejected") {
+    return isTimestampInRange(
+      application?.rejected_at,
+      rangeFrom,
+      rangeTo
+    );
+  }
+
+  if (statusFilter === "in_progress") {
+    return isTimestampInRange(
+      application?.in_progress_at,
+      rangeFrom,
+      rangeTo
+    );
+  }
+
+  if (statusFilter === "new") {
+    return isTimestampInRange(
+      application?.created_at,
+      rangeFrom,
+      rangeTo
+    );
+  }
+
+  return applicationHasEventInRange(
+    application,
+    rangeFrom,
+    rangeTo
+  );
+}
+
 export function applicationMatchesDateOnlyPeriod(
   application,
   dateFrom = null,
@@ -380,4 +489,6 @@ export default {
   buildApplicationTimeline,
   countPeriodApplicationMetrics,
   applicationHasEventInRange,
+  applicationMatchesProductId,
+  applicationMatchesStatusAndPeriod,
 };
