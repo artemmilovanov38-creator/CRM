@@ -43,28 +43,17 @@ import {
 import { matchesSearch } from "../utils/searchMatch";
 import { formatServiceError } from "../utils/serviceError";
 import {
+  APPLICATION_STATUS_OPTIONS,
   applicationMatchesProductId,
+  applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
+  buildStatusFilterOptions,
+  buildVisibleStatusColumns,
+  getStatusLabel,
+  normalizeApplicationStatus,
 } from "../utils/applicationEvents";
 
-const statusOptions = [
-  {
-    value: "new",
-    label: "Новая",
-  },
-  {
-    value: "in_progress",
-    label: "В работе",
-  },
-  {
-    value: "approved",
-    label: "Успешно открыта",
-  },
-  {
-    value: "rejected",
-    label: "Отказ",
-  },
-];
+const statusOptions = APPLICATION_STATUS_OPTIONS;
 
 export default function ApplicationsPage() {
   const { user } = useAuth();
@@ -172,6 +161,8 @@ export default function ApplicationsPage() {
     ]
   );
 
+  const canAssignManager = !isManager;
+
   const managerIdForQuery =
     isManager || managerFilter === "all"
       ? null
@@ -241,6 +232,20 @@ export default function ApplicationsPage() {
           String(productFilter)
       ) || null,
     [productOptions, productFilter]
+  );
+
+  const statusFilterOptions = useMemo(
+    () => buildStatusFilterOptions(applications),
+    [applications]
+  );
+
+  const visibleStatusColumns = useMemo(
+    () =>
+      buildVisibleStatusColumns(
+        applications,
+        statusFilter
+      ),
+    [applications, statusFilter]
   );
 
   const loadPageData = useCallback(
@@ -348,11 +353,9 @@ export default function ApplicationsPage() {
             .map((application) => ({
               ...application,
               status:
-                application.status ===
-                "waiting"
-                  ? "new"
-                  : application.status ||
-                    "new",
+                normalizeApplicationStatus(
+                  application.status
+                ),
             }))
         );
       } catch (loadError) {
@@ -557,9 +560,10 @@ export default function ApplicationsPage() {
           );
 
           const matchesStatus =
-            statusFilter === "all" ||
-            application.status ===
-              statusFilter;
+            applicationMatchesStatus(
+              application,
+              statusFilter
+            );
 
           const matchesProduct =
             applicationMatchesProductId(
@@ -1236,87 +1240,87 @@ export default function ApplicationsPage() {
             )}
           </div>
 
-          <select
-            className="applications-filter"
-            value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(
-                event.target.value
-              )
-            }
-          >
-            <option value="all">
-              Все статусы
-            </option>
+          <div className="applications-toolbar__filters">
+            <select
+              className="applications-filter"
+              value={statusFilter}
+              aria-label="Фильтр по статусу"
+              onChange={(event) =>
+                setStatusFilter(
+                  event.target.value
+                )
+              }
+            >
+              {statusFilterOptions.map(
+                (status) => (
+                  <option
+                    key={status.value}
+                    value={status.value}
+                  >
+                    {status.label}
+                  </option>
+                )
+              )}
+            </select>
 
-            {statusOptions.map(
-              (status) => (
-                <option
-                  key={status.value}
-                  value={status.value}
-                >
-                  {status.label}
-                </option>
-              )
-            )}
-          </select>
-
-          {!isManager && (
-          <select
-            className="applications-filter"
-            value={managerFilter}
-            onChange={(event) =>
-              setManagerFilter(
-                event.target.value
-              )
-            }
-          >
-            <option value="all">
-              Все менеджеры
-            </option>
-
-            <option value="unassigned">
-              Без менеджера
-            </option>
-
-            {managers.map(
-              (manager) => (
-                <option
-                  key={manager.id}
-                  value={manager.id}
-                >
-                  {getManagerName(
-                    manager
-                  )}
-                </option>
-              )
-            )}
-          </select>
-          )}
-
-          <select
-            className="applications-filter applications-filter--product"
-            value={productFilter}
-            aria-label="Фильтр по продукту"
-            onChange={(event) =>
-              setProductFilter(
-                event.target.value
-              )
-            }
-          >
-            <option value="all">
-              Все продукты
-            </option>
-
-            {productOptions.map((product) => (
-              <option
-                key={product.id}
-                value={String(product.id)}
+            {!isManager && (
+              <select
+                className="applications-filter"
+                value={managerFilter}
+                aria-label="Фильтр по менеджеру"
+                onChange={(event) =>
+                  setManagerFilter(
+                    event.target.value
+                  )
+                }
               >
-                {product.name}
+                <option value="all">
+                  Все менеджеры
+                </option>
+
+                <option value="unassigned">
+                  Без менеджера
+                </option>
+
+                {managers.map(
+                  (manager) => (
+                    <option
+                      key={manager.id}
+                      value={manager.id}
+                    >
+                      {getManagerName(
+                        manager
+                      )}
+                    </option>
+                  )
+                )}
+              </select>
+            )}
+
+            <select
+              className="applications-filter applications-filter--product"
+              value={productFilter}
+              aria-label="Фильтр по продукту"
+              onChange={(event) =>
+                setProductFilter(
+                  event.target.value
+                )
+              }
+            >
+              <option value="all">
+                Все продукты
               </option>
-            ))}
-          </select>
+
+              {productOptions.map((product) => (
+                <option
+                  key={product.id}
+                  value={String(product.id)}
+                >
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <PeriodFilter
             preset={periodPreset}
@@ -1426,7 +1430,13 @@ export default function ApplicationsPage() {
                   applications={
                     filteredApplications
                   }
+                  statusColumns={
+                    visibleStatusColumns
+                  }
                   managers={managers}
+                  canAssignManager={
+                    canAssignManager
+                  }
                   draggedApplicationId={
                     draggedApplicationId
                   }
@@ -1464,6 +1474,9 @@ export default function ApplicationsPage() {
                     filteredApplications
                   }
                   managers={managers}
+                  canAssignManager={
+                    canAssignManager
+                  }
                   onStatusChange={
                     handleStatusChange
                   }
@@ -1482,7 +1495,13 @@ export default function ApplicationsPage() {
                 applications={
                   filteredApplications
                 }
+                statusColumns={
+                  visibleStatusColumns
+                }
                 managers={managers}
+                canAssignManager={
+                  canAssignManager
+                }
                 onStatusChange={
                   handleStatusChange
                 }
@@ -1524,14 +1543,16 @@ export default function ApplicationsPage() {
 
 function ApplicationsMobileList({
   applications,
+  statusColumns = statusOptions,
   managers,
+  canAssignManager = true,
   onStatusChange,
   onManagerChange,
   onOpenApplication,
 }) {
   return (
     <div className="applications-mobile-sections">
-      {statusOptions.map((status) => {
+      {statusColumns.map((status) => {
         const statusApplications =
           applications.filter(
             (application) =>
@@ -1577,6 +1598,9 @@ function ApplicationsMobileList({
                         application
                       }
                       managers={managers}
+                      canAssignManager={
+                        canAssignManager
+                      }
                       onStatusChange={
                         onStatusChange
                       }
@@ -1601,6 +1625,7 @@ function ApplicationsMobileList({
 function ApplicationMobileCard({
   application,
   managers,
+  canAssignManager = true,
   onStatusChange,
   onManagerChange,
   onOpenApplication,
@@ -1690,7 +1715,16 @@ function ApplicationMobileCard({
         </div>
       </button>
 
-      <div className="application-mobile-card__controls">
+      <div
+        className={[
+          "application-mobile-card__controls",
+          canAssignManager
+            ? ""
+            : "application-mobile-card__controls--single",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <label>
           <span>Статус</span>
 
@@ -1721,43 +1755,45 @@ function ApplicationMobileCard({
           </select>
         </label>
 
-        <label>
-          <span>Менеджер</span>
+        {canAssignManager && (
+          <label>
+            <span>Менеджер</span>
 
-          <select
-            className="application-mobile-select"
-            value={
-              application.assigned_manager_id ||
-              ""
-            }
-            onChange={(event) =>
-              onManagerChange(
-                application.id,
-                event.target.value
-              )
-            }
-          >
-            <option value="">
-              Не назначен
-            </option>
+            <select
+              className="application-mobile-select"
+              value={
+                application.assigned_manager_id ||
+                ""
+              }
+              onChange={(event) =>
+                onManagerChange(
+                  application.id,
+                  event.target.value
+                )
+              }
+            >
+              <option value="">
+                Не назначен
+              </option>
 
-            {getManagerOptions(
-              managers,
-              application.assigned_manager_id
-            ).map(
-              (manager) => (
-                <option
-                  key={manager.id}
-                  value={manager.id}
-                >
-                  {getManagerName(
-                    manager
-                  )}
-                </option>
-              )
-            )}
-          </select>
-        </label>
+              {getManagerOptions(
+                managers,
+                application.assigned_manager_id
+              ).map(
+                (manager) => (
+                  <option
+                    key={manager.id}
+                    value={manager.id}
+                  >
+                    {getManagerName(
+                      manager
+                    )}
+                  </option>
+                )
+              )}
+            </select>
+          </label>
+        )}
       </div>
 
       <button
@@ -1775,7 +1811,9 @@ function ApplicationMobileCard({
 
 function ApplicationsKanban({
   applications,
+  statusColumns = statusOptions,
   managers,
+  canAssignManager = true,
   draggedApplicationId,
   dragOverStatus,
   movingApplicationId,
@@ -1788,8 +1826,17 @@ function ApplicationsKanban({
   onOpenApplication,
 }) {
   return (
-    <div className="applications-kanban">
-      {statusOptions.map((status) => {
+    <div
+      className={[
+        "applications-kanban",
+        statusColumns.length === 1
+          ? "applications-kanban--single"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {statusColumns.map((status) => {
         const columnApplications =
           applications.filter(
             (application) =>
@@ -1954,50 +2001,52 @@ function ApplicationsKanban({
                           </strong>
                         </div>
 
-                        <div className="applications-kanban-card__manager">
-                          <span>Менеджер</span>
+                        {canAssignManager && (
+                          <div className="applications-kanban-card__manager">
+                            <span>Менеджер</span>
 
-                          <select
-                            value={
-                              application.assigned_manager_id ||
-                              ""
-                            }
-                            onClick={(event) =>
-                              event.stopPropagation()
-                            }
-                            onMouseDown={(event) =>
-                              event.stopPropagation()
-                            }
-                            onChange={(event) => {
-                              event.stopPropagation();
+                            <select
+                              value={
+                                application.assigned_manager_id ||
+                                ""
+                              }
+                              onClick={(event) =>
+                                event.stopPropagation()
+                              }
+                              onMouseDown={(event) =>
+                                event.stopPropagation()
+                              }
+                              onChange={(event) => {
+                                event.stopPropagation();
 
-                              onManagerChange(
-                                application.id,
-                                event.target.value
-                              );
-                            }}
-                          >
-                            <option value="">
-                              Не назначен
-                            </option>
+                                onManagerChange(
+                                  application.id,
+                                  event.target.value
+                                );
+                              }}
+                            >
+                              <option value="">
+                                Не назначен
+                              </option>
 
-                            {getManagerOptions(
-                              managers,
-                              application.assigned_manager_id
-                            ).map(
-                              (manager) => (
-                                <option
-                                  key={manager.id}
-                                  value={manager.id}
-                                >
-                                  {getManagerName(
-                                    manager
-                                  )}
-                                </option>
-                              )
-                            )}
-                          </select>
-                        </div>
+                              {getManagerOptions(
+                                managers,
+                                application.assigned_manager_id
+                              ).map(
+                                (manager) => (
+                                  <option
+                                    key={manager.id}
+                                    value={manager.id}
+                                  >
+                                    {getManagerName(
+                                      manager
+                                    )}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </div>
+                        )}
 
                         <div className="applications-kanban-card__footer">
                           <strong>
@@ -2034,6 +2083,7 @@ function ApplicationsKanban({
 function ApplicationsTable({
   applications,
   managers,
+  canAssignManager = true,
   onStatusChange,
   onManagerChange,
   onOpenApplication,
@@ -2046,7 +2096,9 @@ function ApplicationsTable({
             <th>Клиент</th>
             <th>Контакты</th>
             <th>Продукт</th>
-            <th>Менеджер</th>
+            {canAssignManager && (
+              <th>Менеджер</th>
+            )}
             <th>Статус</th>
             <th>Сумма</th>
             <th>Создана</th>
@@ -2114,44 +2166,46 @@ function ApplicationsTable({
                   </span>
                 </td>
 
-                <td>
-                  <select
-                    className="application-table-select"
-                    value={
-                      application.assigned_manager_id ||
-                      ""
-                    }
-                    onClick={(event) =>
-                      event.stopPropagation()
-                    }
-                    onChange={(event) =>
-                      onManagerChange(
-                        application.id,
-                        event.target.value
-                      )
-                    }
-                  >
-                    <option value="">
-                      Не назначен
-                    </option>
+                {canAssignManager && (
+                  <td>
+                    <select
+                      className="application-table-select"
+                      value={
+                        application.assigned_manager_id ||
+                        ""
+                      }
+                      onClick={(event) =>
+                        event.stopPropagation()
+                      }
+                      onChange={(event) =>
+                        onManagerChange(
+                          application.id,
+                          event.target.value
+                        )
+                      }
+                    >
+                      <option value="">
+                        Не назначен
+                      </option>
 
-                    {getManagerOptions(
-                      managers,
-                      application.assigned_manager_id
-                    ).map(
-                      (manager) => (
-                        <option
-                          key={manager.id}
-                          value={manager.id}
-                        >
-                          {getManagerName(
-                            manager
-                          )}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </td>
+                      {getManagerOptions(
+                        managers,
+                        application.assigned_manager_id
+                      ).map(
+                        (manager) => (
+                          <option
+                            key={manager.id}
+                            value={manager.id}
+                          >
+                            {getManagerName(
+                              manager
+                            )}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </td>
+                )}
 
                 <td>
                   <select
@@ -2302,15 +2356,6 @@ function getManagerName(manager) {
     manager?.full_name ||
     manager?.email ||
     "Без имени"
-  );
-}
-
-function getStatusLabel(statusValue) {
-  return (
-    statusOptions.find(
-      (status) =>
-        status.value === statusValue
-    )?.label || statusValue
   );
 }
 

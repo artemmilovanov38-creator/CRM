@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { resolveApplicationManagerScope } from "./applicationService";
 import { formatServiceError } from "../utils/serviceError";
 
 const PAGE_SIZE = 1000;
@@ -552,15 +553,31 @@ export const analyticsService = {
     dateTo = null,
     productId = null,
   } = {}) {
+    const scope = await resolveApplicationManagerScope(
+      managerId
+    );
+
+    if (scope.error) {
+      return {
+        data: emptyApplicationStats(),
+        error: mapAnalyticsError(scope.error),
+      };
+    }
+
+    const scopedManagerId = scope.managerId;
     const productName = productId
       ? await resolveProductName(productId)
       : null;
 
-    if (managerId !== "unassigned" && !productId) {
+    if (scopedManagerId !== "unassigned" && !productId) {
       const rpcParams = {
         p_from: dateFrom,
         p_to: dateTo,
-        p_manager_id: managerId,
+        p_manager_id:
+          scopedManagerId &&
+          scopedManagerId !== "unassigned"
+            ? scopedManagerId
+            : null,
         p_product_id: null,
       };
 
@@ -624,7 +641,7 @@ export const analyticsService = {
             dateTo
           ),
           "assigned_manager_id",
-          managerId
+          scopedManagerId
         ),
         productId,
         productName
@@ -658,7 +675,7 @@ export const analyticsService = {
               dateTo
             ),
             "assigned_manager_id",
-            managerId
+            scopedManagerId
           ),
           productId,
           productName
@@ -680,7 +697,7 @@ export const analyticsService = {
               dateTo
             ),
             "assigned_manager_id",
-            managerId
+            scopedManagerId
           ),
           productId,
           productName
@@ -706,14 +723,14 @@ export const analyticsService = {
               dateTo
             ),
             "assigned_manager_id",
-            managerId
+            scopedManagerId
           ),
           productId,
           productName
         )
       ),
       this.sumOpenedAmount({
-        managerId,
+        managerId: scopedManagerId,
         dateFrom,
         dateTo,
         productId,
@@ -767,17 +784,33 @@ export const analyticsService = {
     productId = null,
     productName = null,
   } = {}) {
+    const scope = await resolveApplicationManagerScope(
+      managerId
+    );
+
+    if (scope.error) {
+      return {
+        data: 0,
+        error: mapAnalyticsError(scope.error),
+      };
+    }
+
+    const scopedManagerId = scope.managerId;
     const resolvedProductName =
       productName ??
       (productId
         ? await resolveProductName(productId)
         : null);
 
-    if (managerId !== "unassigned" && !productId) {
+    if (scopedManagerId !== "unassigned" && !productId) {
       const rpcParams = {
         p_from: dateFrom,
         p_to: dateTo,
-        p_manager_id: managerId,
+        p_manager_id:
+          scopedManagerId &&
+          scopedManagerId !== "unassigned"
+            ? scopedManagerId
+            : null,
         p_product_id: null,
       };
 
@@ -811,7 +844,7 @@ export const analyticsService = {
               dateTo
             ),
             "assigned_manager_id",
-            managerId
+            scopedManagerId
           ),
           productId,
           resolvedProductName
@@ -836,7 +869,20 @@ export const analyticsService = {
     productId = null,
     managers = [],
   } = {}) {
-    if (managerId === "unassigned") {
+    const scope = await resolveApplicationManagerScope(
+      managerId
+    );
+
+    if (scope.error) {
+      return {
+        data: [],
+        error: mapAnalyticsError(scope.error),
+      };
+    }
+
+    const scopedManagerId = scope.managerId;
+
+    if (scopedManagerId === "unassigned") {
       return {
         data: [],
         error: null,
@@ -853,7 +899,7 @@ export const analyticsService = {
         {
           p_from: dateFrom,
           p_to: dateTo,
-          p_manager_id: managerId,
+          p_manager_id: scopedManagerId,
           p_product_id: null,
         }
       );
@@ -863,7 +909,7 @@ export const analyticsService = {
           data: mapApplicationManagerRows(
             rpc.data,
             managers,
-            managerId
+            scopedManagerId
           ),
           error: null,
         };
@@ -871,7 +917,7 @@ export const analyticsService = {
     }
 
     return this.aggregateApplicationManagerAnalytics({
-      managerId,
+      managerId: scopedManagerId,
       dateFrom,
       dateTo,
       productId,

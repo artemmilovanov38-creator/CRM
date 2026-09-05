@@ -595,32 +595,84 @@ const APPLICATION_EVENT_DATE_COLUMNS = [
   },
 ];
 
+export async function resolveApplicationManagerScope(
+  requestedManagerId = null
+) {
+  const actor = await getCurrentActor();
+
+  if (!actor.user) {
+    return {
+      actor,
+      managerId: null,
+      error:
+        actor.error ||
+        createServiceError(
+          "Не удалось определить пользователя"
+        ),
+    };
+  }
+
+  if (
+    !isPrivilegedRole(actor.profile?.role)
+  ) {
+    const ownerId = getActorOwnerId(actor);
+
+    return {
+      actor,
+      managerId: ownerId,
+      error: ownerId
+        ? null
+        : createServiceError(
+            "Не удалось определить менеджера"
+          ),
+    };
+  }
+
+  return {
+    actor,
+    managerId: requestedManagerId ?? null,
+    error: null,
+  };
+}
+
 function applyAssignedManagerFilter(
   query,
   actor,
   managerId
 ) {
-  let next = applyManagerScope(query, actor);
+  if (
+    !isPrivilegedRole(actor?.profile?.role)
+  ) {
+    const ownerId = getActorOwnerId(actor);
 
-  if (managerId === "unassigned") {
-    if (
-      isPrivilegedRole(
-        actor.profile?.role
-      )
-    ) {
-      next = next.is(
+    if (!ownerId) {
+      return query.eq(
         "assigned_manager_id",
-        null
+        "00000000-0000-0000-0000-000000000000"
       );
     }
-  } else if (managerId) {
-    next = next.eq(
+
+    return query.eq(
+      "assigned_manager_id",
+      ownerId
+    );
+  }
+
+  if (managerId === "unassigned") {
+    return query.is(
+      "assigned_manager_id",
+      null
+    );
+  }
+
+  if (managerId) {
+    return query.eq(
       "assigned_manager_id",
       managerId
     );
   }
 
-  return next;
+  return query;
 }
 
 function applySingleDateRange(
@@ -1377,12 +1429,19 @@ export const applicationService = {
     managerId = null,
     productId = null,
   } = {}) {
-    const actor = await getCurrentActor();
+    const {
+      actor,
+      managerId: scopedManagerId,
+      error: scopeError,
+    } = await resolveApplicationManagerScope(
+      managerId
+    );
 
-    if (!actor.user) {
+    if (!actor.user || scopeError) {
       return {
         data: [],
         error:
+          scopeError ||
           actor.error ||
           createServiceError(
             "Не удалось определить пользователя"
@@ -1406,7 +1465,7 @@ export const applicationService = {
       error,
     } = await fetchApplicationsMatchingFilters({
       actor,
-      managerId,
+      managerId: scopedManagerId,
       productId,
       productName,
       dateFrom,

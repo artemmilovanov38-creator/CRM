@@ -6,12 +6,149 @@ export const APPLICATION_STATUS_LABELS = {
   rejected: "Отказ",
 };
 
+export const APPLICATION_STATUS_FILTER_LABELS = {
+  new: "Новые",
+  waiting: "Новые",
+  in_progress: "В работе",
+  approved: "Успешно открыты",
+  rejected: "Отказы",
+};
+
+export const APPLICATION_STATUS_OPTIONS = [
+  {
+    value: "new",
+    label: APPLICATION_STATUS_LABELS.new,
+    filterLabel: APPLICATION_STATUS_FILTER_LABELS.new,
+  },
+  {
+    value: "in_progress",
+    label: APPLICATION_STATUS_LABELS.in_progress,
+    filterLabel: APPLICATION_STATUS_FILTER_LABELS.in_progress,
+  },
+  {
+    value: "approved",
+    label: APPLICATION_STATUS_LABELS.approved,
+    filterLabel: APPLICATION_STATUS_FILTER_LABELS.approved,
+  },
+  {
+    value: "rejected",
+    label: APPLICATION_STATUS_LABELS.rejected,
+    filterLabel: APPLICATION_STATUS_FILTER_LABELS.rejected,
+  },
+];
+
+export function normalizeApplicationStatus(status) {
+  if (status === "waiting") {
+    return "new";
+  }
+
+  return status || "new";
+}
+
 export function getStatusLabel(status) {
   if (!status) {
     return "Не указан";
   }
 
-  return APPLICATION_STATUS_LABELS[status] || status;
+  const normalized = normalizeApplicationStatus(status);
+
+  return APPLICATION_STATUS_LABELS[normalized] || normalized;
+}
+
+export function getStatusFilterLabel(status) {
+  if (!status || status === "all") {
+    return "Все статусы";
+  }
+
+  const normalized = normalizeApplicationStatus(status);
+
+  return (
+    APPLICATION_STATUS_FILTER_LABELS[normalized] ||
+    APPLICATION_STATUS_LABELS[normalized] ||
+    normalized
+  );
+}
+
+export function applicationMatchesStatus(
+  application,
+  statusFilter = "all"
+) {
+  if (!statusFilter || statusFilter === "all") {
+    return true;
+  }
+
+  return (
+    normalizeApplicationStatus(application?.status) ===
+    statusFilter
+  );
+}
+
+export function collectApplicationStatuses(applications = []) {
+  const extras = [];
+  const seen = new Set(
+    APPLICATION_STATUS_OPTIONS.map((item) => item.value)
+  );
+
+  for (const application of applications) {
+    const status = normalizeApplicationStatus(
+      application?.status
+    );
+
+    if (!status || seen.has(status)) {
+      continue;
+    }
+
+    seen.add(status);
+    extras.push({
+      value: status,
+      label: getStatusLabel(status),
+      filterLabel: getStatusFilterLabel(status),
+    });
+  }
+
+  return [...APPLICATION_STATUS_OPTIONS, ...extras];
+}
+
+export function buildStatusFilterOptions(applications = []) {
+  return [
+    {
+      value: "all",
+      label: "Все статусы",
+    },
+    ...collectApplicationStatuses(applications).map(
+      (status) => ({
+        value: status.value,
+        label: status.filterLabel,
+      })
+    ),
+  ];
+}
+
+export function buildVisibleStatusColumns(
+  applications = [],
+  statusFilter = "all"
+) {
+  const columns = collectApplicationStatuses(applications);
+
+  if (!statusFilter || statusFilter === "all") {
+    return columns;
+  }
+
+  const selected = columns.find(
+    (status) => status.value === statusFilter
+  );
+
+  if (selected) {
+    return [selected];
+  }
+
+  return [
+    {
+      value: statusFilter,
+      label: getStatusLabel(statusFilter),
+      filterLabel: getStatusFilterLabel(statusFilter),
+    },
+  ];
 }
 
 export function getOpenedAt(application) {
@@ -490,5 +627,10 @@ export default {
   countPeriodApplicationMetrics,
   applicationHasEventInRange,
   applicationMatchesProductId,
+  applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
+  buildStatusFilterOptions,
+  buildVisibleStatusColumns,
+  collectApplicationStatuses,
+  normalizeApplicationStatus,
 };

@@ -1,5 +1,8 @@
 import {
+  applicationMatchesStatus,
   buildApplicationTimeline,
+  buildStatusFilterOptions,
+  buildVisibleStatusColumns,
   countPeriodApplicationMetrics,
   isDateOnlyInRange,
 } from "../src/utils/applicationEvents.js";
@@ -210,6 +213,69 @@ const filtered = countPeriodApplicationMetrics(
 assert(
   filtered.opened === 1 && filtered.salaryAmount === 15000,
   "Фильтр по продукту не должен тащить чужую сумму"
+);
+
+const ownApplications = [
+  { status: "new", product_id: "alpha" },
+  { status: "in_progress", product_id: "alpha" },
+  { status: "approved", product_id: "receipt" },
+  { status: "rejected", product_id: "alpha" },
+  { status: "waiting", product_id: "alpha" },
+];
+
+assert(
+  ownApplications.filter((item) =>
+    applicationMatchesStatus(item, "all")
+  ).length === 5,
+  "Все статусы возвращают все заявки менеджера"
+);
+
+assert(
+  ownApplications.filter((item) =>
+    applicationMatchesStatus(item, "in_progress")
+  ).length === 1,
+  "Фильтр «В работе» оставляет только заявки в работе"
+);
+
+assert(
+  ownApplications.filter((item) =>
+    applicationMatchesStatus(item, "approved")
+  ).length === 1,
+  "Фильтр «Успешно открыты» оставляет только успешные"
+);
+
+assert(
+  ownApplications.filter((item) =>
+    applicationMatchesStatus(item, "rejected")
+  ).length === 1,
+  "Фильтр «Отказы» оставляет только отказы"
+);
+
+assert(
+  ownApplications.filter((item) =>
+    applicationMatchesStatus(item, "new")
+  ).length === 2,
+  "waiting считается новым статусом, отдельные статусы не выдумываются"
+);
+
+const filterLabels = buildStatusFilterOptions(
+  ownApplications
+).map((item) => item.label);
+
+assert(
+  filterLabels.includes("Все статусы") &&
+    filterLabels.includes("Новые") &&
+    filterLabels.includes("В работе") &&
+    filterLabels.includes("Успешно открыты") &&
+    filterLabels.includes("Отказы"),
+  "Фильтр менеджера содержит реальные статусы системы"
+);
+
+assert(
+  buildVisibleStatusColumns(ownApplications, "approved")
+    .map((item) => item.value)
+    .join(",") === "approved",
+  "При выбранном статусе канбан/мобильный список показывают только его"
 );
 
 console.log("Сценарий 02/05/10/20.09 и фильтры периода прошли");

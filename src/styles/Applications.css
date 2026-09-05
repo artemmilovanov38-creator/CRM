@@ -1681,6 +1681,15 @@ font-size:14px;
   min-width: 0;
 }
 
+.applications-toolbar__filters {
+  display: flex;
+  flex: 1 1 320px;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+
 .applications-filter {
   flex: 1 1 160px;
   min-width: 0;
@@ -1702,6 +1711,14 @@ font-size:14px;
   flex: 0 0 auto;
 }
 
+.applications-kanban--single {
+  grid-template-columns: minmax(260px, 1fr);
+}
+
+.application-mobile-card__controls--single {
+  grid-template-columns: 1fr;
+}
+
 .applications-stats {
   grid-template-columns:
     repeat(auto-fit, minmax(160px, 1fr));
@@ -1713,6 +1730,7 @@ font-size:14px;
 
 @media (max-width: 760px) {
   .applications-search,
+  .applications-toolbar__filters,
   .applications-filter,
   .applications-filter--product,
   .applications-toolbar .period-filter,
@@ -1720,6 +1738,16 @@ font-size:14px;
     flex-basis: 100%;
     width: 100%;
     max-width: 100%;
+  }
+
+  .applications-toolbar__filters {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .applications-kanban--single {
+    grid-template-columns: 1fr;
   }
 
   .applications-panel .manager-analytics {
