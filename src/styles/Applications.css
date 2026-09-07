@@ -1669,7 +1669,7 @@ font-size:14px;
 }
 
 .applications-page .applications-toolbar {
-  display: flex;
+  display: flex !important;
   flex-wrap: wrap;
   align-items: stretch;
   gap: 12px;
@@ -1682,9 +1682,12 @@ font-size:14px;
 }
 
 .applications-toolbar__filters {
-  display: flex;
-  flex: 1 1 320px;
-  flex-wrap: wrap;
+  display: grid;
+  flex: 1 1 100%;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(180px, 1fr)
+  );
   align-items: stretch;
   gap: 12px;
   min-width: 0;
@@ -1692,13 +1695,14 @@ font-size:14px;
 
 .applications-filter {
   flex: 1 1 160px;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
 }
 
 .applications-filter--product {
-  flex: 1 1 180px;
+  min-width: 180px;
 }
 
 .applications-toolbar .period-filter {

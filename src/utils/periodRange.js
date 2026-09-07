@@ -54,6 +54,106 @@ function parseInputDate(value) {
   );
 }
 
+export function isIsoDateTime(value) {
+  return (
+    typeof value === "string" &&
+    value.includes("T")
+  );
+}
+
+/**
+ * Границы календарного периода в локальной
+ * таймзоне проекта: начало первого дня
+ * включительно, начало дня после последнего
+ * — исключительно. Так 31.08 23:50 входит
+ * в период до 31.08, а 01.09 00:00 — нет.
+ */
+export function dateOnlyToExclusiveIsoRange(
+  dateFrom = null,
+  dateTo = null
+) {
+  const parsedFrom = parseInputDate(dateFrom);
+  const parsedTo = parseInputDate(dateTo);
+
+  if (!parsedFrom && !parsedTo) {
+    return {
+      from: null,
+      to: null,
+    };
+  }
+
+  if (parsedFrom && !parsedTo) {
+    return {
+      from: startOfLocalDay(
+        parsedFrom
+      ).toISOString(),
+      to: null,
+    };
+  }
+
+  if (!parsedFrom && parsedTo) {
+    const lastDay = startOfLocalDay(parsedTo);
+    const endExclusive = new Date(lastDay);
+    endExclusive.setDate(
+      endExclusive.getDate() + 1
+    );
+
+    return {
+      from: null,
+      to: endExclusive.toISOString(),
+    };
+  }
+
+  const rangeStart = startOfLocalDay(
+    parsedFrom <= parsedTo
+      ? parsedFrom
+      : parsedTo
+  );
+
+  const lastDay = startOfLocalDay(
+    parsedFrom > parsedTo
+      ? parsedFrom
+      : parsedTo
+  );
+
+  const rangeEndExclusive = new Date(lastDay);
+  rangeEndExclusive.setDate(
+    rangeEndExclusive.getDate() + 1
+  );
+
+  return {
+    from: rangeStart.toISOString(),
+    to: rangeEndExclusive.toISOString(),
+  };
+}
+
+export function resolveIsoPeriodBounds(
+  dateFrom = null,
+  dateTo = null
+) {
+  if (!dateFrom && !dateTo) {
+    return {
+      from: null,
+      to: null,
+    };
+  }
+
+  if (
+    isIsoDateTime(dateFrom) ||
+    isIsoDateTime(dateTo)
+  ) {
+    return {
+      from: dateFrom || null,
+      to: dateTo || null,
+    };
+  }
+
+  return dateOnlyToExclusiveIsoRange(
+    dateFrom,
+    dateTo
+  );
+}
+
 export const PERIOD_PRESETS = [
   {
     id: "today",

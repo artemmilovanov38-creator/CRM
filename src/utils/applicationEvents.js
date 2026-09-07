@@ -163,6 +163,39 @@ export function isCurrentlyApproved(application) {
   return application?.status === "approved";
 }
 
+/**
+ * Выплата по заявке: сначала сумма самой
+ * заявки, затем снимок ставки, затем цена
+ * продукта на момент загрузки. Текущий
+ * каталог не должен молча перетирать
+ * сохранённую сумму.
+ */
+export function getApplicationPayout(application) {
+  const candidates = [
+    application?.amount,
+    application?.opening_price_snapshot,
+    application?.product_data?.opening_price,
+  ];
+
+  for (const value of candidates) {
+    if (
+      value === null ||
+      value === undefined ||
+      value === ""
+    ) {
+      continue;
+    }
+
+    const amount = Number(value);
+
+    if (Number.isFinite(amount)) {
+      return amount;
+    }
+  }
+
+  return null;
+}
+
 export function toTimestamp(value) {
   if (!value) {
     return null;
@@ -207,7 +240,9 @@ export function isDateOnlyInRange(
   }
 
   if (dateFrom) {
-    const start = new Date(`${dateFrom}T00:00:00`).getTime();
+    const start = new Date(
+      `${dateFrom}T00:00:00`
+    ).getTime();
 
     if (Number.isNaN(start) || time < start) {
       return false;
@@ -215,14 +250,42 @@ export function isDateOnlyInRange(
   }
 
   if (dateTo) {
-    const end = new Date(`${dateTo}T23:59:59.999`).getTime();
+    const lastDay = new Date(
+      `${dateTo}T00:00:00`
+    );
 
-    if (Number.isNaN(end) || time > end) {
+    if (Number.isNaN(lastDay.getTime())) {
+      return false;
+    }
+
+    lastDay.setDate(lastDay.getDate() + 1);
+
+    if (time >= lastDay.getTime()) {
       return false;
     }
   }
 
   return true;
+}
+
+export function applicationIsSuccessfulOpeningInPeriod(
+  application,
+  rangeFrom = null,
+  rangeTo = null
+) {
+  if (!isCurrentlyApproved(application)) {
+    return false;
+  }
+
+  if (!rangeFrom && !rangeTo) {
+    return Boolean(getOpenedAt(application));
+  }
+
+  return isTimestampInRange(
+    getOpenedAt(application),
+    rangeFrom,
+    rangeTo
+  );
 }
 
 export function applicationEventDates(application) {

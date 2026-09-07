@@ -575,7 +575,11 @@ export default function ApplicationsPage() {
           const matchesPeriod =
             applicationMatchesStatusAndPeriod(
               application,
-              statusFilter,
+              statusFilter === "all"
+                ? normalizeApplicationStatus(
+                    application.status
+                  )
+                : statusFilter,
               periodRange.from,
               periodRange.to
             );
@@ -1139,9 +1143,13 @@ export default function ApplicationsPage() {
         заявки. «В работе» — по дате перехода
         в этот статус. «Успешно открыты» — по
         дате открытия квита, «Отказы» — по дате
-        перехода в отказ. Сумма успешных
-        считается только по заявкам, которые
-        сейчас в статусе «Успешно открыта».
+        перехода в отказ. Список и зарплата
+        считают успешные одинаково: по дате
+        открытия, а не по дате создания.
+        Если заявка создана в этом периоде,
+        но открыта позже, она попадёт в
+        успешные и в зарплату того периода,
+        когда квит открыли.
       </p>
 
       <section className="applications-stats">

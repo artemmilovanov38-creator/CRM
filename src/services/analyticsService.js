@@ -569,7 +569,7 @@ export const analyticsService = {
       ? await resolveProductName(productId)
       : null;
 
-    if (scopedManagerId !== "unassigned" && !productId) {
+    if (scopedManagerId !== "unassigned") {
       const rpcParams = {
         p_from: dateFrom,
         p_to: dateTo,
@@ -578,7 +578,7 @@ export const analyticsService = {
           scopedManagerId !== "unassigned"
             ? scopedManagerId
             : null,
-        p_product_id: null,
+        p_product_id: productId || null,
       };
 
       const rpc = await tryRpc(
@@ -802,7 +802,7 @@ export const analyticsService = {
         ? await resolveProductName(productId)
         : null);
 
-    if (scopedManagerId !== "unassigned" && !productId) {
+    if (scopedManagerId !== "unassigned") {
       const rpcParams = {
         p_from: dateFrom,
         p_to: dateTo,
@@ -811,7 +811,7 @@ export const analyticsService = {
           scopedManagerId !== "unassigned"
             ? scopedManagerId
             : null,
-        p_product_id: null,
+        p_product_id: productId || null,
       };
 
       const rpc = await tryRpc(
@@ -893,27 +893,25 @@ export const analyticsService = {
       ? await resolveProductName(productId)
       : null;
 
-    if (!productId) {
-      const rpc = await tryRpc(
-        "get_application_manager_analytics",
-        {
-          p_from: dateFrom,
-          p_to: dateTo,
-          p_manager_id: scopedManagerId,
-          p_product_id: null,
-        }
-      );
-
-      if (!rpc.error && Array.isArray(rpc.data)) {
-        return {
-          data: mapApplicationManagerRows(
-            rpc.data,
-            managers,
-            scopedManagerId
-          ),
-          error: null,
-        };
+    const rpc = await tryRpc(
+      "get_application_manager_analytics",
+      {
+        p_from: dateFrom,
+        p_to: dateTo,
+        p_manager_id: scopedManagerId,
+        p_product_id: productId || null,
       }
+    );
+
+    if (!rpc.error && Array.isArray(rpc.data)) {
+      return {
+        data: mapApplicationManagerRows(
+          rpc.data,
+          managers,
+          scopedManagerId
+        ),
+        error: null,
+      };
     }
 
     return this.aggregateApplicationManagerAnalytics({

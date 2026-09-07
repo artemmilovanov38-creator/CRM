@@ -2,10 +2,11 @@ import { supabase } from "../lib/supabase";
 import { formatTelegramDisplay } from "../utils/telegram";
 import {
   getOpenedAt,
-  isDateOnlyInRange,
+  isTimestampInRange,
   normalizeProductName,
   applicationMatchesProductId,
 } from "../utils/applicationEvents";
+import { resolveIsoPeriodBounds } from "../utils/periodRange";
 
 const APPLICATION_COLUMNS = `
   id,
@@ -67,6 +68,8 @@ const PRIVILEGED_ROLES = [
   "head",
 ];
 
+export { getApplicationPayout } from "../utils/applicationEvents";
+
 export function isApplicationReceiptOpened(
   application
 ) {
@@ -77,34 +80,6 @@ export function getApplicationOpenedAt(
   application
 ) {
   return getOpenedAt(application);
-}
-
-export function getApplicationPayout(
-  application
-) {
-  const candidates = [
-    application?.amount,
-    application?.opening_price_snapshot,
-    application?.product_data?.opening_price,
-  ];
-
-  for (const value of candidates) {
-    if (
-      value === null ||
-      value === undefined ||
-      value === ""
-    ) {
-      continue;
-    }
-
-    const amount = Number(value);
-
-    if (Number.isFinite(amount)) {
-      return amount;
-    }
-  }
-
-  return null;
 }
 
 function createServiceError(message) {
@@ -1597,17 +1572,22 @@ export const applicationService = {
       actor
     );
 
-    if (dateFrom) {
+    const bounds = resolveIsoPeriodBounds(
+      dateFrom,
+      dateTo
+    );
+
+    if (bounds.from) {
       query = query.gte(
         "created_at",
-        `${dateFrom}T00:00:00`
+        bounds.from
       );
     }
 
-    if (dateTo) {
-      query = query.lte(
+    if (bounds.to) {
+      query = query.lt(
         "created_at",
-        `${dateTo}T23:59:59.999`
+        bounds.to
       );
     }
 
@@ -1631,8 +1611,9 @@ export const applicationService = {
 
   /**
    * Получить только успешные открытия
-   * по дате opened_at (с запасным
-   * approved_at для старых заявок).
+   * по дате coalesce(opened_at, approved_at).
+   * Границы периода — локальный день:
+   * from включительно, to исключительно.
    *
    * В выборку входят заявки, которые
    * СЕЙЧАС в статусе approved. Если
@@ -1657,74 +1638,68 @@ export const applicationService = {
       };
     }
 
-    const pageSize = 1000;
-    const rows = [];
-    let from = 0;
-    const openedFrom = dateFrom
-      ? `${dateFrom}T00:00:00`
-      : null;
-    const openedTo = dateTo
-      ? `${dateTo}T23:59:59.999`
-      : null;
+    const bounds = resolveIsoPeriodBounds(
+      dateFrom,
+      dateTo
+    );
 
-    while (from < 100000) {
-      let query = supabase
-        .from("applications")
-        .select(APPLICATION_COLUMNS)
-        .eq("status", "approved")
-        .order("opened_at", {
-          ascending: false,
-          nullsFirst: false,
-        });
+    const fetchOpenedColumn = (
+      column,
+      extra = (query) => query
+    ) =>
+      fetchApplicationPages(() => {
+        let query = supabase
+          .from("applications")
+          .select(APPLICATION_COLUMNS)
+          .eq("status", "approved")
+          .not(column, "is", null)
+          .order(column, {
+            ascending: false,
+            nullsFirst: false,
+          });
 
-      query = applyManagerScope(
-        query,
-        actor
+        query = applyManagerScope(
+          query,
+          actor
+        );
+
+        query = applySingleDateRange(
+          query,
+          column,
+          bounds.from,
+          bounds.to
+        );
+
+        return extra(query);
+      });
+
+    const openedResult = await fetchOpenedColumn(
+      "opened_at"
+    );
+
+    const approvedFallback =
+      await fetchOpenedColumn(
+        "approved_at",
+        (query) => query.is("opened_at", null)
       );
 
-      if (openedFrom) {
-        query = query.gte(
-          "opened_at",
-          openedFrom
-        );
-      }
+    const firstError =
+      openedResult.error ||
+      approvedFallback.error;
 
-      if (openedTo) {
-        query = query.lte(
-          "opened_at",
-          openedTo
-        );
-      }
+    const rows = mergeApplicationsById([
+      openedResult.data,
+      approvedFallback.data,
+    ]);
 
-      const { data, error } =
-        await query.range(
-          from,
-          from + pageSize - 1
-        );
-
-      if (error) {
-        return {
-          data: rows,
-          error,
-        };
-      }
-
-      const chunk = data || [];
-      rows.push(...chunk);
-
-      if (chunk.length < pageSize) {
-        break;
-      }
-
-      from += pageSize;
-    }
-
-    const inPeriod = (rows || []).filter(
+    const inPeriod = rows.filter(
       (application) =>
-        isDateOnlyInRange(
+        application?.status ===
+          "approved" &&
+        isTimestampInRange(
           getOpenedAt(application),
-          openedFrom ? dateFrom : null,
-          openedTo ? dateTo : null
+          bounds.from,
+          bounds.to
         )
     );
 
@@ -1732,7 +1707,7 @@ export const applicationService = {
       data: await hydrateApplications(
         inPeriod
       ),
-      error: null,
+      error: firstError || null,
     };
   },
 

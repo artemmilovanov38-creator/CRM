@@ -31,6 +31,10 @@ import {
   profileService,
 } from "../services/profileService";
 
+import {
+  buildSalaryData,
+} from "../utils/salaryCalculation";
+
 import "../styles/Salaries.css";
 
 export default function Salaries() {
@@ -161,180 +165,46 @@ export default function Salaries() {
     setIsLoading(false);
   }
 
-  const productMap = useMemo(() => {
-    return new Map(
+  const salaryBuild = useMemo(
+    () =>
+      buildSalaryData({
+        managers,
+        products,
+        applications,
+      }),
+    [managers, products, applications]
+  );
+
+  const salaryData = salaryBuild.rows;
+
+  const salaryProducts = useMemo(() => {
+    const byId = new Map(
       products.map((product) => [
-        product.id,
+        String(product.id),
         product,
       ])
     );
-  }, [products]);
 
-  const salaryData = useMemo(() => {
-    return managers.map((manager) => {
-      const managerApplications =
-        applications.filter(
-          (application) =>
-            application.assigned_manager_id ===
-            manager.id
-        );
+    salaryData.forEach((manager) => {
+      Object.values(manager.products).forEach(
+        (item) => {
+          const key = String(item.productId);
 
-      const productStats = {};
-
-      products.forEach((product) => {
-        productStats[product.id] = {
-          productId: product.id,
-          name: product.name,
-
-          currentRate: toSafeNumber(
-            product.opening_price
-          ),
-
-          openings: 0,
-          salary: 0,
-          rateGroups: {},
-        };
-      });
-
-      let unpricedOpenings = 0;
-
-      managerApplications.forEach(
-        (application) => {
-          const productId =
-            application.product_id ||
-            application.product_data?.id ||
-            null;
-
-          const product = productId
-            ? productMap.get(productId)
-            : null;
-
-          if (
-            !product ||
-            !productStats[product.id]
-          ) {
-            unpricedOpenings += 1;
+          if (byId.has(key)) {
             return;
           }
 
-          const payoutFromApplication =
-            application.amount !==
-              null &&
-            application.amount !==
-              undefined
-              ? toSafeNumber(
-                  application.amount
-                )
-              : null;
-
-          const hasSnapshot =
-            application
-              .opening_price_snapshot !==
-              null &&
-            application
-              .opening_price_snapshot !==
-              undefined;
-
-          const rate = hasSnapshot
-            ? toSafeNumber(
-                application
-                  .opening_price_snapshot
-              )
-            : payoutFromApplication !==
-                null
-              ? payoutFromApplication
-              : toSafeNumber(
-                  product.opening_price
-                );
-
-          /*
-           * Если у старой успешной заявки
-           * нет ни суммы, ни снимка ставки,
-           * временно используем текущую
-           * ставку продукта.
-           */
-          if (
-            !hasSnapshot &&
-            payoutFromApplication === null
-          ) {
-            unpricedOpenings += 1;
-          }
-
-          const stats =
-            productStats[product.id];
-
-          stats.openings += 1;
-          stats.salary += rate;
-
-          const rateKey =
-            String(rate);
-
-          if (!stats.rateGroups[rateKey]) {
-            stats.rateGroups[rateKey] = {
-              rate,
-              openings: 0,
-              salary: 0,
-            };
-          }
-
-          stats.rateGroups[
-            rateKey
-          ].openings += 1;
-
-          stats.rateGroups[
-            rateKey
-          ].salary += rate;
+          byId.set(key, {
+            id: item.productId,
+            name: item.name,
+            opening_price: item.currentRate,
+          });
         }
       );
-
-      const productItems =
-        Object.values(productStats);
-
-      const totalOpenings =
-        productItems.reduce(
-          (sum, product) =>
-            sum + product.openings,
-          0
-        );
-
-      const salary =
-        productItems.reduce(
-          (sum, product) =>
-            sum + product.salary,
-          0
-        );
-
-      return {
-        id: manager.id,
-
-        name:
-          manager.full_name ||
-          manager.email ||
-          "Без имени",
-
-        email: manager.email || "",
-
-        avatar: getInitials(
-          manager.full_name ||
-            manager.email
-        ),
-
-        status:
-          manager.status || "active",
-
-        products: productStats,
-
-        totalOpenings,
-        salary,
-        unpricedOpenings,
-      };
     });
-  }, [
-    managers,
-    products,
-    productMap,
-    applications,
-  ]);
+
+    return [...byId.values()];
+  }, [products, salaryData]);
 
   const preparedManagers = useMemo(() => {
     const search = searchValue
@@ -356,7 +226,7 @@ export default function Salaries() {
           selectedProductId === "all" ||
           (
             manager.products[
-              selectedProductId
+              String(selectedProductId)
             ]?.openings || 0
           ) > 0;
 
@@ -399,8 +269,8 @@ export default function Salaries() {
   const totals = useMemo(() => {
     const productTotals = {};
 
-    products.forEach((product) => {
-      productTotals[product.id] = {
+    salaryProducts.forEach((product) => {
+      productTotals[String(product.id)] = {
         openings: 0,
         salary: 0,
       };
@@ -417,24 +287,22 @@ export default function Salaries() {
         total.unpricedOpenings +=
           manager.unpricedOpenings;
 
-        products.forEach((product) => {
+        total.missingPayout +=
+          manager.missingPayout || 0;
+
+        salaryProducts.forEach((product) => {
+          const key = String(product.id);
           const managerProduct =
-            manager.products[
-              product.id
-            ];
+            manager.products[key];
 
           if (!managerProduct) {
             return;
           }
 
-          total.products[
-            product.id
-          ].openings +=
+          total.products[key].openings +=
             managerProduct.openings;
 
-          total.products[
-            product.id
-          ].salary +=
+          total.products[key].salary +=
             managerProduct.salary;
         });
 
@@ -444,10 +312,11 @@ export default function Salaries() {
         openings: 0,
         salary: 0,
         unpricedOpenings: 0,
+        missingPayout: 0,
         products: productTotals,
       }
     );
-  }, [salaryData, products]);
+  }, [salaryData, salaryProducts]);
 
   const managersWithOpenings =
     salaryData.filter(
@@ -477,10 +346,10 @@ export default function Salaries() {
   }, [salaryData]);
 
   const unassignedSuccessful =
-    applications.filter(
-      (application) =>
-        !application.assigned_manager_id
-    ).length;
+    salaryBuild.unassignedSuccessful;
+
+  const unknownOpenings =
+    salaryBuild.unknownApplications.length;
 
   function applyCurrentMonth() {
     const period =
@@ -553,11 +422,11 @@ export default function Salaries() {
     preparedManagers.forEach(
       (manager) => {
         const usedProducts =
-          products.filter(
+          salaryProducts.filter(
             (product) =>
               (
                 manager.products[
-                  product.id
+                  String(product.id)
                 ]?.openings || 0
               ) > 0
           );
@@ -581,7 +450,7 @@ export default function Salaries() {
           (product) => {
             const productStats =
               manager.products[
-                product.id
+                String(product.id)
               ];
 
             const rateGroups =
@@ -752,15 +621,38 @@ export default function Salaries() {
         </div>
       )}
 
+      {unknownOpenings > 0 && (
+        <div className="inline-notice">
+          Успешных открытий без продукта
+          в каталоге:{" "}
+          <strong>
+            {unknownOpenings}
+          </strong>
+          . Они всё равно учтены в расчёте,
+          чтобы заявки не пропадали молча.
+        </div>
+      )}
+
       {totals.unpricedOpenings > 0 && (
         <div className="inline-notice">
-          Успешных заявок без сохранённого
-          снимка ставки:{" "}
+          Успешных заявок без сохранённой
+          суммы в самой заявке:{" "}
           <strong>
             {totals.unpricedOpenings}
           </strong>
-          . Для них временно используется
-          текущая ставка продукта.
+          . Для них показана ставка из
+          карточки продукта, если она есть.
+        </div>
+      )}
+
+      {totals.missingPayout > 0 && (
+        <div className="inline-notice">
+          Успешных заявок без суммы:{" "}
+          <strong>
+            {totals.missingPayout}
+          </strong>
+          . Открытие учтено, выплата по ним
+          равна 0 ₽.
         </div>
       )}
 
@@ -850,7 +742,7 @@ export default function Salaries() {
                 Открытий за период:{" "}
                 {
                   totals.products[
-                    product.id
+                    String(product.id)
                   ]?.openings || 0
                 }
               </small>
@@ -1127,11 +1019,13 @@ export default function Salaries() {
                               </div>
 
                               <div className="salary-details-products">
-                                {products.map(
+                                {salaryProducts.map(
                                   (product) => {
                                     const stats =
                                       manager.products[
-                                        product.id
+                                        String(
+                                          product.id
+                                        )
                                       ];
 
                                     const openings =
@@ -1317,20 +1211,6 @@ function formatInputDate(date) {
   ).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
-}
-
-function getInitials(value) {
-  if (!value) {
-    return "М";
-  }
-
-  return String(value)
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
 }
 
 function getOpeningsWord(value) {

@@ -1,11 +1,17 @@
 import {
+  applicationIsSuccessfulOpeningInPeriod,
   applicationMatchesStatus,
+  applicationMatchesStatusAndPeriod,
   buildApplicationTimeline,
   buildStatusFilterOptions,
   buildVisibleStatusColumns,
   countPeriodApplicationMetrics,
+  getApplicationPayout,
   isDateOnlyInRange,
+  isTimestampInRange,
 } from "../src/utils/applicationEvents.js";
+import { dateOnlyToExclusiveIsoRange } from "../src/utils/periodRange.js";
+import { buildSalaryData } from "../src/utils/salaryCalculation.js";
 
 function assert(condition, message) {
   if (!condition) {
@@ -279,3 +285,241 @@ assert(
 );
 
 console.log("Сценарий 02/05/10/20.09 и фильтры периода прошли");
+
+const augustBounds = dateOnlyToExclusiveIsoRange(
+  "2026-08-16",
+  "2026-08-31"
+);
+
+const morningLocal = new Date(
+  2026,
+  7,
+  16,
+  0,
+  30,
+  0
+).toISOString();
+
+const lateLocal = new Date(
+  2026,
+  7,
+  31,
+  23,
+  50,
+  0
+).toISOString();
+
+const beforePeriod = new Date(
+  2026,
+  7,
+  15,
+  23,
+  50,
+  0
+).toISOString();
+
+const afterPeriod = new Date(
+  2026,
+  8,
+  1,
+  0,
+  10,
+  0
+).toISOString();
+
+assert(
+  isTimestampInRange(
+    morningLocal,
+    augustBounds.from,
+    augustBounds.to
+  ),
+  "16.08 00:30 попадает в период 16–31.08"
+);
+
+assert(
+  isTimestampInRange(
+    lateLocal,
+    augustBounds.from,
+    augustBounds.to
+  ),
+  "31.08 23:50 попадает в период 16–31.08"
+);
+
+assert(
+  !isTimestampInRange(
+    beforePeriod,
+    augustBounds.from,
+    augustBounds.to
+  ),
+  "15.08 23:50 не попадает в период 16–31.08"
+);
+
+assert(
+  !isTimestampInRange(
+    afterPeriod,
+    augustBounds.from,
+    augustBounds.to
+  ),
+  "01.09 00:10 не попадает в период 16–31.08"
+);
+
+const anutkaApps = [
+  {
+    id: "a1",
+    status: "approved",
+    product_id: "alpha",
+    product: "Альфа",
+    assigned_manager_id: "anutka",
+    opened_at: morningLocal,
+    amount: 1200,
+  },
+  {
+    id: "a2",
+    status: "approved",
+    product_id: "alpha",
+    product: "Альфа",
+    assigned_manager_id: "anutka",
+    created_at: "2026-08-10T10:00:00.000Z",
+    opened_at: new Date(2026, 7, 20, 12, 0, 0).toISOString(),
+    amount: 1200,
+  },
+  {
+    id: "a3",
+    status: "approved",
+    product_id: "alpha",
+    product: "Альфа",
+    assigned_manager_id: "anutka",
+    opened_at: null,
+    approved_at: new Date(2026, 7, 22, 11, 0, 0).toISOString(),
+    amount: 1200,
+  },
+  {
+    id: "a4",
+    status: "approved",
+    product_id: "alpha",
+    product: "Альфа",
+    assigned_manager_id: "anutka",
+    opened_at: new Date(2026, 7, 25, 15, 0, 0).toISOString(),
+    amount: 1200,
+  },
+  {
+    id: "a5",
+    status: "approved",
+    product_id: "alpha",
+    product: "Альфа",
+    assigned_manager_id: "anutka",
+    opened_at: lateLocal,
+    amount: 1200,
+  },
+];
+
+const appsInPeriod = anutkaApps.filter((item) =>
+  applicationIsSuccessfulOpeningInPeriod(
+    item,
+    augustBounds.from,
+    augustBounds.to
+  )
+);
+
+assert(
+  !applicationIsSuccessfulOpeningInPeriod(
+    {
+      status: "approved",
+      created_at: "2026-08-18T07:05:32.912Z",
+      opened_at: "2026-09-02T05:16:21.361Z",
+      approved_at: "2026-09-02T05:16:21.361Z",
+    },
+    augustBounds.from,
+    augustBounds.to
+  ),
+  "Создана 18.08 и открыта 02.09 не входит в успешные 16–31.08"
+);
+
+assert(
+  applicationMatchesStatusAndPeriod(
+    {
+      status: "approved",
+      created_at: "2026-08-18T07:05:32.912Z",
+      opened_at: "2026-09-02T05:16:21.361Z",
+    },
+    "approved",
+    augustBounds.from,
+    augustBounds.to
+  ) === false,
+  "Фильтр «Успешно открыты» за 16–31.08 не показывает открытие 02.09"
+);
+
+const oldUtcStart = Date.parse("2026-08-16T00:00:00Z");
+const oldSqlCount = appsInPeriod.filter(
+  (item) =>
+    item.opened_at &&
+    Date.parse(item.opened_at) >= oldUtcStart
+).length;
+
+assert(
+  oldSqlCount < appsInPeriod.length,
+  "Старый зарплатный SQL без timezone и без approved_at терял часть заявок"
+);
+
+const unknownProductApp = {
+  id: "a6",
+  status: "approved",
+  product_id: "deleted-alpha",
+  product: "Альфа",
+  assigned_manager_id: "anutka",
+  opened_at: new Date(2026, 7, 21, 10, 0, 0).toISOString(),
+  amount: 1200,
+};
+
+const salary = buildSalaryData({
+  managers: [
+    {
+      id: "anutka",
+      full_name: "Анютка",
+      email: "anutka@test.local",
+    },
+  ],
+  products: [
+    {
+      id: "alpha",
+      name: "Альфа",
+      opening_price: 9999,
+    },
+  ],
+  applications: [...appsInPeriod, unknownProductApp],
+});
+
+const anutka = salary.rows[0];
+
+assert(
+  anutka.products.alpha.openings === 5,
+  "Зарплата считает 5 открытий Альфа по product_id"
+);
+
+assert(
+  anutka.products.alpha.salary === 6000,
+  "Зарплата берёт 1200 ₽ из заявки, а не текущие 9999 ₽ каталога"
+);
+
+assert(
+  anutka.products["deleted-alpha"]?.openings === 1,
+  "Заявка с неизвестным product_id не теряется молча"
+);
+
+assert(
+  anutka.totalOpenings === 6,
+  "Все успешные открытия менеджера входят в итог"
+);
+
+assert(
+  getApplicationPayout({
+    amount: 1200,
+    opening_price_snapshot: 800,
+    product_data: { opening_price: 9999 },
+  }) === 1200,
+  "Сумма заявки важнее снимка и текущей цены"
+);
+
+console.log(
+  "Сверка заявок и зарплаты 16–31.08, границы дней и сумма 5×1200 прошли"
+);
