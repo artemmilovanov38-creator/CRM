@@ -691,6 +691,7 @@ export const analyticsService = {
                   count: "exact",
                   head: true,
                 })
+                .eq("status", "approved")
                 .not("opened_at", "is", null),
               "opened_at",
               dateFrom,

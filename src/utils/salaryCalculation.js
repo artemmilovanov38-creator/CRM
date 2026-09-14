@@ -47,12 +47,36 @@ function emptyProductStats(product) {
   };
 }
 
-function resolveProductKey(application) {
-  return (
+function resolveProductKey(application, productMap, products) {
+  const directId =
     application?.product_id ||
     application?.product_data?.id ||
-    null
+    null;
+
+  if (directId && productMap.has(String(directId))) {
+    return String(directId);
+  }
+
+  if (directId) {
+    return String(directId);
+  }
+
+  const applicationName = normalizeProductName(
+    application?.product_data?.name ||
+      application?.product
   );
+
+  if (!applicationName) {
+    return null;
+  }
+
+  const named = (products || []).find(
+    (product) =>
+      normalizeProductName(product.name) ===
+      applicationName
+  );
+
+  return named ? String(named.id) : null;
 }
 
 function resolveProductName(application, product) {
@@ -126,7 +150,9 @@ export function buildSalaryData({
 
     managerApplications.forEach((application) => {
       const productId = resolveProductKey(
-        application
+        application,
+        productMap,
+        products
       );
       const product = productId
         ? productMap.get(String(productId))

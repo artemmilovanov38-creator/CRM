@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { formatTelegramDisplay } from "../utils/telegram";
+import { formatTelegramDisplay, getContactTelegram } from "../utils/telegram";
 import {
   getOpenedAt,
   isTimestampInRange,
@@ -1970,7 +1970,8 @@ export const applicationService = {
     const telegram =
       normalizeTelegram(
         contact.telegram_username ||
-          contact.telegram
+          contact.telegram ||
+          getContactTelegram(contact)
       );
 
     const phone =

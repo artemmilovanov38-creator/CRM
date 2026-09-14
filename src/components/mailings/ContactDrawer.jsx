@@ -33,7 +33,7 @@ import {
 } from "../../services/applicationService";
 
 import "../../styles/ContactDrawer.css";
-import { getTelegramHref } from "../../utils/telegram";
+import { formatTelegramDisplay, getTelegramHref } from "../../utils/telegram";
 
 const contactStatusNames = {
   new: "Новый",
@@ -353,12 +353,15 @@ export default function ContactDrawer({
   }
 
   const telegramUsername =
-    normalizeTelegramUsername(
-      contact.telegram_username
+    formatTelegramDisplay(
+      contact.telegram_username ||
+        contact.full_name,
+      false
     );
 
   const telegramLink = getTelegramHref(
-    contact.telegram_username
+    contact.telegram_username ||
+      contact.full_name
   );
 
   async function handleCreateApplication() {
@@ -1801,21 +1804,6 @@ function InfoRow({
       </div>
     </div>
   );
-}
-
-function normalizeTelegramUsername(value) {
-  if (!value) {
-    return "";
-  }
-
-  return String(value)
-    .trim()
-    .replace(
-      /^https?:\/\/t\.me\//i,
-      ""
-    )
-    .replace(/^t\.me\//i, "")
-    .replace(/^@+/, "");
 }
 
 function getInitials(value) {

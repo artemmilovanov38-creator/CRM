@@ -1,6 +1,8 @@
 import { supabase } from "../lib/supabase";
 import {
+  contactMatchesTelegram,
   formatTelegramDisplay,
+  getContactTelegram,
   telegramKey,
 } from "../utils/telegram";
 
@@ -19,6 +21,7 @@ const CONTACT_FIELDS = `
   responded_at,
   application_created_at,
   comment,
+  raw_data,
   created_at,
   updated_at,
 
@@ -53,6 +56,7 @@ const CONTACT_FIELDS_PLAIN = `
   responded_at,
   application_created_at,
   comment,
+  raw_data,
   created_at,
   updated_at
 `;
@@ -118,6 +122,7 @@ function isMissingRpc(error) {
     error?.code === "PGRST202" ||
     message.includes("find_incoming_contact_ids") ||
     message.includes("create_incoming_external_contact") ||
+    message.includes("register_incoming_response") ||
     message.includes("schema cache")
   );
 }
@@ -453,14 +458,9 @@ function contactsMatchTelegram(
   contact,
   normalizedTelegram
 ) {
-  if (!normalizedTelegram) {
-    return false;
-  }
-
-  return (
-    telegramMatchKey(
-      contact?.telegram_username
-    ) === telegramMatchKey(normalizedTelegram)
+  return contactMatchesTelegram(
+    contact,
+    normalizedTelegram
   );
 }
 
@@ -544,57 +544,80 @@ async function findContactsByIdentifierRpc({
   );
 }
 
+function telegramSearchNeedles(normalizedTelegram) {
+  const withoutAt = String(
+    normalizedTelegram || ""
+  ).replace(/^@/, "");
+
+  return Array.from(
+    new Set(
+      [withoutAt, `@${withoutAt}`].filter(Boolean)
+    )
+  );
+}
+
+async function searchContactsByOr(fields, orClause) {
+  const { data, error } = await supabase
+    .from("mailing_contacts")
+    .select(fields)
+    .or(orClause)
+    .limit(100);
+
+  return {
+    data: data || [],
+    error,
+  };
+}
+
 async function findTelegramContactsFallback(
   normalizedTelegram
 ) {
-  const withoutAt =
-    normalizedTelegram.replace(/^@/, "");
-
-  const values = Array.from(
-    new Set([
-      normalizedTelegram,
-      withoutAt,
-      `@${withoutAt}`,
-    ])
+  const needles = telegramSearchNeedles(
+    normalizedTelegram
   );
+  const orClause = needles
+    .flatMap((value) => {
+      const escaped = escapeLikeValue(value);
+
+      return [
+        `telegram_username.ilike.%${escaped}%`,
+        `full_name.ilike.%${escaped}%`,
+        `comment.ilike.%${escaped}%`,
+      ];
+    })
+    .join(",");
+
+  if (!orClause) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
 
   const contactsMap = new Map();
+  const primary = await searchContactsByOr(
+    CONTACT_FIELDS,
+    orClause
+  );
 
-  for (const value of values) {
-    const { data, error } = await supabase
-      .from("mailing_contacts")
-      .select(CONTACT_FIELDS)
-      .ilike(
-        "telegram_username",
-        escapeLikeValue(value)
-      )
-      .limit(50);
+  if (primary.error) {
+    const fallback = await searchContactsByOr(
+      CONTACT_FIELDS_PLAIN,
+      orClause
+    );
 
-    if (error) {
-      const fallback = await supabase
-        .from("mailing_contacts")
-        .select(CONTACT_FIELDS_PLAIN)
-        .ilike(
-          "telegram_username",
-          escapeLikeValue(value)
-        )
-        .limit(50);
-
-      if (fallback.error) {
-        return {
-          data: [],
-          error,
-        };
-      }
-
-      for (const contact of fallback.data || []) {
-        contactsMap.set(contact.id, contact);
-      }
-
-      continue;
+    if (fallback.error) {
+      return {
+        data: [],
+        error: primary.error,
+      };
     }
 
-    for (const contact of data || []) {
+    for (const contact of fallback.data) {
+      contactsMap.set(contact.id, contact);
+    }
+  } else {
+    for (const contact of primary.data) {
       contactsMap.set(contact.id, contact);
     }
   }
@@ -687,24 +710,29 @@ async function findContactsByIdentifier({
     normalizedPhone,
   });
 
-  if (!rpcResult.error) {
+  const rpcMatches = (rpcResult.data || []).filter((contact) =>
+    normalizedTelegram
+      ? contactsMatchTelegram(
+          contact,
+          normalizedTelegram
+        )
+      : contactsMatchPhone(
+          contact,
+          normalizedPhone
+        )
+  );
+
+  if (!rpcResult.error && rpcMatches.length > 0) {
     return {
-      data: (rpcResult.data || []).filter((contact) =>
-        normalizedTelegram
-          ? contactsMatchTelegram(
-              contact,
-              normalizedTelegram
-            )
-          : contactsMatchPhone(
-              contact,
-              normalizedPhone
-            )
-      ),
+      data: rpcMatches,
       error: null,
     };
   }
 
-  if (!isMissingRpc(rpcResult.error)) {
+  if (
+    rpcResult.error &&
+    !isMissingRpc(rpcResult.error)
+  ) {
     return rpcResult;
   }
 
@@ -877,6 +905,102 @@ function isUnknownColumnError(error) {
     (combined.includes("column") &&
       combined.includes("source"))
   );
+}
+
+function pickPreferredContact(contacts, managerId) {
+  return [...(contacts || [])].sort((left, right) => {
+    const leftOwn = left.manager_id === managerId ? 0 : 1;
+    const rightOwn = right.manager_id === managerId ? 0 : 1;
+
+    if (leftOwn !== rightOwn) {
+      return leftOwn - rightOwn;
+    }
+
+    const leftMailing = left.mailing_id ? 0 : 1;
+    const rightMailing = right.mailing_id ? 0 : 1;
+
+    if (leftMailing !== rightMailing) {
+      return leftMailing - rightMailing;
+    }
+
+    const leftOpen = left.responded_at ? 1 : 0;
+    const rightOpen = right.responded_at ? 1 : 0;
+
+    if (leftOpen !== rightOpen) {
+      return leftOpen - rightOpen;
+    }
+
+    return (
+      new Date(left.created_at || 0).getTime() -
+      new Date(right.created_at || 0).getTime()
+    );
+  })[0] || null;
+}
+
+function resolvedTelegramUsername(contact, telegramDisplay) {
+  if (
+    telegramKey(contact?.telegram_username)
+  ) {
+    return contact.telegram_username;
+  }
+
+  return (
+    telegramDisplay ||
+    getContactTelegram(contact) ||
+    contact?.telegram_username ||
+    null
+  );
+}
+
+async function registerIncomingResponseRpc({
+  telegram = "",
+  phone = "",
+  respondedAt = null,
+}) {
+  const { data, error } = await supabase.rpc(
+    "register_incoming_response",
+    {
+      p_telegram: telegram || null,
+      p_phone: phone || null,
+      p_responded_at: respondedAt,
+    }
+  );
+
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  let payload = data;
+
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (!payload?.id) {
+    return {
+      data: payload || null,
+      error: null,
+    };
+  }
+
+  const saved = await fetchContactById(
+    payload.id
+  );
+
+  return {
+    data: {
+      ...payload,
+      contact: saved.data || null,
+    },
+    error: null,
+  };
 }
 
 async function createExternalContact({
@@ -1089,6 +1213,64 @@ async function registerSingleResponse({
     normalizedTelegram ||
     normalizedPhone;
 
+  const rpcRegister = await registerIncomingResponseRpc({
+    telegram: telegramDisplay || normalizedTelegram,
+    phone: normalizedPhone,
+    respondedAt,
+  });
+
+  if (
+    rpcRegister.error &&
+    !isMissingRpc(rpcRegister.error)
+  ) {
+    return {
+      data: null,
+      error: mapWriteError(rpcRegister.error),
+    };
+  }
+
+  if (!rpcRegister.error && rpcRegister.data) {
+    const payload = rpcRegister.data;
+
+    if (payload.conflict) {
+      return {
+        data: {
+          identifier,
+          matched: Boolean(payload.found_in_mailing),
+          foundInMailing: Boolean(
+            payload.found_in_mailing
+          ),
+          createdExternal: false,
+          alreadyResponded: true,
+          conflict: true,
+          contact: payload.contact,
+        },
+        error: null,
+      };
+    }
+
+    if (payload.contact) {
+      return {
+        data: {
+          identifier,
+          matched: Boolean(payload.found_in_mailing),
+          foundInMailing: Boolean(
+            payload.found_in_mailing
+          ),
+          createdExternal: Boolean(
+            payload.created_external
+          ),
+          alreadyResponded: Boolean(
+            payload.already_responded
+          ),
+          conflict: false,
+          contact: payload.contact,
+        },
+        error: null,
+      };
+    }
+  }
+
   let mailingSearchResult;
 
   if (normalizedTelegram) {
@@ -1115,8 +1297,10 @@ async function registerSingleResponse({
     mailingSearchResult.data || [];
 
   if (matchedContacts.length > 0) {
-    const contact =
-      matchedContacts[0];
+    const contact = pickPreferredContact(
+      matchedContacts,
+      managerId
+    );
 
     if (
       contact.responded_at &&
@@ -1165,6 +1349,11 @@ async function registerSingleResponse({
         incomingAt,
       manager_id: managerId,
       status: "responded",
+      telegram_username:
+        resolvedTelegramUsername(
+          contact,
+          telegramDisplay
+        ),
       updated_at: now,
     };
 
@@ -1256,6 +1445,11 @@ async function registerSingleResponse({
             "application"
               ? ownedContact.status
               : "responded",
+          telegram_username:
+            resolvedTelegramUsername(
+              ownedContact,
+              telegramDisplay
+            ),
           updated_at: now,
         })
         .eq("id", ownedContact.id)
@@ -1402,14 +1596,76 @@ async function registerSingleResponse({
   }
 
   if (alreadyExists) {
+    if (
+      newContact &&
+      !newContact.responded_at
+    ) {
+      const now = new Date().toISOString();
+      const {
+        data: updatedExisting,
+        error: existingUpdateError,
+      } = await supabase
+        .from("mailing_contacts")
+        .update({
+          responded_at: respondedAt,
+          status:
+            newContact.status === "application"
+              ? newContact.status
+              : "responded",
+          telegram_username:
+            resolvedTelegramUsername(
+              newContact,
+              telegramDisplay
+            ),
+          updated_at: now,
+        })
+        .eq("id", newContact.id)
+        .eq("manager_id", managerId)
+        .is("responded_at", null)
+        .select(CONTACT_FIELDS_PLAIN)
+        .maybeSingle();
+
+      if (existingUpdateError) {
+        return {
+          data: null,
+          error: mapWriteError(
+            existingUpdateError
+          ),
+        };
+      }
+
+      if (updatedExisting) {
+        return {
+          data: {
+            identifier,
+            matched: Boolean(
+              updatedExisting.mailing_id
+            ),
+            foundInMailing: Boolean(
+              updatedExisting.mailing_id
+            ),
+            createdExternal: !updatedExisting.mailing_id,
+            alreadyResponded: false,
+            conflict: false,
+            contact: updatedExisting,
+          },
+          error: null,
+        };
+      }
+    }
+
     return {
       data: {
         identifier,
-        matched: false,
-        foundInMailing: false,
-        external: true,
+        matched: Boolean(newContact?.mailing_id),
+        foundInMailing: Boolean(
+          newContact?.mailing_id
+        ),
+        external: !newContact?.mailing_id,
         createdExternal: false,
-        alreadyResponded: true,
+        alreadyResponded: Boolean(
+          newContact?.responded_at
+        ),
         conflict: false,
         contact: newContact,
       },

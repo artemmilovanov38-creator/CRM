@@ -520,6 +520,39 @@ assert(
   "Сумма заявки важнее снимка и текущей цены"
 );
 
+const namedOnlyApp = {
+  id: "a7",
+  status: "approved",
+  product_id: null,
+  product: "Альфа",
+  assigned_manager_id: "anutka",
+  opened_at: new Date(2026, 7, 23, 12, 0, 0).toISOString(),
+  amount: 1200,
+};
+
+const salaryWithNamed = buildSalaryData({
+  managers: [
+    {
+      id: "anutka",
+      full_name: "Анютка",
+      email: "anutka@test.local",
+    },
+  ],
+  products: [
+    {
+      id: "alpha",
+      name: "Альфа",
+      opening_price: 9999,
+    },
+  ],
+  applications: [...appsInPeriod, namedOnlyApp],
+});
+
+assert(
+  salaryWithNamed.rows[0].products.alpha.openings === 6,
+  "Заявка без product_id, но с именем Альфа входит в зарплату Альфа"
+);
+
 console.log(
   "Сверка заявок и зарплаты 16–31.08, границы дней и сумма 5×1200 прошли"
 );

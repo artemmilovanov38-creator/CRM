@@ -80,7 +80,7 @@ export default function Salaries() {
 
   useEffect(() => {
     loadSalaryData();
-  }, []);
+  }, [dateFrom, dateTo]);
 
   async function loadSalaryData() {
     if (

@@ -1,10 +1,15 @@
+import { telegramKey } from "./telegram";
+
 export function stripTelegramPrefix(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\/t\.me\//i, "")
-    .replace(/^t\.me\//i, "")
-    .replace(/^@+/, "");
+  return (
+    telegramKey(value) ||
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\/t\.me\//i, "")
+      .replace(/^t\.me\//i, "")
+      .replace(/^@+/, "")
+  );
 }
 
 export function escapeIlike(value) {

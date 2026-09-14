@@ -44,6 +44,7 @@ import { matchesSearch } from "../utils/searchMatch";
 import { formatServiceError } from "../utils/serviceError";
 import {
   APPLICATION_STATUS_OPTIONS,
+  applicationIsSuccessfulOpeningInPeriod,
   applicationMatchesProductId,
   applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
@@ -603,6 +604,41 @@ export default function ApplicationsPage() {
       periodRange.to,
     ]
   );
+
+  const successfulOpenings = useMemo(
+    () => {
+      return applications.filter(
+        (application) =>
+          applicationIsSuccessfulOpeningInPeriod(
+            application,
+            periodRange.from,
+            periodRange.to
+          ) &&
+          applicationMatchesProductId(
+            application,
+            productIdForQuery,
+            selectedProduct
+          )
+      );
+    },
+    [
+      applications,
+      periodRange.from,
+      periodRange.to,
+      productIdForQuery,
+      selectedProduct,
+    ]
+  );
+
+  const successfulOpeningsAmount =
+    successfulOpenings.reduce(
+      (sum, application) =>
+        sum +
+        Number(
+          getApplicationPayout(application) || 0
+        ),
+      0
+    );
 
   function openApplicationDrawer(
     application
@@ -1175,7 +1211,7 @@ export default function ApplicationsPage() {
 
         <StatCard
           title="Успешно открыты"
-          value={stats.approved}
+          value={successfulOpenings.length}
           icon={CheckCircle2}
           variant="success"
         />
@@ -1190,7 +1226,7 @@ export default function ApplicationsPage() {
         <StatCard
           title="Сумма успешных"
           value={formatMoney(
-            stats.totalAmount
+            successfulOpeningsAmount
           )}
           icon={CircleDollarSign}
           compact
