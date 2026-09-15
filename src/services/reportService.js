@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabase";
 import {
-  applicationMatchesDateOnlyPeriod,
   getOpenedAt,
+  getStatusEventAt,
   isDateOnlyInRange,
 } from "../utils/applicationEvents";
 
@@ -307,8 +307,8 @@ function applicationMatchesStatusPeriod(
     );
   }
 
-  return applicationMatchesDateOnlyPeriod(
-    application,
+  return isEventInReportPeriod(
+    getStatusEventAt(application, status || "all"),
     dateFrom,
     dateTo
   );

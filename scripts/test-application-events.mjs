@@ -12,6 +12,10 @@ import {
 } from "../src/utils/applicationEvents.js";
 import { dateOnlyToExclusiveIsoRange } from "../src/utils/periodRange.js";
 import { buildSalaryData } from "../src/utils/salaryCalculation.js";
+import {
+  buildApplicationBoard,
+  getSuccessfulApplications,
+} from "../src/utils/applicationStats.js";
 
 function assert(condition, message) {
   if (!condition) {
@@ -447,6 +451,80 @@ assert(
     augustBounds.to
   ) === false,
   "Фильтр «Успешно открыты» за 16–31.08 не показывает открытие 02.09"
+);
+
+assert(
+  applicationMatchesStatusAndPeriod(
+    {
+      status: "approved",
+      created_at: "2026-08-18T07:05:32.912Z",
+      opened_at: "2026-09-02T05:16:21.361Z",
+    },
+    "all",
+    augustBounds.from,
+    augustBounds.to
+  ) === false,
+  "При «Все статусы» Kanban не кладёт августовскую заявку, открытую 02.09, в успешные"
+);
+
+const lisaBoardApps = [
+  {
+    id: "later-open",
+    status: "approved",
+    created_at: "2026-08-19T12:57:53.453Z",
+    opened_at: "2026-09-01T13:59:31.524Z",
+    amount: 1200,
+    product: "Альфа",
+    assigned_manager_id: "lisa",
+  },
+  {
+    id: "in-period",
+    status: "approved",
+    created_at: "2026-08-17T10:00:00.000Z",
+    opened_at: new Date(2026, 7, 20, 12, 0, 0).toISOString(),
+    amount: 1500,
+    product: "Квитанция",
+    assigned_manager_id: "lisa",
+  },
+];
+
+const lisaBoard = buildApplicationBoard({
+  applications: lisaBoardApps,
+  managers: [{ id: "lisa", full_name: "Лиза" }],
+  rangeFrom: augustBounds.from,
+  rangeTo: augustBounds.to,
+});
+
+assert(
+  lisaBoard.successful.map((item) => item.id).join(",") === "in-period",
+  "Карточка успешных и зарплата берут только открытие внутри периода"
+);
+
+assert(
+  lisaBoard.visible.filter((item) => item.status === "approved").length === 1,
+  "Колонка Kanban «Успешно открыта» совпадает с карточкой"
+);
+
+assert(
+  lisaBoard.stats.approved === 1 && lisaBoard.stats.totalAmount === 1500,
+  "Сумма успешных считается из того же набора"
+);
+
+assert(
+  lisaBoard.products.find((item) => item.name === "Квитанция")?.opened === 1,
+  "Статистика по продуктам считает успешную квитанцию"
+);
+
+assert(
+  (lisaBoard.products.find((item) => item.name === "Альфа")?.opened || 0) === 0,
+  "Альфа, открытая 01.09, не входит в успешные августа"
+);
+
+assert(
+  getSuccessfulApplications(lisaBoardApps, augustBounds.from, augustBounds.to)
+    .map((item) => item.id)
+    .join(",") === "in-period",
+  "getSuccessfulApplications — тот же набор, что зарплата"
 );
 
 const oldUtcStart = Date.parse("2026-08-16T00:00:00Z");

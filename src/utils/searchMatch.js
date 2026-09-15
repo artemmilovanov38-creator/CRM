@@ -1,4 +1,4 @@
-import { telegramKey } from "./telegram";
+import { telegramKey } from "./telegram.js";
 
 export function stripTelegramPrefix(value) {
   return (

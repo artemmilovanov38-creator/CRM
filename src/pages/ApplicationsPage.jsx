@@ -6,6 +6,7 @@ import {
   GripVertical,
   List,
   MessageCircle,
+  Package,
   Phone,
   RefreshCw,
   Search,
@@ -29,10 +30,6 @@ import { useAuth } from "../context/AuthContext";
 import { applicationService, getApplicationPayout } from "../services/applicationService";
 import { productService } from "../services/productService";
 import { profileService } from "../services/profileService";
-import {
-  analyticsService,
-  emptyApplicationStats,
-} from "../services/analyticsService";
 import ApplicationDrawer from "../components/applications/ApplicationDrawer";
 import PeriodFilter from "../components/filters/PeriodFilter";
 import ManagerAnalytics from "../components/analytics/ManagerAnalytics";
@@ -40,19 +37,16 @@ import {
   formatDateInput,
   getPeriodBounds,
 } from "../utils/periodRange";
-import { matchesSearch } from "../utils/searchMatch";
 import { formatServiceError } from "../utils/serviceError";
 import {
   APPLICATION_STATUS_OPTIONS,
-  applicationIsSuccessfulOpeningInPeriod,
-  applicationMatchesProductId,
-  applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
   buildStatusFilterOptions,
   buildVisibleStatusColumns,
   getStatusLabel,
   normalizeApplicationStatus,
 } from "../utils/applicationEvents";
+import { buildApplicationBoard } from "../utils/applicationStats";
 
 const statusOptions = APPLICATION_STATUS_OPTIONS;
 
@@ -92,27 +86,13 @@ export default function ApplicationsPage() {
   const [customTo, setCustomTo] =
     useState(formatDateInput(new Date()));
 
-  const [stats, setStats] =
-    useState(() => emptyApplicationStats());
-
-  const [
-    managerAnalytics,
-    setManagerAnalytics,
-  ] = useState([]);
-
   const [viewMode, setViewMode] =
     useState("kanban");
 
   const [isLoading, setIsLoading] =
     useState(true);
 
-  const [analyticsLoading, setAnalyticsLoading] =
-    useState(false);
-
   const [error, setError] =
-    useState("");
-
-  const [analyticsError, setAnalyticsError] =
     useState("");
 
   const requestIdRef = useRef(0);
@@ -235,6 +215,37 @@ export default function ApplicationsPage() {
     [productOptions, productFilter]
   );
 
+  const board = useMemo(
+    () =>
+      buildApplicationBoard({
+        applications,
+        managers,
+        search,
+        statusFilter,
+        productId: productIdForQuery,
+        selectedProduct,
+        rangeFrom: periodRange.from,
+        rangeTo: periodRange.to,
+      }),
+    [
+      applications,
+      managers,
+      search,
+      statusFilter,
+      productIdForQuery,
+      selectedProduct,
+      periodRange.from,
+      periodRange.to,
+    ]
+  );
+
+  const stats = board.stats;
+  const filteredApplications = board.visible;
+  const successfulOpenings = board.successful;
+  const managerAnalytics = board.managers;
+  const productStats = board.products;
+  const successfulOpeningsAmount = stats.totalAmount;
+
   const statusFilterOptions = useMemo(
     () => buildStatusFilterOptions(applications),
     [applications]
@@ -243,10 +254,10 @@ export default function ApplicationsPage() {
   const visibleStatusColumns = useMemo(
     () =>
       buildVisibleStatusColumns(
-        applications,
+        filteredApplications,
         statusFilter
       ),
-    [applications, statusFilter]
+    [filteredApplications, statusFilter]
   );
 
   const loadPageData = useCallback(
@@ -256,7 +267,6 @@ export default function ApplicationsPage() {
           setIsLoading(false);
         }
 
-        setAnalyticsLoading(false);
         return;
       }
 
@@ -268,16 +278,7 @@ export default function ApplicationsPage() {
         setIsLoading(true);
       }
 
-      let listErrorMessage = "";
       setError("");
-      setAnalyticsError("");
-
-      if (!isManager) {
-        setAnalyticsLoading(true);
-      } else {
-        setManagerAnalytics([]);
-        setAnalyticsLoading(false);
-      }
 
       const scopedManagerId = isManager
         ? user.id
@@ -315,21 +316,16 @@ export default function ApplicationsPage() {
           error: loadError,
         }));
 
-      const statsPromise = analyticsService
-        .getApplicationStats({
-          managerId: scopedManagerId,
-          dateFrom: periodRange.from,
-          dateTo: periodRange.to,
-          productId: productIdForQuery,
-        })
-        .catch((loadError) => ({
-          data: emptyApplicationStats(),
-          error: loadError,
-        }));
-
       try {
-        const applicationsResult =
-          await applicationsPromise;
+        const [
+          applicationsResult,
+          managersResult,
+          productsResult,
+        ] = await Promise.all([
+          applicationsPromise,
+          managersPromise,
+          productsPromise,
+        ]);
 
         if (isStale()) {
           return;
@@ -341,11 +337,26 @@ export default function ApplicationsPage() {
             applicationsResult.error
           );
 
-          listErrorMessage = formatServiceError(
-            applicationsResult.error,
-            "Не удалось загрузить заявки"
+          setError(
+            formatServiceError(
+              applicationsResult.error,
+              "Не удалось загрузить заявки"
+            )
           );
-          setError(listErrorMessage);
+        }
+
+        if (managersResult.error) {
+          console.error(
+            "Ошибка загрузки менеджеров:",
+            managersResult.error
+          );
+        }
+
+        if (productsResult.error) {
+          console.error(
+            "Ошибка загрузки продуктов:",
+            productsResult.error
+          );
         }
 
         setApplications(
@@ -359,6 +370,15 @@ export default function ApplicationsPage() {
                 ),
             }))
         );
+
+        setManagers(
+          (managersResult.data || []).filter(
+            (manager) =>
+              manager.status !== "blocked"
+          )
+        );
+
+        setProducts(productsResult.data || []);
       } catch (loadError) {
         if (isStale()) {
           return;
@@ -369,158 +389,16 @@ export default function ApplicationsPage() {
           loadError
         );
 
-        listErrorMessage = formatServiceError(
-          loadError,
-          "Не удалось загрузить заявки"
+        setError(
+          formatServiceError(
+            loadError,
+            "Не удалось загрузить заявки"
+          )
         );
-        setError(listErrorMessage);
         setApplications([]);
       } finally {
         if (!isStale() && showLoader) {
           setIsLoading(false);
-        }
-      }
-
-      if (isStale()) {
-        return;
-      }
-
-      let loadedManagers = [];
-
-      try {
-        const [
-          managersResult,
-          productsResult,
-          statsResult,
-        ] = await Promise.all([
-          managersPromise,
-          productsPromise,
-          statsPromise,
-        ]);
-
-        if (isStale()) {
-          return;
-        }
-
-        if (managersResult.error) {
-          console.error(
-            "Ошибка загрузки менеджеров:",
-            managersResult.error
-          );
-        }
-
-        if (statsResult.error) {
-          console.error(
-            "Ошибка статистики заявок:",
-            statsResult.error
-          );
-
-          if (!listErrorMessage) {
-            setError(
-              formatServiceError(
-                statsResult.error,
-                "Не удалось загрузить статистику заявок"
-              )
-            );
-          }
-        }
-
-        if (productsResult.error) {
-          console.error(
-            "Ошибка загрузки продуктов:",
-            productsResult.error
-          );
-        }
-
-        loadedManagers = (
-          managersResult.data || []
-        ).filter(
-          (manager) =>
-            manager.status !== "blocked"
-        );
-
-        setManagers(loadedManagers);
-        setProducts(productsResult.data || []);
-        setStats(
-          statsResult.data ||
-            emptyApplicationStats()
-        );
-      } catch (loadError) {
-        if (isStale()) {
-          return;
-        }
-
-        console.error(
-          "Ошибка статистики заявок:",
-          loadError
-        );
-      }
-
-      if (isStale()) {
-        return;
-      }
-
-      if (isManager) {
-        setAnalyticsLoading(false);
-        return;
-      }
-
-      try {
-        const analyticsResult =
-          await analyticsService
-            .getApplicationManagerAnalytics({
-              managerId: managerIdForQuery,
-              dateFrom: periodRange.from,
-              dateTo: periodRange.to,
-              productId: productIdForQuery,
-              managers: loadedManagers,
-            })
-            .catch((loadError) => ({
-              data: [],
-              error: loadError,
-            }));
-
-        if (isStale()) {
-          return;
-        }
-
-        if (analyticsResult.error) {
-          console.error(
-            "Ошибка аналитики менеджеров:",
-            analyticsResult.error
-          );
-
-          setAnalyticsError(
-            formatServiceError(
-              analyticsResult.error,
-              "Не удалось посчитать показатели менеджеров"
-            )
-          );
-        }
-
-        setManagerAnalytics(
-          analyticsResult.data || []
-        );
-      } catch (loadError) {
-        if (isStale()) {
-          return;
-        }
-
-        console.error(
-          "Ошибка аналитики менеджеров:",
-          loadError
-        );
-
-        setAnalyticsError(
-          formatServiceError(
-            loadError,
-            "Не удалось посчитать показатели менеджеров"
-          )
-        );
-        setManagerAnalytics([]);
-      } finally {
-        if (!isStale()) {
-          setAnalyticsLoading(false);
         }
       }
     },
@@ -541,104 +419,6 @@ export default function ApplicationsPage() {
       requestIdRef.current += 1;
     };
   }, [loadPageData]);
-
-  const filteredApplications = useMemo(
-    () => {
-      return applications.filter(
-        (application) => {
-          const productName =
-            getProductName(application);
-
-          const matchesQuery = matchesSearch(
-            [
-              application.full_name,
-              application.phone,
-              application.telegram,
-              application.source,
-              productName,
-            ],
-            search
-          );
-
-          const matchesStatus =
-            applicationMatchesStatus(
-              application,
-              statusFilter
-            );
-
-          const matchesProduct =
-            applicationMatchesProductId(
-              application,
-              productIdForQuery,
-              selectedProduct
-            );
-
-          const matchesPeriod =
-            applicationMatchesStatusAndPeriod(
-              application,
-              statusFilter === "all"
-                ? normalizeApplicationStatus(
-                    application.status
-                  )
-                : statusFilter,
-              periodRange.from,
-              periodRange.to
-            );
-
-          return (
-            matchesQuery &&
-            matchesStatus &&
-            matchesProduct &&
-            matchesPeriod
-          );
-        }
-      );
-    },
-    [
-      applications,
-      search,
-      statusFilter,
-      productIdForQuery,
-      selectedProduct,
-      periodRange.from,
-      periodRange.to,
-    ]
-  );
-
-  const successfulOpenings = useMemo(
-    () => {
-      return applications.filter(
-        (application) =>
-          applicationIsSuccessfulOpeningInPeriod(
-            application,
-            periodRange.from,
-            periodRange.to
-          ) &&
-          applicationMatchesProductId(
-            application,
-            productIdForQuery,
-            selectedProduct
-          )
-      );
-    },
-    [
-      applications,
-      periodRange.from,
-      periodRange.to,
-      productIdForQuery,
-      selectedProduct,
-    ]
-  );
-
-  const successfulOpeningsAmount =
-    successfulOpenings.reduce(
-      (sum, application) =>
-        sum +
-        Number(
-          getApplicationPayout(application) || 0
-        ),
-      0
-    );
 
   function openApplicationDrawer(
     application
@@ -1179,11 +959,12 @@ export default function ApplicationsPage() {
         заявки. «В работе» — по дате перехода
         в этот статус. «Успешно открыты» — по
         дате открытия квита, «Отказы» — по дате
-        перехода в отказ. Список и зарплата
-        считают успешные одинаково: по дате
-        открытия, а не по дате создания.
-        Если заявка создана в этом периоде,
-        но открыта позже, она попадёт в
+        отказа. Карточки, Kanban, таблица,
+        результат менеджеров и зарплата берут
+        успешные из одного набора: сейчас
+        «Успешно открыта» и квит открыт в
+        выбранном периоде. Заявка, созданная
+        здесь, а открытая позже, попадёт в
         успешные и в зарплату того периода,
         когда квит открыли.
       </p>
@@ -1232,6 +1013,40 @@ export default function ApplicationsPage() {
           compact
         />
       </section>
+
+      {productStats.length > 0 && (
+        <section className="applications-product-stats">
+          <div className="applications-product-stats__header">
+            <Package size={18} />
+            <div>
+              <h2>По продуктам</h2>
+              <p>
+                Те же фильтры, что сверху:
+                период, менеджер, статус и продукт.
+                Успешные считаются по дате открытия
+                квита.
+              </p>
+            </div>
+          </div>
+
+          <div className="applications-product-stats__grid">
+            {productStats.map((item) => (
+              <article
+                key={item.productId || item.name}
+              >
+                <span>{item.name}</span>
+                <strong>
+                  {item.opened} успешно ·{" "}
+                  {formatMoney(item.amount)}
+                </strong>
+                <small>
+                  Заявок: {item.total}
+                </small>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       {error && (
         <div className="applications-alert applications-alert--error">
@@ -1425,9 +1240,6 @@ export default function ApplicationsPage() {
                 : ""
             }`}
             rows={managerAnalytics}
-            loading={analyticsLoading}
-            error={analyticsError}
-            onRetry={() => loadPageData(false)}
             variant="applications"
           />
         )}
@@ -1477,6 +1289,8 @@ export default function ApplicationsPage() {
                   statusColumns={
                     visibleStatusColumns
                   }
+                  rangeFrom={periodRange.from}
+                  rangeTo={periodRange.to}
                   managers={managers}
                   canAssignManager={
                     canAssignManager
@@ -1542,6 +1356,8 @@ export default function ApplicationsPage() {
                 statusColumns={
                   visibleStatusColumns
                 }
+                rangeFrom={periodRange.from}
+                rangeTo={periodRange.to}
                 managers={managers}
                 canAssignManager={
                   canAssignManager
@@ -1588,6 +1404,8 @@ export default function ApplicationsPage() {
 function ApplicationsMobileList({
   applications,
   statusColumns = statusOptions,
+  rangeFrom = null,
+  rangeTo = null,
   managers,
   canAssignManager = true,
   onStatusChange,
@@ -1601,7 +1419,13 @@ function ApplicationsMobileList({
           applications.filter(
             (application) =>
               application.status ===
-              status.value
+                status.value &&
+              applicationMatchesStatusAndPeriod(
+                application,
+                status.value,
+                rangeFrom,
+                rangeTo
+              )
           );
 
         return (
@@ -1856,6 +1680,8 @@ function ApplicationMobileCard({
 function ApplicationsKanban({
   applications,
   statusColumns = statusOptions,
+  rangeFrom = null,
+  rangeTo = null,
   managers,
   canAssignManager = true,
   draggedApplicationId,
@@ -1885,7 +1711,13 @@ function ApplicationsKanban({
           applications.filter(
             (application) =>
               application.status ===
-              status.value
+                status.value &&
+              applicationMatchesStatusAndPeriod(
+                application,
+                status.value,
+                rangeFrom,
+                rangeTo
+              )
           );
 
         const isDragOver =

@@ -104,7 +104,7 @@ export default function Salaries() {
       productsResult,
     ] = await Promise.all([
       applicationService
-        .getApprovedApplicationsByPeriod(
+        .getSuccessfulApplications(
           dateFrom,
           dateTo
         ),

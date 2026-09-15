@@ -1249,7 +1249,36 @@ async function registerSingleResponse({
       };
     }
 
-    if (payload.contact) {
+    if (payload.id || payload.contact) {
+      const contact = payload.contact || null;
+
+      if (
+        contact?.id &&
+        !String(contact.full_name || "").trim() &&
+        (telegramDisplay || normalizedTelegram)
+      ) {
+        const displayName =
+          telegramDisplay ||
+          normalizedTelegram;
+
+        await supabase
+          .from("mailing_contacts")
+          .update({
+            full_name: displayName,
+            telegram_username:
+              resolvedTelegramUsername(
+                contact,
+                displayName
+              ),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", contact.id)
+          .eq("manager_id", managerId);
+
+        contact.full_name =
+          contact.full_name || displayName;
+      }
+
       return {
         data: {
           identifier,
@@ -1264,7 +1293,7 @@ async function registerSingleResponse({
             payload.already_responded
           ),
           conflict: false,
-          contact: payload.contact,
+          contact,
         },
         error: null,
       };

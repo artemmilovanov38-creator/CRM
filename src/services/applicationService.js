@@ -1610,6 +1610,21 @@ export const applicationService = {
   },
 
   /**
+   * Только успешные открытия по дате квита.
+   * Тот же набор, что карточка «Успешно открыты»
+   * и колонка Kanban «Успешно открыта».
+   */
+  async getSuccessfulApplications(
+    dateFrom,
+    dateTo
+  ) {
+    return this.getApprovedApplicationsByPeriod(
+      dateFrom,
+      dateTo
+    );
+  },
+
+  /**
    * Получить только успешные открытия
    * по дате coalesce(opened_at, approved_at).
    * Границы периода — локальный день:
@@ -2178,6 +2193,7 @@ export const applicationService = {
         approved_at,
         opened_at,
         rejected_at,
+        in_progress_at,
         opening_price_snapshot
       `)
       .eq("id", applicationId)
@@ -2454,6 +2470,14 @@ export const applicationService = {
       !currentApplication.rejected_at
     ) {
       payload.rejected_at =
+        new Date().toISOString();
+    }
+
+    if (
+      nextStatus === "in_progress" &&
+      !currentApplication.in_progress_at
+    ) {
+      payload.in_progress_at =
         new Date().toISOString();
     }
 

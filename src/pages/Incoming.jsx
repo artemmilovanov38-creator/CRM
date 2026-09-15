@@ -610,6 +610,17 @@ export default function Incoming() {
       return;
     }
 
+    if (
+      (summary.successful || 0) === 0 &&
+      (summary.conflicts || 0) > 0
+    ) {
+      setFormError(
+        "Этот Telegram уже закреплён за другим менеджером. Занести его как написавшего может только он."
+      );
+      setSaving(false);
+      return;
+    }
+
     const savedItems = [
       ...(registerResult.data?.createdExternal || []),
       ...(registerResult.data?.found || []),

@@ -370,11 +370,37 @@ export function applicationMatchesProductId(
   return selectedName === applicationName;
 }
 
+export function getStatusEventAt(
+  application,
+  statusFilter = "all"
+) {
+  const status =
+    !statusFilter || statusFilter === "all"
+      ? normalizeApplicationStatus(application?.status)
+      : normalizeApplicationStatus(statusFilter);
+
+  if (status === "approved") {
+    return getOpenedAt(application);
+  }
+
+  if (status === "rejected") {
+    return application?.rejected_at || null;
+  }
+
+  if (status === "in_progress") {
+    return application?.in_progress_at || null;
+  }
+
+  return application?.created_at || null;
+}
+
 /**
  * Период вместе со статусом:
  * новые — created_at, в работе — in_progress_at,
  * успешные — opened_at, отказы — rejected_at.
- * Без статуса — любая из этих дат.
+ * «Все статусы» — дата ТЕКУЩЕГО статуса, а не любая
+ * дата события. Иначе Kanban кладёт в «Успешно»
+ * заявки, созданные в периоде, но открытые позже.
  */
 export function applicationMatchesStatusAndPeriod(
   application,
@@ -386,40 +412,8 @@ export function applicationMatchesStatusAndPeriod(
     return true;
   }
 
-  if (statusFilter === "approved") {
-    return isTimestampInRange(
-      getOpenedAt(application),
-      rangeFrom,
-      rangeTo
-    );
-  }
-
-  if (statusFilter === "rejected") {
-    return isTimestampInRange(
-      application?.rejected_at,
-      rangeFrom,
-      rangeTo
-    );
-  }
-
-  if (statusFilter === "in_progress") {
-    return isTimestampInRange(
-      application?.in_progress_at,
-      rangeFrom,
-      rangeTo
-    );
-  }
-
-  if (statusFilter === "new") {
-    return isTimestampInRange(
-      application?.created_at,
-      rangeFrom,
-      rangeTo
-    );
-  }
-
-  return applicationHasEventInRange(
-    application,
+  return isTimestampInRange(
+    getStatusEventAt(application, statusFilter),
     rangeFrom,
     rangeTo
   );
@@ -692,6 +686,7 @@ export default {
   applicationMatchesProductId,
   applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
+  getStatusEventAt,
   buildStatusFilterOptions,
   buildVisibleStatusColumns,
   collectApplicationStatuses,
