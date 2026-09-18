@@ -463,8 +463,8 @@ assert(
     "all",
     augustBounds.from,
     augustBounds.to
-  ) === false,
-  "При «Все статусы» Kanban не кладёт августовскую заявку, открытую 02.09, в успешные"
+  ) === true,
+  "При «Все статусы» созданная в августе заявка остаётся в списке"
 );
 
 const lisaBoardApps = [
@@ -501,8 +501,29 @@ assert(
 );
 
 assert(
-  lisaBoard.visible.filter((item) => item.status === "approved").length === 1,
+  lisaBoard.visible.map((item) => item.id).sort().join(",") ===
+    "in-period,later-open",
+  "Созданная в периоде заявка не исчезает из списка"
+);
+
+assert(
+  lisaBoard.visible.filter(
+    (item) =>
+      item.status === "approved" &&
+      applicationMatchesStatusAndPeriod(
+        item,
+        "approved",
+        augustBounds.from,
+        augustBounds.to
+      )
+  ).length === 1,
   "Колонка Kanban «Успешно открыта» совпадает с карточкой"
+);
+
+assert(
+  lisaBoard.deferredOpenings.map((item) => item.id).join(",") ===
+    "later-open",
+  "Открытая позже заявка помечается отдельно и не входит в зарплату"
 );
 
 assert(

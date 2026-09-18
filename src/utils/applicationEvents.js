@@ -398,9 +398,10 @@ export function getStatusEventAt(
  * Период вместе со статусом:
  * новые — created_at, в работе — in_progress_at,
  * успешные — opened_at, отказы — rejected_at.
- * «Все статусы» — дата ТЕКУЩЕГО статуса, а не любая
- * дата события. Иначе Kanban кладёт в «Успешно»
- * заявки, созданные в периоде, но открытые позже.
+ * «Все статусы» — любая дата события, чтобы
+ * созданная в периоде заявка не исчезала из
+ * списка. Колонка Kanban «Успешно открыта»
+ * всё равно фильтрует по opened_at.
  */
 export function applicationMatchesStatusAndPeriod(
   application,
@@ -410,6 +411,14 @@ export function applicationMatchesStatusAndPeriod(
 ) {
   if (!rangeFrom && !rangeTo) {
     return true;
+  }
+
+  if (!statusFilter || statusFilter === "all") {
+    return applicationHasEventInRange(
+      application,
+      rangeFrom,
+      rangeTo
+    );
   }
 
   return isTimestampInRange(

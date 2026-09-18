@@ -494,6 +494,31 @@
   color: #86efac;
 }
 
+.applications-page .applications-alert--info {
+  display: block;
+  border-color: rgba(124, 108, 255, 0.28);
+  background: rgba(124, 108, 255, 0.08);
+  color: #c4b9ff;
+}
+
+.applications-alert--info strong {
+  display: block;
+  color: #ddd6ff;
+}
+
+.applications-alert--info p {
+  margin: 8px 0 0;
+  color: #b7b0e3;
+  line-height: 1.5;
+}
+
+.applications-alert--info ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #d6d2f0;
+  line-height: 1.55;
+}
+
 .application-modal-overlay {
   position: fixed;
   z-index: 1000;

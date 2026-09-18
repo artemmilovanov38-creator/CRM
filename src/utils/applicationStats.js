@@ -5,6 +5,7 @@ import {
   applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
   getApplicationPayout,
+  isCurrentlyApproved,
   isTimestampInRange,
   normalizeApplicationStatus,
   normalizeProductName,
@@ -164,6 +165,32 @@ export function buildApplicationBoard({
       : statusFilter === "approved"
         ? visible
         : [];
+
+  const deferredOpenings = matched.filter((application) => {
+    if (!rangeFrom && !rangeTo) {
+      return false;
+    }
+
+    if (!isCurrentlyApproved(application)) {
+      return false;
+    }
+
+    if (
+      !isTimestampInRange(
+        application?.created_at,
+        rangeFrom,
+        rangeTo
+      )
+    ) {
+      return false;
+    }
+
+    return !applicationIsSuccessfulOpeningInPeriod(
+      application,
+      rangeFrom,
+      rangeTo
+    );
+  });
 
   const created = matched.filter((application) =>
     !rangeFrom && !rangeTo
@@ -376,6 +403,7 @@ export function buildApplicationBoard({
     matched,
     visible,
     successful,
+    deferredOpenings,
     stats,
     products,
     managers: managerRows,

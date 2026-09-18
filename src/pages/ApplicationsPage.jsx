@@ -43,6 +43,7 @@ import {
   applicationMatchesStatusAndPeriod,
   buildStatusFilterOptions,
   buildVisibleStatusColumns,
+  getOpenedAt,
   getStatusLabel,
   normalizeApplicationStatus,
 } from "../utils/applicationEvents";
@@ -242,6 +243,7 @@ export default function ApplicationsPage() {
   const stats = board.stats;
   const filteredApplications = board.visible;
   const successfulOpenings = board.successful;
+  const deferredOpenings = board.deferredOpenings;
   const managerAnalytics = board.managers;
   const productStats = board.products;
   const successfulOpeningsAmount = stats.totalAmount;
@@ -957,16 +959,13 @@ export default function ApplicationsPage() {
       <p className="applications-period-hint">
         «Всего» и «Новые» — по дате создания
         заявки. «В работе» — по дате перехода
-        в этот статус. «Успешно открыты» — по
-        дате открытия квита, «Отказы» — по дате
-        отказа. Карточки, Kanban, таблица,
-        результат менеджеров и зарплата берут
-        успешные из одного набора: сейчас
-        «Успешно открыта» и квит открыт в
-        выбранном периоде. Заявка, созданная
-        здесь, а открытая позже, попадёт в
-        успешные и в зарплату того периода,
-        когда квит открыли.
+        в этот статус. «Успешно открыты»,
+        сумма и зарплата — только по дате
+        открытия квита. Заявка, созданная
+        здесь, а открытая позже, остаётся
+        в списке и таблице, но в карточку
+        «Успешно открыты» и в зарплату
+        попадает в периоде открытия квита.
       </p>
 
       <section className="applications-stats">
@@ -1046,6 +1045,44 @@ export default function ApplicationsPage() {
             ))}
           </div>
         </section>
+      )}
+
+      {deferredOpenings.length > 0 && (
+        <div className="applications-alert applications-alert--info">
+          <div>
+            <strong>
+              {deferredOpenings.length}{" "}
+              {deferredOpenings.length === 1
+                ? "заявка создана"
+                : deferredOpenings.length < 5
+                  ? "заявки созданы"
+                  : "заявок создано"}{" "}
+              в этом периоде, но квит открыт
+              позже
+            </strong>
+            <p>
+              Они не входят в «Успешно открыты»
+              и в расчёт зарплаты {periodRange.label}.
+              Открытия учтутся в периоде даты
+              квита. В таблице они видны.
+            </p>
+            <ul>
+              {deferredOpenings.map((application) => (
+                <li key={application.id}>
+                  {application.telegram ||
+                    application.full_name ||
+                    "Без имени"}
+                  {" · "}
+                  {getProductName(application)}
+                  {" · "}
+                  {formatApplicationMoney(application)}
+                  {" · открыта "}
+                  {formatDateTime(getOpenedAt(application))}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
 
       {error && (
@@ -1572,6 +1609,16 @@ function ApplicationMobileCard({
           </div>
 
           <div>
+            <span>Открыта</span>
+
+            <strong>
+              {formatDateTime(
+                getOpenedAt(application)
+              )}
+            </strong>
+          </div>
+
+          <div>
             <span>Сумма</span>
 
             <strong>
@@ -1932,9 +1979,16 @@ function ApplicationsKanban({
                           </strong>
 
                           <span>
-                            {formatDateTime(
-                              application.created_at
-                            )}
+                            {application.status ===
+                            "approved"
+                              ? `Открыта ${formatDateTime(
+                                  getOpenedAt(
+                                    application
+                                  )
+                                )}`
+                              : formatDateTime(
+                                  application.created_at
+                                )}
                           </span>
                         </div>
 
@@ -1978,6 +2032,7 @@ function ApplicationsTable({
             <th>Статус</th>
             <th>Сумма</th>
             <th>Создана</th>
+            <th>Открыта</th>
           </tr>
         </thead>
 
@@ -2132,6 +2187,14 @@ function ApplicationsTable({
                   <span className="application-date">
                     {formatDateTime(
                       application.created_at
+                    )}
+                  </span>
+                </td>
+
+                <td>
+                  <span className="application-date">
+                    {formatDateTime(
+                      getOpenedAt(application)
                     )}
                   </span>
                 </td>
