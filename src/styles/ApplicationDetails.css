@@ -360,6 +360,12 @@
   font-weight: 600;
 }
 
+.application-details-field small {
+  color: #8f99aa;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .application-details-field input,
 .application-details-field select,
 .application-details-field textarea {

@@ -6,7 +6,11 @@ import {
   normalizeProductName,
   applicationMatchesProductId,
 } from "../utils/applicationEvents";
-import { resolveIsoPeriodBounds } from "../utils/periodRange";
+import {
+  dateOnlyToLocalNoonIso,
+  isDateOnlyAfterToday,
+  resolveIsoPeriodBounds,
+} from "../utils/periodRange";
 
 const APPLICATION_COLUMNS = `
   id,
@@ -1277,6 +1281,7 @@ async function prepareApprovalFields({
   nextStatus,
   currentApplication = null,
   productId,
+  openedAt = null,
 }) {
   if (nextStatus !== "approved") {
     return {
@@ -1288,17 +1293,24 @@ async function prepareApprovalFields({
   const result = {};
 
   /*
-   * Дата успешного открытия фиксируется
-   * только при первом переходе в approved.
-   * opened_at нужен кнопке «Квит открыт»
-   * и не перезаписывается повторно.
+   * Если менеджер указал дату открытия,
+   * зарплата считается по ней, даже если
+   * квит уже отмечали раньше.
+   * Без даты первое открытие получает
+   * текущий момент и больше не затирается.
    */
-  if (!currentApplication?.approved_at) {
+  if (openedAt) {
+    result.opened_at = openedAt;
+    result.approved_at = openedAt;
+  } else if (!currentApplication?.approved_at) {
     result.approved_at =
       new Date().toISOString();
   }
 
-  if (!currentApplication?.opened_at) {
+  if (
+    !openedAt &&
+    !currentApplication?.opened_at
+  ) {
     result.opened_at =
       currentApplication?.approved_at ||
       result.approved_at ||
@@ -2441,6 +2453,36 @@ export const applicationService = {
         );
     }
 
+    const openedOn =
+      values?.opened_on || null;
+    let openedAt = null;
+
+    if (
+      nextStatus === "approved" &&
+      openedOn
+    ) {
+      openedAt =
+        dateOnlyToLocalNoonIso(openedOn);
+
+      if (!openedAt) {
+        return {
+          data: null,
+          error: createServiceError(
+            "Укажите дату открытия"
+          ),
+        };
+      }
+
+      if (isDateOnlyAfterToday(openedOn)) {
+        return {
+          data: null,
+          error: createServiceError(
+            "Дата открытия не может быть позже сегодня"
+          ),
+        };
+      }
+    }
+
     const {
       data: approvalFields,
       error: approvalError,
@@ -2451,6 +2493,8 @@ export const applicationService = {
 
       productId:
         finalProductId,
+
+      openedAt,
     });
 
     if (approvalError) {
@@ -2603,7 +2647,8 @@ export const applicationService = {
    * зарплату при повторном нажатии.
    */
   async markReceiptOpened(
-    applicationId
+    applicationId,
+    openedOn = null
   ) {
     if (!applicationId) {
       return {
@@ -2660,7 +2705,8 @@ export const applicationService = {
     if (
       currentApplication.status ===
         "approved" &&
-      currentApplication.opened_at
+      currentApplication.opened_at &&
+      !openedOn
     ) {
       return {
         ...(await this.getApplicationById(
@@ -2675,6 +2721,7 @@ export const applicationService = {
         applicationId,
         {
           status: "approved",
+          opened_on: openedOn,
         }
       );
 

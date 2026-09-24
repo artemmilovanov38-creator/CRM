@@ -18,6 +18,54 @@ export function formatDateInput(date) {
   ].join("-");
 }
 
+export function todayDateInput() {
+  return formatDateInput(new Date());
+}
+
+export function isoToDateInput(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return formatDateInput(date);
+}
+
+/**
+ * Полдень локального дня. Так выбранная
+ * дата остаётся внутри этого календарного
+ * дня и в фильтре периода, и в зарплате.
+ */
+export function dateOnlyToLocalNoonIso(dateOnly) {
+  const parsed = parseInputDate(dateOnly);
+
+  if (!parsed) {
+    return null;
+  }
+
+  parsed.setHours(12, 0, 0, 0);
+
+  return parsed.toISOString();
+}
+
+export function isDateOnlyAfterToday(dateOnly) {
+  const parsed = parseInputDate(dateOnly);
+
+  if (!parsed) {
+    return false;
+  }
+
+  return (
+    startOfLocalDay(parsed).getTime() >
+    startOfLocalDay(new Date()).getTime()
+  );
+}
+
 export function formatDateLabel(date) {
   return new Intl.DateTimeFormat(
     "ru-RU",

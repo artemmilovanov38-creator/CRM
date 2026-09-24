@@ -642,6 +642,11 @@ export default function ApplicationsPage() {
 
       pp_id:
         form.pp_id?.trim() || null,
+
+      opened_on:
+        form.status === "approved"
+          ? form.opened_on
+          : null,
     };
 
     if (
@@ -696,7 +701,8 @@ export default function ApplicationsPage() {
   }
 
   async function handleMarkReceiptOpened(
-    application
+    application,
+    openedOn = null
   ) {
     if (
       !application?.id ||
@@ -715,7 +721,8 @@ export default function ApplicationsPage() {
       alreadyOpened,
     } =
       await applicationService.markReceiptOpened(
-        application.id
+        application.id,
+        openedOn
       );
 
     if (openError) {

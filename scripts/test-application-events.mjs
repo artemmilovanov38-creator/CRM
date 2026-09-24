@@ -10,7 +10,11 @@ import {
   isDateOnlyInRange,
   isTimestampInRange,
 } from "../src/utils/applicationEvents.js";
-import { dateOnlyToExclusiveIsoRange } from "../src/utils/periodRange.js";
+import {
+  dateOnlyToExclusiveIsoRange,
+  dateOnlyToLocalNoonIso,
+  isDateOnlyAfterToday,
+} from "../src/utils/periodRange.js";
 import { buildSalaryData } from "../src/utils/salaryCalculation.js";
 import {
   buildApplicationBoard,
@@ -654,4 +658,15 @@ assert(
 
 console.log(
   "Сверка заявок и зарплаты 16–31.08, границы дней и сумма 5×1200 прошли"
+);
+
+const sept4 = dateOnlyToExclusiveIsoRange("2026-09-04", "2026-09-04");
+const sept4Noon = dateOnlyToLocalNoonIso("2026-09-04");
+assert(
+  isTimestampInRange(sept4Noon, sept4.from, sept4.to),
+  "Полдень выбранной даты попадает в этот календарный день"
+);
+assert(
+  isDateOnlyAfterToday("2099-01-01") === true,
+  "Будущая дата открытия отклоняется"
 );

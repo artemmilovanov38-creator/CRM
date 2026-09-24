@@ -33,6 +33,10 @@ import { applicationMessageService } from "../services/applicationMessageService
 import { notificationService } from "../services/notificationService";
 import { profileService } from "../services/profileService";
 import ApplicationTimeline from "../components/applications/ApplicationTimeline";
+import {
+  isoToDateInput,
+  todayDateInput,
+} from "../utils/periodRange";
 
 const statusOptions = [
   { value: "new", label: "Новая" },
@@ -64,6 +68,7 @@ const initialForm = {
   amount: "",
   comment: "",
   pp_id: "",
+  opened_on: "",
 };
 
 export default function ApplicationDetails() {
@@ -237,6 +242,13 @@ setProducts(productsResult.data || []);
       : String(getApplicationPayout(data)),
   comment: data.comment || "",
   pp_id: data.pp_id || "",
+  opened_on:
+    isoToDateInput(
+      data.opened_at || data.approved_at
+    ) ||
+    (data.status === "approved"
+      ? todayDateInput()
+      : ""),
 });
 
     setIsLoading(false);
@@ -304,10 +316,22 @@ setProducts(productsResult.data || []);
       return;
     }
 
-    setForm((currentForm) => ({
-      ...currentForm,
-      [name]: value,
-    }));
+    setForm((currentForm) => {
+      const next = {
+        ...currentForm,
+        [name]: value,
+      };
+
+      if (
+        name === "status" &&
+        value === "approved" &&
+        !currentForm.opened_on
+      ) {
+        next.opened_on = todayDateInput();
+      }
+
+      return next;
+    });
   }
 
   async function handleQuickStatusChange(
@@ -349,6 +373,12 @@ setProducts(productsResult.data || []);
     setForm((currentForm) => ({
       ...currentForm,
       status: data.status,
+      opened_on:
+        data.status === "approved"
+          ? isoToDateInput(
+              data.opened_at || data.approved_at
+            ) || todayDateInput()
+          : currentForm.opened_on,
     }));
     setSuccessMessage("Статус заявки обновлён");
     setIsSaving(false);
@@ -370,7 +400,8 @@ setProducts(productsResult.data || []);
 
     const { data, error: openError, alreadyOpened } =
       await applicationService.markReceiptOpened(
-        application.id
+        application.id,
+        form.opened_on || todayDateInput()
       );
 
     if (openError) {
@@ -387,6 +418,10 @@ setProducts(productsResult.data || []);
     setForm((currentForm) => ({
       ...currentForm,
       status: data.status,
+      opened_on:
+        isoToDateInput(
+          data.opened_at || data.approved_at
+        ) || currentForm.opened_on,
     }));
     setSuccessMessage(
       alreadyOpened
@@ -413,7 +448,13 @@ setProducts(productsResult.data || []);
     const previousStatus = application?.status || null;
     const nextStatus = form.status || null;
 
-    const updates = { ...form };
+    const updates = {
+      ...form,
+      opened_on:
+        nextStatus === "approved"
+          ? form.opened_on || todayDateInput()
+          : null,
+    };
 
     if (
       String(form.product_id || "") ===
@@ -716,6 +757,23 @@ setProducts(productsResult.data || []);
                   </span>
                 </div>
               ) : (
+                <label className="application-details-quick-status">
+                  <span>Дата открытия</span>
+                  <input
+                    type="date"
+                    name="opened_on"
+                    value={
+                      form.opened_on ||
+                      todayDateInput()
+                    }
+                    max={todayDateInput()}
+                    onChange={handleChange}
+                    disabled={isSaving || isMarkingOpened}
+                  />
+                </label>
+              )}
+
+              {!isApplicationReceiptOpened(application) && (
                 <button
                   className="application-details-receipt-button"
                   type="button"
@@ -976,6 +1034,23 @@ setProducts(productsResult.data || []);
                   ))}
                 </select>
               </label>
+
+              {form.status === "approved" && (
+                <label className="application-details-field">
+                  <span>Дата открытия</span>
+                  <input
+                    type="date"
+                    name="opened_on"
+                    value={form.opened_on}
+                    max={todayDateInput()}
+                    onChange={handleChange}
+                    required
+                  />
+                  <small>
+                    Зарплата посчитается за этот день.
+                  </small>
+                </label>
+              )}
 
               <label className="application-details-field">
                 <span>Сумма из продукта</span>

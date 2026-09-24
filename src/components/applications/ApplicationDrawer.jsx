@@ -22,6 +22,10 @@ import {
 } from "../../services/applicationService";
 import { applicationHistoryService } from "../../services/applicationHistoryService";
 import { getTelegramHref } from "../../utils/telegram";
+import {
+  isoToDateInput,
+  todayDateInput,
+} from "../../utils/periodRange";
 import ApplicationTimeline from "./ApplicationTimeline";
 
 const statusOptions = [
@@ -55,6 +59,7 @@ const emptyForm = {
   amount: "",
   comment: "",
   pp_id: "",
+  opened_on: "",
 };
 
 function getApplicationForm(application) {
@@ -107,6 +112,15 @@ function getApplicationForm(application) {
 
     pp_id:
       application.pp_id || "",
+
+    opened_on:
+      isoToDateInput(
+        application.opened_at ||
+          application.approved_at
+      ) ||
+      (application.status === "approved"
+        ? todayDateInput()
+        : ""),
   };
 }
 
@@ -213,10 +227,22 @@ export default function ApplicationDrawer({
     const { name, value } =
       event.target;
 
-    setForm((currentForm) => ({
-      ...currentForm,
-      [name]: value,
-    }));
+    setForm((currentForm) => {
+      const next = {
+        ...currentForm,
+        [name]: value,
+      };
+
+      if (
+        name === "status" &&
+        value === "approved" &&
+        !currentForm.opened_on
+      ) {
+        next.opened_on = todayDateInput();
+      }
+
+      return next;
+    });
   }
 
   function handleSubmit(event) {
@@ -349,21 +375,39 @@ export default function ApplicationDrawer({
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                className="application-drawer-receipt-button"
-                onClick={() =>
-                  onMarkOpened?.(
-                    application
-                  )
-                }
-                disabled={actionLoading}
-              >
-                <Stamp size={18} />
-                {actionLoading
-                  ? "Отмечаем..."
-                  : "Отметить квит открытым"}
-              </button>
+              <>
+                <label className="application-drawer-field">
+                  <span>Дата открытия</span>
+                  <input
+                    type="date"
+                    name="opened_on"
+                    value={
+                      form.opened_on ||
+                      todayDateInput()
+                    }
+                    max={todayDateInput()}
+                    onChange={handleChange}
+                    disabled={actionLoading}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="application-drawer-receipt-button"
+                  onClick={() =>
+                    onMarkOpened?.(
+                      application,
+                      form.opened_on ||
+                        todayDateInput()
+                    )
+                  }
+                  disabled={actionLoading}
+                >
+                  <Stamp size={18} />
+                  {actionLoading
+                    ? "Отмечаем..."
+                    : "Отметить квит открытым"}
+                </button>
+              </>
             )}
           </section>
 
@@ -417,6 +461,24 @@ export default function ApplicationDrawer({
                   )}
                 </select>
               </label>
+
+              {form.status === "approved" && (
+                <label className="application-drawer-field">
+                  <span>Дата открытия</span>
+                  <input
+                    type="date"
+                    name="opened_on"
+                    value={form.opened_on}
+                    max={todayDateInput()}
+                    onChange={handleChange}
+                    disabled={actionLoading}
+                    required
+                  />
+                  <small>
+                    Зарплата посчитается за этот день.
+                  </small>
+                </label>
+              )}
 
               <label className="application-drawer-field">
                 <span>Менеджер</span>
