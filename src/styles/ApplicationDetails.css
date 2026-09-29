@@ -140,7 +140,31 @@
 }
 
 
+.application-details-header__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+
+.application-details-quick-status input[type="date"] {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #313b50;
+  border-radius: 999px;
+  background: #151c29;
+  color: #e8edf5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color-scheme: dark;
+}
+
 .application-details-header__meta > span {
+  color: #8992a5;
+  font-size: 12px;
+}
   color: #8992a5;
   font-size: 12px;
 }

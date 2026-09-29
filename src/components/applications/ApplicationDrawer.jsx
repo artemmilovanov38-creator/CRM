@@ -16,16 +16,13 @@ import {
 
 import "../../styles/ApplicationDrawer.css";
 import {
-  getApplicationOpenedAt,
   getApplicationPayout,
   isApplicationReceiptOpened,
 } from "../../services/applicationService";
 import { applicationHistoryService } from "../../services/applicationHistoryService";
 import { getTelegramHref } from "../../utils/telegram";
-import {
-  isoToDateInput,
-  todayDateInput,
-} from "../../utils/periodRange";
+import { getApplicationDateForm } from "../../utils/applicationDates";
+import { todayDateInput } from "../../utils/periodRange";
 import ApplicationTimeline from "./ApplicationTimeline";
 
 const statusOptions = [
@@ -59,6 +56,8 @@ const emptyForm = {
   amount: "",
   comment: "",
   pp_id: "",
+  wrote_on: "",
+  submitted_on: "",
   opened_on: "",
 };
 
@@ -113,14 +112,7 @@ function getApplicationForm(application) {
     pp_id:
       application.pp_id || "",
 
-    opened_on:
-      isoToDateInput(
-        application.opened_at ||
-          application.approved_at
-      ) ||
-      (application.status === "approved"
-        ? todayDateInput()
-        : ""),
+    ...getApplicationDateForm(application),
   };
 }
 
@@ -278,9 +270,6 @@ export default function ApplicationDrawer({
   const receiptOpened =
     isApplicationReceiptOpened(application);
 
-  const openedAt =
-    getApplicationOpenedAt(application);
-
   return (
     <div className="application-drawer-layer">
       <button
@@ -364,50 +353,52 @@ export default function ApplicationDrawer({
           </section>
 
           <section className="application-drawer-section application-drawer-section--receipt">
-            {receiptOpened ? (
+            {receiptOpened && (
               <div className="application-drawer-receipt application-drawer-receipt--done">
                 <Stamp size={18} />
                 <div>
                   <span>Квит открыт</span>
                   <strong>
-                    {formatDate(openedAt)}
+                    Можно поменять дату ниже
                   </strong>
                 </div>
               </div>
-            ) : (
-              <>
-                <label className="application-drawer-field">
-                  <span>Дата открытия</span>
-                  <input
-                    type="date"
-                    name="opened_on"
-                    value={
-                      form.opened_on ||
+            )}
+            <label className="application-drawer-field">
+              <span>Дата открытия</span>
+              <input
+                type="date"
+                name="opened_on"
+                value={
+                  form.opened_on ||
+                  todayDateInput()
+                }
+                max={todayDateInput()}
+                onChange={handleChange}
+                disabled={actionLoading}
+              />
+              <small>
+                Зарплата считается за этот день.
+              </small>
+            </label>
+            {!receiptOpened && (
+              <button
+                type="button"
+                className="application-drawer-receipt-button"
+                onClick={() =>
+                  onMarkOpened?.(
+                    application,
+                    form.opened_on ||
                       todayDateInput()
-                    }
-                    max={todayDateInput()}
-                    onChange={handleChange}
-                    disabled={actionLoading}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="application-drawer-receipt-button"
-                  onClick={() =>
-                    onMarkOpened?.(
-                      application,
-                      form.opened_on ||
-                        todayDateInput()
-                    )
-                  }
-                  disabled={actionLoading}
-                >
-                  <Stamp size={18} />
-                  {actionLoading
-                    ? "Отмечаем..."
-                    : "Отметить квит открытым"}
-                </button>
-              </>
+                  )
+                }
+                disabled={actionLoading}
+              >
+                <Stamp size={18} />
+                {actionLoading
+                  ? "Отмечаем..."
+                  : "Отметить квит открытым"}
+              </button>
             )}
           </section>
 
@@ -460,6 +451,40 @@ export default function ApplicationDrawer({
                     )
                   )}
                 </select>
+              </label>
+
+              <label className="application-drawer-field">
+                <span>Дата входящего</span>
+                <input
+                  type="date"
+                  name="wrote_on"
+                  value={form.wrote_on}
+                  max={todayDateInput()}
+                  onChange={handleChange}
+                  disabled={
+                    actionLoading ||
+                    !application.mailing_contact_id
+                  }
+                />
+                <small>
+                  Когда человек написал.
+                </small>
+              </label>
+
+              <label className="application-drawer-field">
+                <span>Дата подачи заявки</span>
+                <input
+                  type="date"
+                  name="submitted_on"
+                  value={form.submitted_on}
+                  max={todayDateInput()}
+                  onChange={handleChange}
+                  disabled={actionLoading}
+                  required
+                />
+                <small>
+                  Когда человек подал заявку.
+                </small>
               </label>
 
               {form.status === "approved" && (
@@ -829,27 +854,4 @@ function getStatusLabel(value) {
 
 function getTelegramLink(value) {
   return getTelegramHref(value);
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "Не указано";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Не указано";
-  }
-
-  return new Intl.DateTimeFormat(
-    "ru-RU",
-    {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  ).format(date);
 }

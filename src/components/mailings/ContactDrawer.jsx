@@ -34,6 +34,8 @@ import {
 
 import "../../styles/ContactDrawer.css";
 import { formatTelegramDisplay, getTelegramHref } from "../../utils/telegram";
+import { todayDateInput } from "../../utils/periodRange";
+import { getApplicationDateForm } from "../../utils/applicationDates";
 
 const contactStatusNames = {
   new: "Новый",
@@ -67,19 +69,35 @@ const applicationStatusOptions = [
   },
 ];
 
-const emptyApplicationForm = {
-  productId: "",
-  status: "new",
-  comment: "",
-  ppId: "",
-};
+function getCreateApplicationForm(contact) {
+  const dates = getApplicationDateForm({
+    created_at: null,
+    mailing_contact: contact,
+  });
 
-const emptyEditingForm = {
-  productId: "",
-  status: "new",
-  comment: "",
-  ppId: "",
-};
+  return {
+    productId: "",
+    status: "in_progress",
+    comment: "",
+    ppId: "",
+    wroteOn:
+      dates.wrote_on || todayDateInput(),
+    submittedOn: todayDateInput(),
+    openedOn: todayDateInput(),
+  };
+}
+
+function getEmptyEditingForm() {
+  return {
+    productId: "",
+    status: "new",
+    comment: "",
+    ppId: "",
+    wroteOn: "",
+    submittedOn: "",
+    openedOn: "",
+  };
+}
 
 export default function ContactDrawer({
   contact,
@@ -123,7 +141,7 @@ export default function ContactDrawer({
     applicationForm,
     setApplicationForm,
   ] = useState(
-    emptyApplicationForm
+    getCreateApplicationForm(contact)
   );
 
   const [
@@ -160,7 +178,7 @@ export default function ContactDrawer({
     editingForm,
     setEditingForm,
   ] = useState(
-    emptyEditingForm
+    getEmptyEditingForm()
   );
 
   const [
@@ -239,7 +257,7 @@ export default function ContactDrawer({
     );
 
     setApplicationForm(
-      emptyApplicationForm
+      getCreateApplicationForm(contact)
     );
 
     setIsCreateFormOpen(
@@ -249,7 +267,7 @@ export default function ContactDrawer({
 
     setEditingApplicationId(null);
     setEditingForm(
-      emptyEditingForm
+      getEmptyEditingForm()
     );
 
     setApplicationFormError("");
@@ -424,6 +442,18 @@ export default function ContactDrawer({
 
             pp_id:
               applicationForm.ppId,
+
+            submitted_on:
+              applicationForm.submittedOn,
+
+            opened_on:
+              applicationForm.status ===
+              "approved"
+                ? applicationForm.openedOn
+                : undefined,
+
+            wrote_on:
+              applicationForm.wroteOn,
           }
         );
 
@@ -456,7 +486,7 @@ export default function ContactDrawer({
     );
 
     setApplicationForm(
-      emptyApplicationForm
+      getCreateApplicationForm(contact)
     );
 
     setIsCreateFormOpen(false);
@@ -489,6 +519,11 @@ export default function ContactDrawer({
 
     setIsCreateFormOpen(false);
 
+    const dates = getApplicationDateForm({
+      ...application,
+      mailing_contact: contact,
+    });
+
     setEditingForm({
       productId:
         application.product_id || "",
@@ -501,6 +536,11 @@ export default function ContactDrawer({
 
       ppId:
         application.pp_id || "",
+
+      wroteOn: dates.wrote_on,
+      submittedOn: dates.submitted_on,
+      openedOn:
+        dates.opened_on || todayDateInput(),
     });
 
     setApplicationsError("");
@@ -511,7 +551,7 @@ export default function ContactDrawer({
     setEditingApplicationId(null);
 
     setEditingForm(
-      emptyEditingForm
+      getEmptyEditingForm()
     );
   }
 
@@ -534,6 +574,12 @@ export default function ContactDrawer({
       status: editingForm.status,
       comment: editingForm.comment,
       ppId: editingForm.ppId,
+      submittedOn: editingForm.submittedOn,
+      wroteOn: editingForm.wroteOn,
+      openedOn:
+        editingForm.status === "approved"
+          ? editingForm.openedOn
+          : undefined,
     };
 
     if (
@@ -755,9 +801,9 @@ export default function ContactDrawer({
 
   function openCreateForm() {
     setEditingApplicationId(null);
-    setEditingForm(emptyEditingForm);
+    setEditingForm(getEmptyEditingForm());
     setApplicationForm(
-      emptyApplicationForm
+      getCreateApplicationForm(contact)
     );
     setApplicationFormError("");
     setApplicationSuccess("");
@@ -767,7 +813,7 @@ export default function ContactDrawer({
 
   function closeCreateForm() {
     setApplicationForm(
-      emptyApplicationForm
+      getCreateApplicationForm(contact)
     );
     setApplicationFormError("");
     setIsCreateFormOpen(false);
@@ -1020,6 +1066,64 @@ export default function ContactDrawer({
                 )}
               </select>
             </label>
+
+            <label className="contact-drawer-form-field">
+              <span>Дата входящего</span>
+
+              <input
+                className="contact-drawer-select"
+                type="date"
+                value={applicationForm.wroteOn}
+                max={todayDateInput()}
+                disabled={applicationSaving}
+                onChange={(event) =>
+                  setApplicationForm((current) => ({
+                    ...current,
+                    wroteOn: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label className="contact-drawer-form-field">
+              <span>Дата подачи заявки</span>
+
+              <input
+                className="contact-drawer-select"
+                type="date"
+                value={applicationForm.submittedOn}
+                max={todayDateInput()}
+                required
+                disabled={applicationSaving}
+                onChange={(event) =>
+                  setApplicationForm((current) => ({
+                    ...current,
+                    submittedOn: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            {applicationForm.status === "approved" && (
+              <label className="contact-drawer-form-field">
+                <span>Дата открытия</span>
+
+                <input
+                  className="contact-drawer-select"
+                  type="date"
+                  value={applicationForm.openedOn}
+                  max={todayDateInput()}
+                  required
+                  disabled={applicationSaving}
+                  onChange={(event) =>
+                    setApplicationForm((current) => ({
+                      ...current,
+                      openedOn: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            )}
 
             <label className="contact-drawer-form-field">
               <span>ID ПП</span>
@@ -1309,6 +1413,89 @@ export default function ContactDrawer({
                                 )}
                               </select>
                             </label>
+
+                            <label>
+                              <span>
+                                Дата входящего
+                              </span>
+
+                              <input
+                                type="date"
+                                value={
+                                  editingForm.wroteOn
+                                }
+                                max={todayDateInput()}
+                                disabled={
+                                  applicationSaving
+                                }
+                                onChange={(event) =>
+                                  setEditingForm(
+                                    (current) => ({
+                                      ...current,
+                                      wroteOn:
+                                        event.target.value,
+                                    })
+                                  )
+                                }
+                              />
+                            </label>
+
+                            <label>
+                              <span>
+                                Дата подачи заявки
+                              </span>
+
+                              <input
+                                type="date"
+                                value={
+                                  editingForm.submittedOn
+                                }
+                                max={todayDateInput()}
+                                required
+                                disabled={
+                                  applicationSaving
+                                }
+                                onChange={(event) =>
+                                  setEditingForm(
+                                    (current) => ({
+                                      ...current,
+                                      submittedOn:
+                                        event.target.value,
+                                    })
+                                  )
+                                }
+                              />
+                            </label>
+
+                            {editingForm.status ===
+                              "approved" && (
+                              <label>
+                                <span>
+                                  Дата открытия
+                                </span>
+
+                                <input
+                                  type="date"
+                                  value={
+                                    editingForm.openedOn
+                                  }
+                                  max={todayDateInput()}
+                                  required
+                                  disabled={
+                                    applicationSaving
+                                  }
+                                  onChange={(event) =>
+                                    setEditingForm(
+                                      (current) => ({
+                                        ...current,
+                                        openedOn:
+                                          event.target.value,
+                                      })
+                                    )
+                                  }
+                                />
+                              </label>
+                            )}
 
                             <label>
                               <span>

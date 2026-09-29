@@ -400,12 +400,24 @@
   text-transform: uppercase;
 }
 
-.incoming-card__detail strong {
+.incoming-card__detail strong,
+.incoming-card__detail input[type="date"] {
   display: block;
   overflow-wrap: anywhere;
   color: #dce1e9;
   font-size: 10px;
   line-height: 1.45;
+}
+
+.incoming-card__detail input[type="date"] {
+  width: 100%;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #2a3140;
+  border-radius: 8px;
+  background: #0b0e14;
+  font: inherit;
+  color-scheme: dark;
 }
 
 .incoming-card__actions {

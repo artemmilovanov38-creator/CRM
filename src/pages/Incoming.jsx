@@ -50,6 +50,7 @@ import ManagerAnalytics from "../components/analytics/ManagerAnalytics";
 import {
   formatDateInput,
   getPeriodBounds,
+  isoToDateInput,
 } from "../utils/periodRange";
 import { matchesSearch } from "../utils/searchMatch";
 import { formatServiceError } from "../utils/serviceError";
@@ -652,6 +653,47 @@ export default function Incoming() {
     }
 
     setSaving(false);
+  }
+
+  async function handleIncomingDateChange(
+    contact,
+    nextDate
+  ) {
+    if (!contact?.id || !nextDate) {
+      return;
+    }
+
+    setContactActionId(contact.id);
+    setError("");
+
+    const result =
+      await incomingResponseService.updateRespondedAt(
+        contact.id,
+        nextDate
+      );
+
+    if (result.error) {
+      setError(
+        formatServiceError(
+          result.error,
+          "Не удалось сохранить дату входящего"
+        )
+      );
+      setContactActionId(null);
+      return;
+    }
+
+    setResponses((current) =>
+      current.map((item) =>
+        item.id === contact.id
+          ? {
+              ...item,
+              ...result.data,
+            }
+          : item
+      )
+    );
+    setContactActionId(null);
   }
 
   /*
@@ -1367,13 +1409,24 @@ const managerOptions =
                     {/* DETAILS */}
 
                     <div className="incoming-card__details">
-                      <DetailItem
-                        label="Дата входящего"
-                        value={formatDate(
-                          response
-                            .responded_at
-                        )}
-                      />
+                      <DetailItem label="Дата входящего">
+                        <input
+                          type="date"
+                          value={isoToDateInput(
+                            response.responded_at
+                          )}
+                          max={formatDateInput(
+                            new Date()
+                          )}
+                          disabled={actionLoading}
+                          onChange={(event) =>
+                            handleIncomingDateChange(
+                              response,
+                              event.target.value
+                            )
+                          }
+                        />
+                      </DetailItem>
 
                       <DetailItem
                         label="Телефон"
@@ -2167,6 +2220,7 @@ function StatCard({
 function DetailItem({
   label,
   value,
+  children,
 }) {
   return (
     <div className="incoming-card__detail">
@@ -2174,9 +2228,11 @@ function DetailItem({
         {label}
       </span>
 
-      <strong>
-        {value}
-      </strong>
+      {children || (
+        <strong>
+          {value}
+        </strong>
+      )}
     </div>
   );
 }
@@ -2358,32 +2414,6 @@ function formatPhone(value) {
  * ДАТА
  * =========================================================
  */
-
-function formatDate(value) {
-  if (!value) {
-    return "Не указано";
-  }
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return "Не указано";
-  }
-
-  return new Intl.DateTimeFormat(
-    "ru-RU",
-    {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }
-  ).format(date);
-}
 
 function shiftDays(days) {
   const date = new Date();

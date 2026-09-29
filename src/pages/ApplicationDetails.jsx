@@ -33,10 +33,8 @@ import { applicationMessageService } from "../services/applicationMessageService
 import { notificationService } from "../services/notificationService";
 import { profileService } from "../services/profileService";
 import ApplicationTimeline from "../components/applications/ApplicationTimeline";
-import {
-  isoToDateInput,
-  todayDateInput,
-} from "../utils/periodRange";
+import { getApplicationDateForm } from "../utils/applicationDates";
+import { todayDateInput } from "../utils/periodRange";
 
 const statusOptions = [
   { value: "new", label: "Новая" },
@@ -68,6 +66,8 @@ const initialForm = {
   amount: "",
   comment: "",
   pp_id: "",
+  wrote_on: "",
+  submitted_on: "",
   opened_on: "",
 };
 
@@ -242,13 +242,7 @@ setProducts(productsResult.data || []);
       : String(getApplicationPayout(data)),
   comment: data.comment || "",
   pp_id: data.pp_id || "",
-  opened_on:
-    isoToDateInput(
-      data.opened_at || data.approved_at
-    ) ||
-    (data.status === "approved"
-      ? todayDateInput()
-      : ""),
+  ...getApplicationDateForm(data),
 });
 
     setIsLoading(false);
@@ -334,6 +328,66 @@ setProducts(productsResult.data || []);
     });
   }
 
+  async function handleOpenedOnChange(event) {
+    const { value } = event.target;
+
+    setForm((currentForm) => ({
+      ...currentForm,
+      opened_on: value,
+    }));
+
+    if (
+      !application?.id ||
+      !isApplicationReceiptOpened(application) ||
+      !value ||
+      isSaving ||
+      isMarkingOpened
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setSuccessMessage("");
+
+    const { data, error: updateError } =
+      await applicationService.updateApplication(
+        application.id,
+        {
+          status: "approved",
+          opened_on: value,
+        }
+      );
+
+    if (updateError) {
+      console.error(
+        "Ошибка сохранения даты открытия:",
+        updateError
+      );
+      setError(
+        updateError.message ||
+          "Не удалось сохранить дату открытия"
+      );
+      setIsSaving(false);
+      return;
+    }
+
+    setApplication(data);
+    setForm((currentForm) => ({
+      ...currentForm,
+      ...getApplicationDateForm({
+        ...data,
+        mailing_contact:
+          data.mailing_contact ||
+          application.mailing_contact,
+      }),
+    }));
+    setSuccessMessage(
+      "Дата открытия сохранена. Зарплата посчитается за этот день."
+    );
+    setIsSaving(false);
+  }
+
   async function handleQuickStatusChange(
     event
   ) {
@@ -351,9 +405,15 @@ setProducts(productsResult.data || []);
     setSuccessMessage("");
 
     const { data, error: updateError } =
-      await applicationService.updateStatus(
+      await applicationService.updateApplication(
         application.id,
-        nextStatus
+        {
+          status: nextStatus,
+          opened_on:
+            nextStatus === "approved"
+              ? form.opened_on || todayDateInput()
+              : undefined,
+        }
       );
 
     if (updateError) {
@@ -373,12 +433,12 @@ setProducts(productsResult.data || []);
     setForm((currentForm) => ({
       ...currentForm,
       status: data.status,
-      opened_on:
-        data.status === "approved"
-          ? isoToDateInput(
-              data.opened_at || data.approved_at
-            ) || todayDateInput()
-          : currentForm.opened_on,
+      ...getApplicationDateForm({
+        ...data,
+        mailing_contact:
+          data.mailing_contact ||
+          application?.mailing_contact,
+      }),
     }));
     setSuccessMessage("Статус заявки обновлён");
     setIsSaving(false);
@@ -418,10 +478,12 @@ setProducts(productsResult.data || []);
     setForm((currentForm) => ({
       ...currentForm,
       status: data.status,
-      opened_on:
-        isoToDateInput(
-          data.opened_at || data.approved_at
-        ) || currentForm.opened_on,
+      ...getApplicationDateForm({
+        ...data,
+        mailing_contact:
+          data.mailing_contact ||
+          application.mailing_contact,
+      }),
     }));
     setSuccessMessage(
       alreadyOpened
@@ -450,6 +512,8 @@ setProducts(productsResult.data || []);
 
     const updates = {
       ...form,
+      submitted_on: form.submitted_on || null,
+      wrote_on: form.wrote_on || null,
       opened_on:
         nextStatus === "approved"
           ? form.opened_on || todayDateInput()
@@ -477,6 +541,15 @@ setProducts(productsResult.data || []);
     }
 
     setApplication(data);
+    setForm((currentForm) => ({
+      ...currentForm,
+      ...getApplicationDateForm({
+        ...data,
+        mailing_contact:
+          data.mailing_contact ||
+          application.mailing_contact,
+      }),
+    }));
 
     const notificationPromises = [];
 
@@ -746,32 +819,27 @@ setProducts(productsResult.data || []);
                 </select>
               </label>
 
-              {isApplicationReceiptOpened(application) ? (
+              {isApplicationReceiptOpened(application) && (
                 <div className="application-details-receipt application-details-receipt--done">
                   <Stamp size={15} />
-                  <span>
-                    Квит открыт{" "}
-                    {formatDateTime(
-                      getApplicationOpenedAt(application)
-                    )}
-                  </span>
+                  <span>Квит открыт</span>
                 </div>
-              ) : (
-                <label className="application-details-quick-status">
-                  <span>Дата открытия</span>
-                  <input
-                    type="date"
-                    name="opened_on"
-                    value={
-                      form.opened_on ||
-                      todayDateInput()
-                    }
-                    max={todayDateInput()}
-                    onChange={handleChange}
-                    disabled={isSaving || isMarkingOpened}
-                  />
-                </label>
               )}
+
+              <label className="application-details-quick-status">
+                <span>Дата открытия</span>
+                <input
+                  type="date"
+                  name="opened_on"
+                  value={
+                    form.opened_on ||
+                    todayDateInput()
+                  }
+                  max={todayDateInput()}
+                  onChange={handleOpenedOnChange}
+                  disabled={isSaving || isMarkingOpened}
+                />
+              </label>
 
               {!isApplicationReceiptOpened(application) && (
                 <button
@@ -857,6 +925,24 @@ setProducts(productsResult.data || []);
 
           <InfoItem
             icon={CalendarDays}
+            label="Клиент написал"
+            value={
+              application.mailing_contact?.responded_at
+                ? formatDateTime(
+                    application.mailing_contact.responded_at
+                  )
+                : "Не указана"
+            }
+          />
+
+          <InfoItem
+            icon={CalendarDays}
+            label="Подал заявку"
+            value={formatDateTime(application.created_at)}
+          />
+
+          <InfoItem
+            icon={CalendarDays}
             label="Квит открыт"
             value={
               getApplicationOpenedAt(application)
@@ -865,12 +951,6 @@ setProducts(productsResult.data || []);
                   )
                 : "Ещё не открыт"
             }
-          />
-
-          <InfoItem
-            icon={CalendarDays}
-            label="Создана"
-            value={formatDateTime(application.created_at)}
           />
 
           <InfoItem
@@ -905,8 +985,10 @@ setProducts(productsResult.data || []);
               <div>
                 <h2>Данные заявки</h2>
                 <p>
-                  Измените информацию о клиенте, продукте, менеджере или
-                  статусе.
+                  Три даты заявки можно править: когда
+                  человек написал, когда подал заявку и
+                  когда открылся. В зарплату идёт дата
+                  открытия.
                 </p>
               </div>
             </div>
@@ -1035,6 +1117,37 @@ setProducts(productsResult.data || []);
                 </select>
               </label>
 
+              <label className="application-details-field">
+                <span>Дата входящего</span>
+                <input
+                  type="date"
+                  name="wrote_on"
+                  value={form.wrote_on}
+                  max={todayDateInput()}
+                  onChange={handleChange}
+                  disabled={!application.mailing_contact_id}
+                />
+                <small>
+                  Когда человек написал. Если квит открыли
+                  раньше — дату всё равно можно поправить.
+                </small>
+              </label>
+
+              <label className="application-details-field">
+                <span>Дата подачи заявки</span>
+                <input
+                  type="date"
+                  name="submitted_on"
+                  value={form.submitted_on}
+                  max={todayDateInput()}
+                  onChange={handleChange}
+                  required
+                />
+                <small>
+                  Когда человек подал заявку. Не влияет на зарплату.
+                </small>
+              </label>
+
               {form.status === "approved" && (
                 <label className="application-details-field">
                   <span>Дата открытия</span>
@@ -1047,7 +1160,8 @@ setProducts(productsResult.data || []);
                     required
                   />
                   <small>
-                    Зарплата посчитается за этот день.
+                    Зарплата посчитается за этот день, даже
+                    если кнопку нажали позже.
                   </small>
                 </label>
               )}
@@ -1351,6 +1465,8 @@ function getHistoryDescription(item, managers) {
     source: "источник",
     pp_id: "ID ПП",
     opened_at: "дату открытия квита",
+    created_at: "дату подачи заявки",
+    approved_at: "дату открытия",
   };
 
   const fieldLabel = fieldLabels[item.field_name] || "данные заявки";

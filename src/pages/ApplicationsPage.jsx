@@ -643,6 +643,12 @@ export default function ApplicationsPage() {
       pp_id:
         form.pp_id?.trim() || null,
 
+      wrote_on:
+        form.wrote_on || null,
+
+      submitted_on:
+        form.submitted_on || null,
+
       opened_on:
         form.status === "approved"
           ? form.opened_on

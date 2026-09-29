@@ -90,6 +90,80 @@ function createServiceError(message) {
   return new Error(message);
 }
 
+function resolveBusinessDate(dateOnly, label) {
+  if (!dateOnly) {
+    return {
+      iso: null,
+      error: null,
+    };
+  }
+
+  const iso = dateOnlyToLocalNoonIso(dateOnly);
+
+  if (!iso) {
+    return {
+      iso: null,
+      error: createServiceError(
+        `Укажите ${label.toLowerCase()}`
+      ),
+    };
+  }
+
+  if (isDateOnlyAfterToday(dateOnly)) {
+    return {
+      iso: null,
+      error: createServiceError(
+        `${label} не может быть позже сегодня`
+      ),
+    };
+  }
+
+  return {
+    iso,
+    error: null,
+  };
+}
+
+async function syncMailingContactEventDates(
+  mailingContactId,
+  { wroteAt = null, submittedAt = null } = {}
+) {
+  if (!mailingContactId) {
+    return {
+      error: null,
+    };
+  }
+
+  const payload = {};
+
+  if (wroteAt) {
+    payload.responded_at = wroteAt;
+  }
+
+  if (submittedAt) {
+    payload.application_created_at =
+      submittedAt;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return {
+      error: null,
+    };
+  }
+
+  payload.updated_at =
+    new Date().toISOString();
+
+  const { error } = await supabase
+    .from("mailing_contacts")
+    .update(payload)
+    .eq("id", mailingContactId);
+
+  return {
+    error,
+  };
+}
+
 function sameId(left, right) {
   if (
     left === null ||
@@ -1832,12 +1906,70 @@ export const applicationService = {
       "new"
     );
 
+    const submittedDate =
+      resolveBusinessDate(
+        values?.submitted_on,
+        "Дата подачи заявки"
+      );
+
+    if (submittedDate.error) {
+      return {
+        data: null,
+        error: submittedDate.error,
+      };
+    }
+
+    const wroteDate =
+      resolveBusinessDate(
+        values?.wrote_on,
+        "Дата входящего"
+      );
+
+    if (wroteDate.error) {
+      return {
+        data: null,
+        error: wroteDate.error,
+      };
+    }
+
+    if (
+      wroteDate.iso &&
+      !values?.mailing_contact_id
+    ) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Дата входящего доступна только у заявки с контактом"
+        ),
+      };
+    }
+
+    let openedAt = null;
+
+    if (status === "approved") {
+      const openedDate =
+        resolveBusinessDate(
+          values?.opened_on,
+          "Дата открытия"
+        );
+
+      if (openedDate.error) {
+        return {
+          data: null,
+          error: openedDate.error,
+        };
+      }
+
+      openedAt = openedDate.iso;
+    }
+
     const {
       data: approvalFields,
       error: approvalError,
     } = await prepareApprovalFields({
       nextStatus: status,
       productId: product.id,
+      openedAt,
     });
 
     if (approvalError) {
@@ -1942,6 +2074,19 @@ export const applicationService = {
       ...approvalFields,
     };
 
+    if (submittedDate.iso) {
+      payload.created_at =
+        submittedDate.iso;
+    }
+
+    if (
+      status === "in_progress"
+    ) {
+      payload.in_progress_at =
+        submittedDate.iso ||
+        new Date().toISOString();
+    }
+
     const { data, error } = await supabase
       .from("applications")
       .insert(payload)
@@ -1962,6 +2107,23 @@ export const applicationService = {
       return {
         data: null,
         error,
+      };
+    }
+
+    const contactSync =
+      await syncMailingContactEventDates(
+        data.mailing_contact_id,
+        {
+          wroteAt: wroteDate.iso,
+          submittedAt:
+            data.created_at,
+        }
+      );
+
+    if (contactSync.error) {
+      return {
+        data: await hydrateApplication(data),
+        error: contactSync.error,
       };
     }
 
@@ -2116,6 +2278,15 @@ export const applicationService = {
           "Заявка создана из входящего отклика",
 
         pp_id: options?.pp_id,
+
+        submitted_on:
+          options?.submitted_on,
+
+        opened_on:
+          options?.opened_on,
+
+        wrote_on:
+          options?.wrote_on,
       });
 
     if (result.error) {
@@ -2206,6 +2377,7 @@ export const applicationService = {
         opened_at,
         rejected_at,
         in_progress_at,
+        created_at,
         opening_price_snapshot
       `)
       .eq("id", applicationId)
@@ -2453,34 +2625,65 @@ export const applicationService = {
         );
     }
 
-    const openedOn =
-      values?.opened_on || null;
-    let openedAt = null;
+    const openedDate =
+      resolveBusinessDate(
+        values?.opened_on,
+        "Дата открытия"
+      );
+
+    if (openedDate.error) {
+      return {
+        data: null,
+        error: openedDate.error,
+      };
+    }
+
+    const submittedDate =
+      resolveBusinessDate(
+        values?.submitted_on,
+        "Дата подачи заявки"
+      );
+
+    if (submittedDate.error) {
+      return {
+        data: null,
+        error: submittedDate.error,
+      };
+    }
+
+    const wroteDate =
+      resolveBusinessDate(
+        values?.wrote_on,
+        "Дата входящего"
+      );
+
+    if (wroteDate.error) {
+      return {
+        data: null,
+        error: wroteDate.error,
+      };
+    }
 
     if (
-      nextStatus === "approved" &&
-      openedOn
+      wroteDate.iso &&
+      !currentApplication.mailing_contact_id
     ) {
-      openedAt =
-        dateOnlyToLocalNoonIso(openedOn);
+      return {
+        data: null,
+        error: createServiceError(
+          "Дата входящего доступна только у заявки с контактом"
+        ),
+      };
+    }
 
-      if (!openedAt) {
-        return {
-          data: null,
-          error: createServiceError(
-            "Укажите дату открытия"
-          ),
-        };
-      }
+    const openedAt =
+      nextStatus === "approved"
+        ? openedDate.iso
+        : null;
 
-      if (isDateOnlyAfterToday(openedOn)) {
-        return {
-          data: null,
-          error: createServiceError(
-            "Дата открытия не может быть позже сегодня"
-          ),
-        };
-      }
+    if (submittedDate.iso) {
+      payload.created_at =
+        submittedDate.iso;
     }
 
     const {
@@ -2522,6 +2725,7 @@ export const applicationService = {
       !currentApplication.in_progress_at
     ) {
       payload.in_progress_at =
+        submittedDate.iso ||
         new Date().toISOString();
     }
 
@@ -2572,8 +2776,12 @@ export const applicationService = {
       }
     }
 
+    const hasApplicationUpdate =
+      Object.keys(payload).length > 0;
+
     if (
-      Object.keys(payload).length === 0
+      !hasApplicationUpdate &&
+      !wroteDate.iso
     ) {
       return {
         data: null,
@@ -2583,26 +2791,64 @@ export const applicationService = {
       };
     }
 
-    const { data, error } = await supabase
-      .from("applications")
-      .update(payload)
-      .eq("id", applicationId)
-      .select(APPLICATION_COLUMNS)
-      .maybeSingle();
+    let data = null;
 
-    if (isUniqueViolation(error)) {
-      return {
-        data: null,
-        error: createServiceError(
-          "По выбранному продукту у этого контакта уже есть заявка"
-        ),
-      };
+    if (hasApplicationUpdate) {
+      const updateResult = await supabase
+        .from("applications")
+        .update(payload)
+        .eq("id", applicationId)
+        .select(APPLICATION_COLUMNS)
+        .maybeSingle();
+
+      if (isUniqueViolation(updateResult.error)) {
+        return {
+          data: null,
+          error: createServiceError(
+            "По выбранному продукту у этого контакта уже есть заявка"
+          ),
+        };
+      }
+
+      if (updateResult.error) {
+        return {
+          data: null,
+          error: updateResult.error,
+        };
+      }
+
+      data = updateResult.data;
+    } else {
+      const currentResult = await supabase
+        .from("applications")
+        .select(APPLICATION_COLUMNS)
+        .eq("id", applicationId)
+        .maybeSingle();
+
+      if (currentResult.error) {
+        return {
+          data: null,
+          error: currentResult.error,
+        };
+      }
+
+      data = currentResult.data;
     }
 
-    if (error) {
+    const contactSync =
+      await syncMailingContactEventDates(
+        data?.mailing_contact_id ||
+          currentApplication.mailing_contact_id,
+        {
+          wroteAt: wroteDate.iso,
+          submittedAt: submittedDate.iso,
+        }
+      );
+
+    if (contactSync.error) {
       return {
-        data: null,
-        error,
+        data: await hydrateApplication(data),
+        error: contactSync.error,
       };
     }
 
@@ -2742,6 +2988,9 @@ export const applicationService = {
       comment,
       productId,
       ppId,
+      openedOn,
+      submittedOn,
+      wroteOn,
     } = {}
   ) {
     const values = {};
@@ -2761,6 +3010,18 @@ export const applicationService = {
 
     if (ppId !== undefined) {
       values.pp_id = ppId;
+    }
+
+    if (openedOn !== undefined) {
+      values.opened_on = openedOn;
+    }
+
+    if (submittedOn !== undefined) {
+      values.submitted_on = submittedOn;
+    }
+
+    if (wroteOn !== undefined) {
+      values.wrote_on = wroteOn;
     }
 
     return this.updateApplication(

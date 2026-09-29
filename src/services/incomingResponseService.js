@@ -2285,6 +2285,45 @@ export const incomingResponseService = {
       error: updateError,
     };
   },
+
+  async updateRespondedAt(contactId, incomingDate) {
+    if (!contactId) {
+      return {
+        data: null,
+        error: createServiceError(
+          "Не передан контакт"
+        ),
+      };
+    }
+
+    const resolved =
+      resolveRespondedAt(incomingDate);
+
+    if (resolved.error) {
+      return {
+        data: null,
+        error: resolved.error,
+      };
+    }
+
+    const {
+      data: updatedContact,
+      error: updateError,
+    } = await supabase
+      .from("mailing_contacts")
+      .update({
+        responded_at: resolved.respondedAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", contactId)
+      .select(CONTACT_FIELDS)
+      .single();
+
+    return {
+      data: updatedContact,
+      error: updateError,
+    };
+  },
 };
 
 export default incomingResponseService;
