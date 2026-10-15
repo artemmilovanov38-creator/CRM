@@ -774,9 +774,23 @@
   gap: 7px;
 }
 
-.contact-drawer-application-edit select {
+.contact-drawer-form-field small {
+  color: #8f99aa;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.contact-drawer-application-edit input[type="date"] {
+  width: 100%;
   min-height: 42px;
   padding: 0 11px;
+  border: 1px solid #303a50;
+  border-radius: 10px;
+  outline: 0;
+  background: #0e1420;
+  color: #dfe5f2;
+  font: inherit;
+  color-scheme: dark;
 }
 
 .contact-drawer-application-edit textarea {
@@ -909,6 +923,18 @@
 
 .contact-drawer-application-delete {
   grid-column: 1 / -1;
+}
+
+.contact-drawer-shared-notice,
+.contact-drawer-application-warning {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fde68a;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .contact-drawer-create-actions {

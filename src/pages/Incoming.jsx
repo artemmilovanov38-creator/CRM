@@ -611,32 +611,31 @@ export default function Incoming() {
       return;
     }
 
-    if (
-      (summary.successful || 0) === 0 &&
-      (summary.conflicts || 0) > 0
-    ) {
-      setFormError(
-        "Этот Telegram уже закреплён за другим менеджером. Занести его как написавшего может только он."
-      );
-      setSaving(false);
-      return;
-    }
-
     const savedItems = [
       ...(registerResult.data?.createdExternal || []),
       ...(registerResult.data?.found || []),
       ...(registerResult.data?.alreadyResponded || []),
+      ...(registerResult.data?.sharedExisting || []),
     ];
 
     if (savedItems.length === 1) {
-      const query =
-        savedItems[0]?.identifier ||
-        "";
+      const item = savedItems[0] || {};
+      const params = new URLSearchParams();
+
+      if (item.identifier) {
+        params.set("q", item.identifier);
+      }
+
+      if (item.contact?.id) {
+        params.set("contact", item.contact.id);
+      }
+
+      if (item.sharedExisting) {
+        params.set("shared", "1");
+      }
 
       setSaving(false);
-      navigate(
-        `/my-contacts?q=${encodeURIComponent(query)}`
-      );
+      navigate(`/my-contacts?${params.toString()}`);
       return;
     }
 
@@ -2033,12 +2032,25 @@ function BulkResult({
         />
       )}
 
+      {result.sharedExisting?.length > 0 && (
+        <ResultList
+          icon={CheckCircle2}
+          title="Контакт уже есть в CRM. Можно создать новую заявку."
+          items={
+            result.sharedExisting.map(
+              (item) => item.identifier
+            )
+          }
+          variant="success"
+        />
+      )}
+
       {hasConflicts && (
         <ResultList
           icon={
             AlertTriangle
           }
-          title="Уже закреплены за другим менеджером"
+          title="Контакт уже есть в CRM. Можно создать новую заявку."
           items={
             result.conflicts.map(
               (item) =>

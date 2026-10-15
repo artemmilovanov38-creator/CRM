@@ -450,6 +450,23 @@
   color: #fca5a5;
 }
 
+.my-contacts-shared-notice,
+.my-contact-shared-label {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fde68a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.my-contact-shared-label {
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+
 @keyframes my-contacts-spin {
   to {
     transform: rotate(360deg);

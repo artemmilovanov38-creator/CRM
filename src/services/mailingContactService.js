@@ -1201,8 +1201,151 @@ const getMyContacts = async () => {
     from += MY_CONTACTS_PAGE_SIZE;
   }
 
+  const { data: linkedApplications, error: linkedError } =
+    await supabase
+      .from("applications")
+      .select("mailing_contact_id")
+      .eq("assigned_manager_id", currentUser.id)
+      .not("mailing_contact_id", "is", null);
+
+  if (!linkedError) {
+    const knownIds = new Set(rows.map((contact) => contact.id));
+    const missingIds = [
+      ...new Set(
+        (linkedApplications || [])
+          .map((row) => row.mailing_contact_id)
+          .filter((id) => id && !knownIds.has(id))
+      ),
+    ];
+
+    if (missingIds.length > 0) {
+      const { data: linkedContacts } = await supabase
+        .from("mailing_contacts")
+        .select("*")
+        .in("id", missingIds);
+
+      for (const contact of linkedContacts || []) {
+        rows.push({
+          ...contact,
+          shared_existing:
+            contact.manager_id !== currentUser.id,
+          owned_by_me:
+            !contact.manager_id ||
+            contact.manager_id === currentUser.id,
+        });
+      }
+    }
+  }
+
   return {
     data: await hydrateContactMailings(rows),
+    error: null,
+  };
+};
+
+const parseSharedContact = (data) => {
+  if (!data || typeof data !== "object" || !data.id) {
+    return null;
+  }
+
+  return {
+    ...data,
+    shared_existing: Boolean(
+      data.shared_existing || data.owned_by_me === false
+    ),
+    products: Array.isArray(data.products)
+      ? data.products
+      : [],
+  };
+};
+
+const lookupSharedContact = async (query) => {
+  const needle = String(query || "").trim();
+
+  if (!needle) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc(
+    "lookup_shared_contact",
+    {
+      p_telegram: needle,
+      p_phone: needle,
+    }
+  );
+
+  if (error) {
+    const text = `${error.message || ""} ${
+      error.details || ""
+    }`.toLowerCase();
+
+    if (
+      error.code === "PGRST202" ||
+      error.code === "42883" ||
+      text.includes("schema cache") ||
+      text.includes("lookup_shared_contact")
+    ) {
+      return {
+        data: null,
+        error: null,
+        missing: true,
+      };
+    }
+
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  return {
+    data: parseSharedContact(data),
+    error: null,
+  };
+};
+
+const getSharedContact = async (contactId) => {
+  if (!contactId) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc(
+    "get_shared_contact",
+    {
+      p_contact_id: contactId,
+    }
+  );
+
+  if (error) {
+    const text = `${error.message || ""}`.toLowerCase();
+
+    if (
+      error.code === "PGRST202" ||
+      error.code === "42883" ||
+      text.includes("schema cache") ||
+      text.includes("get_shared_contact")
+    ) {
+      return {
+        data: null,
+        error: null,
+        missing: true,
+      };
+    }
+
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  return {
+    data: parseSharedContact(data),
     error: null,
   };
 };
@@ -1276,6 +1419,8 @@ const searchMyContacts = async (query) => {
 export const mailingContactService = {
   getMyContacts,
   searchMyContacts,
+  lookupSharedContact,
+  getSharedContact,
   autoAssignManagers,
   normalizePhone,
   normalizeContact,

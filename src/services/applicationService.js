@@ -1,6 +1,11 @@
 import { supabase } from "../lib/supabase";
 import { formatTelegramDisplay, getContactTelegram } from "../utils/telegram";
 import {
+  contactOwnedByOther,
+  duplicateDecision,
+  resolveApplicationManagerId,
+} from "../utils/sharedContact";
+import {
   getOpenedAt,
   isTimestampInRange,
   normalizeProductName,
@@ -128,21 +133,53 @@ async function syncMailingContactEventDates(
   mailingContactId,
   { wroteAt = null, submittedAt = null } = {}
 ) {
-  if (!mailingContactId) {
+  if (!mailingContactId || (!wroteAt && !submittedAt)) {
     return {
       error: null,
     };
   }
 
+  const actor = await getCurrentActor();
+  const { data: current, error: readError } =
+    await supabase
+      .from("mailing_contacts")
+      .select(
+        "id, manager_id, responded_at, application_created_at"
+      )
+      .eq("id", mailingContactId)
+      .maybeSingle();
+
+  if (readError || !current) {
+    return {
+      error: null,
+      skipped: true,
+    };
+  }
+
+  if (
+    contactOwnedByOther({
+      contact: current,
+      currentUserId: actor.user?.id,
+    }) &&
+    !isPrivilegedRole(actor.profile?.role)
+  ) {
+    return {
+      error: null,
+      skipped: true,
+    };
+  }
+
   const payload = {};
 
-  if (wroteAt) {
+  if (wroteAt && !current.responded_at) {
     payload.responded_at = wroteAt;
   }
 
-  if (submittedAt) {
-    payload.application_created_at =
-      submittedAt;
+  if (
+    submittedAt &&
+    !current.application_created_at
+  ) {
+    payload.application_created_at = submittedAt;
   }
 
   if (Object.keys(payload).length === 0) {
@@ -151,16 +188,22 @@ async function syncMailingContactEventDates(
     };
   }
 
-  payload.updated_at =
-    new Date().toISOString();
+  payload.updated_at = new Date().toISOString();
 
   const { error } = await supabase
     .from("mailing_contacts")
     .update(payload)
     .eq("id", mailingContactId);
 
+  if (error) {
+    return {
+      error: null,
+      skipped: true,
+    };
+  }
+
   return {
-    error,
+    error: null,
   };
 }
 
@@ -181,6 +224,122 @@ function sameId(left, right) {
 
 function isUniqueViolation(error) {
   return error?.code === "23505";
+}
+
+function errorText(error) {
+  return `${error?.message || ""} ${
+    error?.details || ""
+  } ${error?.hint || ""}`.toLowerCase();
+}
+
+function isMissingColumn(error, column) {
+  const text = errorText(error);
+
+  return (
+    text.includes(String(column).toLowerCase()) &&
+    (text.includes("schema cache") ||
+      text.includes("could not find") ||
+      text.includes("column"))
+  );
+}
+
+function isMissingRpc(error) {
+  const text = errorText(error);
+
+  return (
+    error?.code === "42883" ||
+    error?.code === "PGRST202" ||
+    text.includes("schema cache") ||
+    text.includes("could not find the function")
+  );
+}
+
+async function fetchContactProductHints(contactId) {
+  if (!contactId) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc(
+    "list_contact_product_hints",
+    {
+      p_contact_id: contactId,
+    }
+  );
+
+  if (error) {
+    if (isMissingRpc(error)) {
+      return {
+        data: null,
+        error: null,
+        missing: true,
+      };
+    }
+
+    return {
+      data: [],
+      error,
+    };
+  }
+
+  return {
+    data: Array.isArray(data) ? data : [],
+    error: null,
+  };
+}
+
+async function findContactProductMatches({
+  mailingContactId,
+  productId,
+  productName = "",
+}) {
+  const hints = await fetchContactProductHints(
+    mailingContactId
+  );
+
+  if (hints.error) {
+    return hints;
+  }
+
+  if (hints.data) {
+    return {
+      data: hints.data.filter(
+        (item) =>
+          String(item?.product_id || "") ===
+          String(productId || "")
+      ),
+      error: null,
+    };
+  }
+
+  const existing = await findExistingApplication({
+    mailingContactId,
+    productId,
+  });
+
+  if (existing.error) {
+    return existing;
+  }
+
+  if (!existing.data) {
+    return {
+      data: [],
+      error: null,
+    };
+  }
+
+  return {
+    data: [
+      {
+        product_id: productId,
+        product_name: productName || "Продукт",
+        owned_by_me: true,
+      },
+    ],
+    error: null,
+  };
 }
 
 function isPrivilegedRole(role) {
@@ -1124,22 +1283,61 @@ async function updateMailingContactAfterCreation({
     };
   }
 
+  const actor = await getCurrentActor();
+  const { data: current, error: readError } =
+    await supabase
+      .from("mailing_contacts")
+      .select(
+        "id, manager_id, application_created_at, status"
+      )
+      .eq("id", contact.id)
+      .maybeSingle();
+
+  if (readError || !current) {
+    return {
+      data: contact,
+      error: null,
+      skipped: true,
+    };
+  }
+
+  const ownedByOther = contactOwnedByOther({
+    contact: {
+      ...contact,
+      manager_id:
+        current.manager_id || contact.manager_id,
+    },
+    currentUserId: managerId || actor.user?.id,
+  });
+
+  if (
+    ownedByOther &&
+    !isPrivilegedRole(actor.profile?.role)
+  ) {
+    return {
+      data: contact,
+      error: null,
+      skipped: true,
+    };
+  }
+
+  const payload = {
+    status: "application",
+    updated_at: new Date().toISOString(),
+  };
+
+  if (!current.application_created_at) {
+    payload.application_created_at =
+      applicationCreatedAt;
+  }
+
+  if (!current.manager_id && managerId) {
+    payload.manager_id = managerId;
+  }
+
   const { data, error } = await supabase
     .from("mailing_contacts")
-    .update({
-      status: "application",
-
-      application_created_at:
-        applicationCreatedAt,
-
-      manager_id:
-        managerId ||
-        contact.manager_id ||
-        null,
-
-      updated_at:
-        new Date().toISOString(),
-    })
+    .update(payload)
     .eq("id", contact.id)
     .select(`
       id,
@@ -1176,11 +1374,19 @@ async function updateMailingContactAfterCreation({
         status
       )
     `)
-    .single();
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      data: contact,
+      error: null,
+      skipped: true,
+    };
+  }
 
   return {
     data,
-    error,
+    error: null,
   };
 }
 
@@ -1989,13 +2195,13 @@ export const applicationService = {
 
     if (values?.mailing_contact_id) {
       const {
-        data: existingApplication,
+        data: productMatches,
         error: duplicateError,
-      } = await findExistingApplication({
+      } = await findContactProductMatches({
         mailingContactId:
           values.mailing_contact_id,
-
         productId: product.id,
+        productName: product.name,
       });
 
       if (duplicateError) {
@@ -2005,13 +2211,20 @@ export const applicationService = {
         };
       }
 
-      if (existingApplication) {
+      const decision = duplicateDecision({
+        matches: productMatches,
+        confirmDuplicate: Boolean(
+          values?.confirmDuplicate
+        ),
+      });
+
+      if (decision.needsConfirmation) {
         return {
-          data: existingApplication,
-          error: createServiceError(
-            `По продукту "${product.name}" у этого контакта уже есть заявка`
-          ),
-          alreadyExists: true,
+          data: null,
+          error: null,
+          needsConfirmation: true,
+          existingProducts:
+            decision.existingProducts,
         };
       }
     }
@@ -2043,8 +2256,14 @@ export const applicationService = {
       status,
 
       assigned_manager_id:
-        values?.assigned_manager_id ||
-        null,
+        resolveApplicationManagerId({
+          currentUserId: actor.user?.id || null,
+          requestedManagerId:
+            values?.assigned_manager_id || null,
+          privileged: isPrivilegedRole(
+            actor.profile?.role
+          ),
+        }),
 
       created_by:
         actor.user?.id ||
@@ -2074,6 +2293,10 @@ export const applicationService = {
       ...approvalFields,
     };
 
+    if (values?.submitKey) {
+      payload.submit_key = values.submitKey;
+    }
+
     if (submittedDate.iso) {
       payload.created_at =
         submittedDate.iso;
@@ -2087,20 +2310,81 @@ export const applicationService = {
         new Date().toISOString();
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("applications")
       .insert(payload)
       .select(APPLICATION_COLUMNS)
       .maybeSingle();
 
+    if (
+      error &&
+      isMissingColumn(error, "submit_key")
+    ) {
+      delete payload.submit_key;
+
+      const retry = await supabase
+        .from("applications")
+        .insert(payload)
+        .select(APPLICATION_COLUMNS)
+        .maybeSingle();
+
+      data = retry.data;
+      error = retry.error;
+    }
+
+    if (
+      isUniqueViolation(error) &&
+      values?.submitKey &&
+      errorText(error).includes("submit_key")
+    ) {
+      const existing = await supabase
+        .from("applications")
+        .select(APPLICATION_COLUMNS)
+        .eq("submit_key", values.submitKey)
+        .maybeSingle();
+
+      if (existing.data) {
+        return {
+          data: await hydrateApplication(
+            existing.data
+          ),
+          error: null,
+        };
+      }
+    }
+
     if (isUniqueViolation(error)) {
-      return {
-        data: null,
-        error: createServiceError(
-          `По продукту "${product.name}" у этого контакта уже есть заявка`
-        ),
-        alreadyExists: true,
-      };
+      const sameProductBlocked = errorText(
+        error
+      ).includes("product");
+
+      if (
+        sameProductBlocked &&
+        !values?.confirmDuplicate
+      ) {
+        return {
+          data: null,
+          error: null,
+          needsConfirmation: true,
+          existingProducts: [
+            {
+              product_id: product.id,
+              product_name: product.name,
+              owned_by_me: false,
+            },
+          ],
+        };
+      }
+
+      if (sameProductBlocked) {
+        return {
+          data: null,
+          error: createServiceError(
+            `По продукту "${product.name}" база всё ещё запрещает вторую заявку. Выполните миграцию 021 в Supabase SQL Editor и подтвердите создание ещё раз.`
+          ),
+          needsConfirmation: false,
+        };
+      }
     }
 
     if (error) {
@@ -2110,22 +2394,13 @@ export const applicationService = {
       };
     }
 
-    const contactSync =
-      await syncMailingContactEventDates(
-        data.mailing_contact_id,
-        {
-          wroteAt: wroteDate.iso,
-          submittedAt:
-            data.created_at,
-        }
-      );
-
-    if (contactSync.error) {
-      return {
-        data: await hydrateApplication(data),
-        error: contactSync.error,
-      };
-    }
+    await syncMailingContactEventDates(
+      data.mailing_contact_id,
+      {
+        wroteAt: wroteDate.iso,
+        submittedAt: data.created_at,
+      }
+    );
 
     return {
       data: await hydrateApplication(data),
@@ -2133,13 +2408,14 @@ export const applicationService = {
     };
   },
 
+  listContactProductHints(contactId) {
+    return fetchContactProductHints(contactId);
+  },
+
   /**
-   * Создать заявку из контакта рассылки.
-   *
-   * Один контакт может иметь заявки
-   * по разным продуктам.
-   *
-   * По одному продукту дубль запрещён.
+   * Создать заявку из контакта.
+   * Контакт общий, заявка принадлежит менеджеру,
+   * который её оформляет.
    */
   async createApplicationFromContact(
     contact,
@@ -2195,36 +2471,16 @@ export const applicationService = {
       };
     }
 
-    const {
-      data: existingApplication,
-      error: duplicateError,
-    } = await findExistingApplication({
-      mailingContactId: contact.id,
-      productId: selectedProduct.id,
-    });
-
-    if (duplicateError) {
-      return {
-        data: null,
-        error: duplicateError,
-      };
-    }
-
-    if (existingApplication) {
-      return {
-        data: existingApplication,
-        contact,
-        error: createServiceError(
-          `По продукту "${selectedProduct.name}" у этого контакта уже есть заявка`
-        ),
-        alreadyExists: true,
-      };
-    }
-
+    const actor = await getCurrentActor();
     const assignedManagerId =
-      managerId ||
-      contact.manager_id ||
-      null;
+      resolveApplicationManagerId({
+        currentUserId:
+          managerId || actor.user?.id || null,
+        requestedManagerId: managerId,
+        privileged: isPrivilegedRole(
+          actor.profile?.role
+        ),
+      });
 
     if (!assignedManagerId) {
       return {
@@ -2272,10 +2528,15 @@ export const applicationService = {
           normalizeText(
             options?.comment
           ) ||
-          normalizeText(
-            contact.comment
-          ) ||
-          "Заявка создана из входящего отклика",
+          (contactOwnedByOther({
+            contact,
+            currentUserId: assignedManagerId,
+          })
+            ? ""
+            : normalizeText(
+                contact.comment
+              ) ||
+              "Заявка создана из входящего отклика"),
 
         pp_id: options?.pp_id,
 
@@ -2287,7 +2548,24 @@ export const applicationService = {
 
         wrote_on:
           options?.wrote_on,
+
+        confirmDuplicate: Boolean(
+          options?.confirmDuplicate
+        ),
+
+        submitKey: options?.submitKey || null,
       });
+
+    if (result.needsConfirmation) {
+      return {
+        data: null,
+        contact,
+        error: null,
+        needsConfirmation: true,
+        existingProducts:
+          result.existingProducts || [],
+      };
+    }
 
     if (result.error) {
       return {
@@ -2304,10 +2582,7 @@ export const applicationService = {
 
     const application = result.data;
 
-    const {
-      data: updatedContact,
-      error: contactUpdateError,
-    } =
+    const { data: updatedContact } =
       await updateMailingContactAfterCreation({
         contact,
 
@@ -2315,21 +2590,8 @@ export const applicationService = {
           application.created_at ||
           new Date().toISOString(),
 
-        managerId:
-          assignedManagerId,
+        managerId: assignedManagerId,
       });
-
-    if (contactUpdateError) {
-      await supabase
-        .from("applications")
-        .delete()
-        .eq("id", application.id);
-
-      return {
-        data: null,
-        error: contactUpdateError,
-      };
-    }
 
     return {
       data: application,

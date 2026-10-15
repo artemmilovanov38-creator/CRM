@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -29,13 +30,20 @@ import { useAuth } from "../../context/AuthContext";
 
 import {
   applicationService,
+  getApplicationOpenedAt,
   getApplicationPayout,
 } from "../../services/applicationService";
+import { incomingResponseService } from "../../services/incomingResponseService";
+import { formatServiceError } from "../../utils/serviceError";
+import { formatTelegramDisplay, getTelegramHref } from "../../utils/telegram";
+import { productHintLabel } from "../../utils/sharedContact";
+import { isoToDateInput, todayDateInput } from "../../utils/periodRange";
+import { getApplicationDateForm } from "../../utils/applicationDates";
+import ApplicationEventDatesFields, {
+  ApplicationEventDatesView,
+} from "../applications/ApplicationEventDates";
 
 import "../../styles/ContactDrawer.css";
-import { formatTelegramDisplay, getTelegramHref } from "../../utils/telegram";
-import { todayDateInput } from "../../utils/periodRange";
-import { getApplicationDateForm } from "../../utils/applicationDates";
 
 const contactStatusNames = {
   new: "Новый",
@@ -72,7 +80,11 @@ const applicationStatusOptions = [
 function getCreateApplicationForm(contact) {
   const dates = getApplicationDateForm({
     created_at: null,
-    mailing_contact: contact,
+    mailing_contact:
+      contact?.shared_existing ||
+      contact?.owned_by_me === false
+        ? null
+        : contact,
   });
 
   return {
@@ -85,6 +97,14 @@ function getCreateApplicationForm(contact) {
     submittedOn: todayDateInput(),
     openedOn: todayDateInput(),
   };
+}
+
+function createSubmitKey() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `submit-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function getEmptyEditingForm() {
@@ -122,10 +142,30 @@ export default function ContactDrawer({
     "head",
   ].includes(currentProfile?.role);
 
+  const canEditThisContact =
+    canManageContacts ||
+    contact?.owned_by_me === true ||
+    (
+      contact?.owned_by_me !== false &&
+      !contact?.shared_existing &&
+      (
+        !contact?.manager_id ||
+        contact.manager_id === currentProfile?.id
+      )
+    );
+
   const [
     applications,
     setApplications,
   ] = useState([]);
+
+  const [productHints, setProductHints] =
+    useState([]);
+
+  const [serverAsksConfirm, setServerAsksConfirm] =
+    useState(false);
+
+  const submitKeyRef = useRef("");
 
   const [
     applicationsLoading,
@@ -196,6 +236,12 @@ export default function ContactDrawer({
     setManagerValue,
   ] = useState("");
 
+  const [contactWroteOn, setContactWroteOn] =
+    useState("");
+
+  const [savingWroteOn, setSavingWroteOn] =
+    useState(false);
+
   const loadApplications = useCallback(
     async () => {
       if (!contact?.id) {
@@ -206,11 +252,23 @@ export default function ContactDrawer({
       setApplicationsLoading(true);
       setApplicationsError("");
 
-      const result =
-        await applicationService
-          .getApplicationsByContactId(
-            contact.id
-          );
+      const [result, hintsResult] =
+        await Promise.all([
+          applicationService
+            .getApplicationsByContactId(
+              contact.id
+            ),
+          applicationService
+            .listContactProductHints(
+              contact.id
+            ),
+        ]);
+
+      setProductHints(
+        hintsResult.data ||
+          contact.products ||
+          []
+      );
 
       if (result.error) {
         console.error(
@@ -256,6 +314,11 @@ export default function ContactDrawer({
       contact.manager_id || ""
     );
 
+    setContactWroteOn(
+      isoToDateInput(contact.responded_at) ||
+        todayDateInput()
+    );
+
     setApplicationForm(
       getCreateApplicationForm(contact)
     );
@@ -274,6 +337,9 @@ export default function ContactDrawer({
     setApplicationsError("");
     setApplicationSuccess("");
     setLastCreatedApplicationId(null);
+    setProductHints(contact.products || []);
+    setServerAsksConfirm(false);
+    submitKeyRef.current = createSubmitKey();
   }, [contact]);
 
   useEffect(() => {
@@ -349,13 +415,30 @@ export default function ContactDrawer({
   const usedProductIds = useMemo(
     () =>
       new Set(
-        applications
-          .map((item) =>
+        [
+          ...applications.map((item) =>
             String(item.product_id || "")
-          )
-          .filter(Boolean)
+          ),
+          ...productHints.map((item) =>
+            String(item.product_id || "")
+          ),
+        ].filter(Boolean)
       ),
-    [applications]
+    [applications, productHints]
+  );
+
+  const existingProductNames = useMemo(
+    () =>
+      productHintLabel([
+        ...productHints,
+        ...applications.map((item) => ({
+          product_id: item.product_id,
+          product_name:
+            item.product_data?.name ||
+            item.product,
+        })),
+      ]),
+    [applications, productHints]
   );
 
   const managerChanged =
@@ -393,26 +476,23 @@ export default function ContactDrawer({
       return;
     }
 
-    if (
-      usedProductIds.has(
-        String(applicationForm.productId)
-      )
-    ) {
-      const productName =
-        selectedProduct?.name ||
-        "выбранному продукту";
+    const sameProductExists = usedProductIds.has(
+      String(applicationForm.productId)
+    );
 
+    if (
+      applicationForm.status === "approved" &&
+      !applicationForm.openedOn
+    ) {
       setApplicationFormError(
-        `По продукту "${productName}" у этого контакта уже есть заявка`
+        "Укажите дату «Когда успешно открыта». Именно она идёт в зарплату."
       );
 
       return;
     }
 
     const managerId =
-      contact.manager_id ||
-      currentProfile?.id ||
-      null;
+      currentProfile?.id || null;
 
     if (!managerId) {
       setApplicationFormError(
@@ -454,8 +534,24 @@ export default function ContactDrawer({
 
             wrote_on:
               applicationForm.wroteOn,
+
+            confirmDuplicate:
+              sameProductExists ||
+              serverAsksConfirm,
+
+            submitKey:
+              submitKeyRef.current,
           }
         );
+
+    if (result.needsConfirmation) {
+      setServerAsksConfirm(true);
+      setApplicationFormError(
+        `По продукту "${selectedProduct?.name || "выбранному продукту"}" уже есть заявка. Подтвердите, если это отдельная сделка: старая заявка не изменится.`
+      );
+      setApplicationSaving(false);
+      return;
+    }
 
     if (result.error) {
       console.error(
@@ -507,6 +603,8 @@ export default function ContactDrawer({
       });
     }
 
+    submitKeyRef.current = createSubmitKey();
+    setServerAsksConfirm(false);
     setApplicationSaving(false);
   }
 
@@ -561,6 +659,17 @@ export default function ContactDrawer({
     if (!editingForm.productId) {
       setApplicationsError(
         "Выберите продукт заявки"
+      );
+
+      return;
+    }
+
+    if (
+      editingForm.status === "approved" &&
+      !editingForm.openedOn
+    ) {
+      setApplicationsError(
+        "Укажите дату «Когда успешно открыта». Именно она идёт в зарплату."
       );
 
       return;
@@ -649,6 +758,31 @@ export default function ContactDrawer({
       return;
     }
 
+    if (nextStatus === "approved") {
+      const dates = getApplicationDateForm({
+        ...application,
+        mailing_contact: contact,
+      });
+
+      setEditingApplicationId(application.id);
+      setIsCreateFormOpen(false);
+      setEditingForm({
+        productId: application.product_id || "",
+        status: "approved",
+        comment: application.comment || "",
+        ppId: application.pp_id || "",
+        wroteOn:
+          dates.wrote_on || contactWroteOn,
+        submittedOn: dates.submitted_on,
+        openedOn:
+          dates.opened_on || todayDateInput(),
+      });
+      setApplicationSuccess(
+        "Укажите дату «Когда успешно открыта» и нажмите «Сохранить». В зарплату пойдёт этот день."
+      );
+      return;
+    }
+
     setApplicationSaving(true);
     setApplicationsError("");
     setApplicationSuccess("");
@@ -694,6 +828,40 @@ export default function ContactDrawer({
     });
 
     setApplicationSaving(false);
+  }
+
+  async function handleContactWroteOnChange(nextDate) {
+    setContactWroteOn(nextDate);
+
+    if (!contact?.id || !nextDate) {
+      return;
+    }
+
+    setSavingWroteOn(true);
+    setApplicationsError("");
+
+    const result =
+      await incomingResponseService.updateRespondedAt(
+        contact.id,
+        nextDate
+      );
+
+    if (result.error) {
+      setApplicationsError(
+        formatServiceError(
+          result.error,
+          "Не удалось сохранить дату «когда написал»"
+        )
+      );
+      setSavingWroteOn(false);
+      return;
+    }
+
+    onContactChanged?.(result.data || {
+      ...contact,
+      responded_at: result.data?.responded_at,
+    });
+    setSavingWroteOn(false);
   }
 
   async function handleDeleteApplication(
@@ -890,6 +1058,21 @@ export default function ContactDrawer({
         </header>
 
         <div className="contact-drawer-content">
+          {(contact.shared_existing ||
+            contact.owned_by_me === false) && (
+            <div className="contact-drawer-shared-notice">
+              Контакт уже есть в CRM. Можно создать новую заявку.
+            </div>
+          )}
+
+          {existingProductNames.length > 0 && (
+            <div className="contact-drawer-shared-notice">
+              Уже есть продукты:{" "}
+              {existingProductNames.join(", ")}.
+              Новая заявка не изменит старые.
+            </div>
+          )}
+
           <section className="contact-drawer-quick-actions">
             <QuickAction
               icon={Phone}
@@ -917,6 +1100,32 @@ export default function ContactDrawer({
               external
             />
           </section>
+
+          {canEditThisContact && (
+          <section className="contact-drawer-section">
+            <label className="contact-drawer-form-field">
+              <span>Когда человек написал</span>
+              <input
+                className="contact-drawer-select"
+                type="date"
+                value={contactWroteOn}
+                max={todayDateInput()}
+                disabled={
+                  actionLoading || savingWroteOn
+                }
+                onChange={(event) =>
+                  handleContactWroteOnChange(
+                    event.target.value
+                  )
+                }
+              />
+              <small>
+                Общая дата входящего. Для конверсии, не
+                для зарплаты.
+              </small>
+            </label>
+          </section>
+          )}
 
           {applicationSuccess && (
             <div className="contact-drawer-application-success">
@@ -998,6 +1207,7 @@ export default function ContactDrawer({
 
                   setApplicationFormError("");
                   setApplicationSuccess("");
+                  setServerAsksConfirm(false);
                 }}
               >
                 <option value="">
@@ -1045,12 +1255,21 @@ export default function ContactDrawer({
                 }
                 onChange={(event) =>
                   setApplicationForm(
-                    (current) => ({
-                      ...current,
+                    (current) => {
+                      const nextStatus =
+                        event.target.value;
 
-                      status:
-                        event.target.value,
-                    })
+                      return {
+                        ...current,
+                        status: nextStatus,
+                        openedOn:
+                          nextStatus ===
+                            "approved" &&
+                          !current.openedOn
+                            ? todayDateInput()
+                            : current.openedOn,
+                      };
+                    }
                   )
                 }
               >
@@ -1067,63 +1286,31 @@ export default function ContactDrawer({
               </select>
             </label>
 
-            <label className="contact-drawer-form-field">
-              <span>Дата входящего</span>
-
-              <input
-                className="contact-drawer-select"
-                type="date"
-                value={applicationForm.wroteOn}
-                max={todayDateInput()}
-                disabled={applicationSaving}
-                onChange={(event) =>
-                  setApplicationForm((current) => ({
-                    ...current,
-                    wroteOn: event.target.value,
-                  }))
-                }
-              />
-            </label>
-
-            <label className="contact-drawer-form-field">
-              <span>Дата подачи заявки</span>
-
-              <input
-                className="contact-drawer-select"
-                type="date"
-                value={applicationForm.submittedOn}
-                max={todayDateInput()}
-                required
-                disabled={applicationSaving}
-                onChange={(event) =>
-                  setApplicationForm((current) => ({
-                    ...current,
-                    submittedOn: event.target.value,
-                  }))
-                }
-              />
-            </label>
-
-            {applicationForm.status === "approved" && (
-              <label className="contact-drawer-form-field">
-                <span>Дата открытия</span>
-
-                <input
-                  className="contact-drawer-select"
-                  type="date"
-                  value={applicationForm.openedOn}
-                  max={todayDateInput()}
-                  required
-                  disabled={applicationSaving}
-                  onChange={(event) =>
-                    setApplicationForm((current) => ({
-                      ...current,
-                      openedOn: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            )}
+            <ApplicationEventDatesFields
+              wroteOn={applicationForm.wroteOn}
+              submittedOn={applicationForm.submittedOn}
+              openedOn={applicationForm.openedOn}
+              status={applicationForm.status}
+              disabled={applicationSaving}
+              onWroteChange={(value) =>
+                setApplicationForm((current) => ({
+                  ...current,
+                  wroteOn: value,
+                }))
+              }
+              onSubmittedChange={(value) =>
+                setApplicationForm((current) => ({
+                  ...current,
+                  submittedOn: value,
+                }))
+              }
+              onOpenedChange={(value) =>
+                setApplicationForm((current) => ({
+                  ...current,
+                  openedOn: value,
+                }))
+              }
+            />
 
             <label className="contact-drawer-form-field">
               <span>ID ПП</span>
@@ -1209,6 +1396,19 @@ export default function ContactDrawer({
               </p>
             )}
 
+            {(usedProductIds.has(
+              String(applicationForm.productId)
+            ) ||
+              serverAsksConfirm) && (
+              <div className="contact-drawer-application-warning">
+                По этому продукту уже есть заявка.
+                Новая создастся отдельно и не
+                изменит старую. Нажмите
+                «Подтвердить и создать», если это
+                другая сделка.
+              </div>
+            )}
+
             {applicationFormError && (
               <div className="contact-drawer-application-error">
                 <XCircle size={17} />
@@ -1251,9 +1451,15 @@ export default function ContactDrawer({
 
                 {applicationSaving
                   ? "Создаём заявку..."
-                  : applications.length > 0
-                    ? "Создать ещё заявку"
-                    : "Создать заявку"}
+                  : usedProductIds.has(
+                        String(
+                          applicationForm.productId
+                        )
+                      ) || serverAsksConfirm
+                    ? "Подтвердить и создать"
+                    : applications.length > 0
+                      ? "Создать ещё заявку"
+                      : "Создать заявку"}
               </button>
             </div>
           </section>
@@ -1263,7 +1469,11 @@ export default function ContactDrawer({
           <section className="contact-drawer-section">
             <SectionHeading
               title={`Заявки клиента (${applications.length})`}
-              description="Все заявки этого контакта. У каждой свой продукт, статус и ID."
+              description={
+                canManageContacts
+                  ? "Все заявки этого контакта. У каждой свой продукт, статус и менеджер."
+                  : "Здесь только ваши заявки. Чужие сделки нельзя изменить или удалить."
+              }
               icon={CheckCircle2}
             />
 
@@ -1384,14 +1594,22 @@ export default function ContactDrawer({
                                 }
                                 onChange={(event) =>
                                   setEditingForm(
-                                    (current) => ({
-                                      ...current,
+                                    (current) => {
+                                      const nextStatus =
+                                        event.target.value;
 
-                                      status:
-                                        event
-                                          .target
-                                          .value,
-                                    })
+                                      return {
+                                        ...current,
+                                        status:
+                                          nextStatus,
+                                        openedOn:
+                                          nextStatus ===
+                                            "approved" &&
+                                          !current.openedOn
+                                            ? todayDateInput()
+                                            : current.openedOn,
+                                      };
+                                    }
                                   )
                                 }
                               >
@@ -1414,88 +1632,33 @@ export default function ContactDrawer({
                               </select>
                             </label>
 
-                            <label>
-                              <span>
-                                Дата входящего
-                              </span>
-
-                              <input
-                                type="date"
-                                value={
-                                  editingForm.wroteOn
-                                }
-                                max={todayDateInput()}
-                                disabled={
-                                  applicationSaving
-                                }
-                                onChange={(event) =>
-                                  setEditingForm(
-                                    (current) => ({
-                                      ...current,
-                                      wroteOn:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                              />
-                            </label>
-
-                            <label>
-                              <span>
-                                Дата подачи заявки
-                              </span>
-
-                              <input
-                                type="date"
-                                value={
-                                  editingForm.submittedOn
-                                }
-                                max={todayDateInput()}
-                                required
-                                disabled={
-                                  applicationSaving
-                                }
-                                onChange={(event) =>
-                                  setEditingForm(
-                                    (current) => ({
-                                      ...current,
-                                      submittedOn:
-                                        event.target.value,
-                                    })
-                                  )
-                                }
-                              />
-                            </label>
-
-                            {editingForm.status ===
-                              "approved" && (
-                              <label>
-                                <span>
-                                  Дата открытия
-                                </span>
-
-                                <input
-                                  type="date"
-                                  value={
-                                    editingForm.openedOn
-                                  }
-                                  max={todayDateInput()}
-                                  required
-                                  disabled={
-                                    applicationSaving
-                                  }
-                                  onChange={(event) =>
-                                    setEditingForm(
-                                      (current) => ({
-                                        ...current,
-                                        openedOn:
-                                          event.target.value,
-                                      })
-                                    )
-                                  }
-                                />
-                              </label>
-                            )}
+                            <ApplicationEventDatesFields
+                              wroteOn={editingForm.wroteOn}
+                              submittedOn={
+                                editingForm.submittedOn
+                              }
+                              openedOn={editingForm.openedOn}
+                              status={editingForm.status}
+                              disabled={applicationSaving}
+                              onWroteChange={(value) =>
+                                setEditingForm((current) => ({
+                                  ...current,
+                                  wroteOn: value,
+                                }))
+                              }
+                              onSubmittedChange={(value) =>
+                                setEditingForm((current) => ({
+                                  ...current,
+                                  submittedOn: value,
+                                }))
+                              }
+                              onOpenedChange={(value) =>
+                                setEditingForm((current) => ({
+                                  ...current,
+                                  openedOn: value,
+                                }))
+                              }
+                            />
 
                             <label>
                               <span>
@@ -1604,13 +1767,6 @@ export default function ContactDrawer({
                                   ID заявки:{" "}
                                   {application.id}
                                 </span>
-
-                                <span>
-                                  Создана:{" "}
-                                  {formatDate(
-                                    application.created_at
-                                  )}
-                                </span>
                               </div>
 
                               <select
@@ -1681,6 +1837,19 @@ export default function ContactDrawer({
                                 </strong>
                               </div>
                             </div>
+
+                            <ApplicationEventDatesView
+                              wroteAt={
+                                contact.responded_at
+                              }
+                              submittedAt={
+                                application.created_at
+                              }
+                              openedAt={getApplicationOpenedAt(
+                                application
+                              )}
+                              status={application.status}
+                            />
 
                             <p className="contact-drawer-application-comment">
                               {application.comment ||
@@ -1760,14 +1929,16 @@ export default function ContactDrawer({
               }
             />
 
-            <InfoRow
-              icon={Mail}
-              label="Email"
-              value={
-                contact.email ||
-                "Email не указан"
-              }
-            />
+            {(canEditThisContact || contact.email) && (
+              <InfoRow
+                icon={Mail}
+                label="Email"
+                value={
+                  contact.email ||
+                  "Email не указан"
+                }
+              />
+            )}
 
             <InfoRow
               icon={Send}
@@ -1780,7 +1951,7 @@ export default function ContactDrawer({
             />
           </section>
 
-          {/* КОММЕНТАРИЙ КОНТАКТА */}
+          {canEditThisContact && (
           <section className="contact-drawer-section">
             <div className="contact-drawer-section-heading">
               <div>
@@ -1837,6 +2008,7 @@ export default function ContactDrawer({
                 : "Сохранить комментарий"}
             </button>
           </section>
+          )}
 
           {/* ТОЛЬКО ДЛЯ РУКОВОДИТЕЛЯ */}
           {canManageContacts && (
@@ -2018,31 +2190,6 @@ function getApplicationStatusName(
     status ||
     "Не указан"
   );
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "Не указано";
-  }
-
-  const date = new Date(value);
-
-  if (
-    Number.isNaN(date.getTime())
-  ) {
-    return "Не указано";
-  }
-
-  return new Intl.DateTimeFormat(
-    "ru-RU",
-    {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }
-  ).format(date);
 }
 
 function formatMoney(value) {

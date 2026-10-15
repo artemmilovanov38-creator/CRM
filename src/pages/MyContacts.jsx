@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -21,6 +22,7 @@ import {
 import ContactDrawer from "../components/mailings/ContactDrawer";
 
 import { applicationService } from "../services/applicationService";
+import { getOpenedAt } from "../utils/applicationEvents";
 import mailingContactService from "../services/mailingContactService";
 import { productService } from "../services/productService";
 import { matchesSearch } from "../utils/searchMatch";
@@ -50,6 +52,7 @@ const applicationStatusConfig = {
 
 export default function MyContacts() {
   const [searchParams] = useSearchParams();
+  const openedFromQueryRef = useRef(false);
 
   const [contacts, setContacts] =
     useState([]);
@@ -196,27 +199,54 @@ export default function MyContacts() {
             query
           );
 
+        if (!cancelled && !result.error && result.data?.length) {
+          setContacts((current) => {
+            const knownIds = new Set(
+              current.map((contact) => contact.id)
+            );
+            const extra = result.data.filter(
+              (contact) => !knownIds.has(contact.id)
+            );
+
+            if (extra.length === 0) {
+              return current;
+            }
+
+            return [...extra, ...current];
+          });
+          return;
+        }
+
+        const shared =
+          await mailingContactService.lookupSharedContact(
+            query
+          );
+
         if (
           cancelled ||
-          result.error ||
-          !result.data?.length
+          shared.error ||
+          !shared.data?.id
         ) {
           return;
         }
 
         setContacts((current) => {
-          const knownIds = new Set(
-            current.map((contact) => contact.id)
-          );
-          const extra = result.data.filter(
-            (contact) => !knownIds.has(contact.id)
-          );
-
-          if (extra.length === 0) {
+          if (
+            current.some(
+              (contact) =>
+                contact.id === shared.data.id
+            )
+          ) {
             return current;
           }
 
-          return [...extra, ...current];
+          return [
+            {
+              ...shared.data,
+              shared_existing: true,
+            },
+            ...current,
+          ];
         });
       },
       250
@@ -227,6 +257,80 @@ export default function MyContacts() {
       window.clearTimeout(timer);
     };
   }, [contacts, loading, searchValue]);
+
+  useEffect(() => {
+    const contactId = searchParams.get("contact");
+
+    if (!contactId || loading || openedFromQueryRef.current) {
+      return undefined;
+    }
+
+    const found = contacts.find(
+      (contact) => contact.id === contactId
+    );
+
+    if (found) {
+      openedFromQueryRef.current = true;
+      setSelectedContact(found);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    mailingContactService
+      .getSharedContact(contactId)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (!result.data?.id) {
+          const query = searchParams.get("q");
+
+          if (!result.missing || !query) {
+            return;
+          }
+
+          const stub = {
+            id: contactId,
+            full_name: query,
+            telegram_username: query,
+            owned_by_me: false,
+            shared_existing: true,
+            products: [],
+          };
+
+          openedFromQueryRef.current = true;
+          setContacts((current) =>
+            current.some((contact) => contact.id === stub.id)
+              ? current
+              : [stub, ...current]
+          );
+          setSelectedContact(stub);
+          return;
+        }
+
+        const sharedContact = {
+          ...result.data,
+          shared_existing:
+            result.data.owned_by_me === false,
+        };
+
+        openedFromQueryRef.current = true;
+        setContacts((current) =>
+          current.some(
+            (contact) => contact.id === sharedContact.id
+          )
+            ? current
+            : [sharedContact, ...current]
+        );
+        setSelectedContact(sharedContact);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contacts, loading, searchParams]);
 
   const applicationsByContact =
     useMemo(() => {
@@ -483,10 +587,10 @@ export default function MyContacts() {
           <h1>Мои контакты</h1>
 
           <p>
-            Здесь отображаются пользователи,
-            которых вы отметили как ответивших.
-            Откройте контакт, чтобы создать или
-            изменить заявку.
+            Здесь ваши контакты и люди, по которым
+            вы уже создали заявку. Если Telegram
+            уже есть в CRM, по нему можно открыть
+            новую заявку, не меняя чужие сделки.
           </p>
         </div>
 
@@ -572,6 +676,16 @@ export default function MyContacts() {
           </option>
         </select>
       </section>
+
+      {filteredContacts.some(
+        (contact) =>
+          contact.shared_existing ||
+          contact.owned_by_me === false
+      ) && (
+        <div className="my-contacts-shared-notice">
+          Контакт уже есть в CRM. Можно создать новую заявку.
+        </div>
+      )}
 
       <div className="my-contacts-result">
         Найдено:{" "}
@@ -703,9 +817,22 @@ export default function MyContacts() {
                           >
                             <div>
                               <span>
+                                Написал:{" "}
+                                {formatDate(
+                                  contact.responded_at
+                                )}
+                                {" · заявка: "}
                                 {formatDate(
                                   application.created_at
                                 )}
+                                {application.status ===
+                                "approved"
+                                  ? ` · открыта: ${formatDate(
+                                      getOpenedAt(
+                                        application
+                                      )
+                                    )}`
+                                  : ""}
                               </span>
 
                               <strong>
@@ -739,6 +866,13 @@ export default function MyContacts() {
                       <span>
                         Заявка ещё не создана
                       </span>
+                    </div>
+                  )}
+
+                  {(contact.shared_existing ||
+                    contact.owned_by_me === false) && (
+                    <div className="my-contact-shared-label">
+                      Контакт уже есть в CRM. Можно создать новую заявку.
                     </div>
                   )}
 

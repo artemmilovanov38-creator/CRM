@@ -983,21 +983,48 @@ async function registerIncomingResponseRpc({
     }
   }
 
-  if (!payload?.id) {
+  if (!payload?.id && !payload?.contact?.id) {
     return {
       data: payload || null,
       error: null,
     };
   }
 
-  const saved = await fetchContactById(
-    payload.id
+  const saved = payload.id
+    ? await fetchContactById(payload.id)
+    : { data: null };
+
+  const sharedExisting = Boolean(
+    payload.shared_existing ||
+      (payload.conflict && payload.id)
   );
+
+  const rpcContact =
+    payload.contact && typeof payload.contact === "object"
+      ? payload.contact
+      : null;
 
   return {
     data: {
       ...payload,
-      contact: saved.data || null,
+      conflict: sharedExisting
+        ? false
+        : Boolean(payload.conflict),
+      shared_existing: sharedExisting,
+      contact:
+        saved.data ||
+        rpcContact ||
+        (payload.id
+          ? {
+              id: payload.id,
+              full_name:
+                payload.full_name || null,
+              telegram_username:
+                payload.telegram_username || null,
+              owned_by_me: !sharedExisting,
+              shared_existing: sharedExisting,
+            }
+          : null),
     },
     error: null,
   };
@@ -1035,6 +1062,22 @@ async function createExternalContact({
       rpcResult.data
     );
 
+    if (
+      saved.data?.manager_id &&
+      saved.data.manager_id !== managerId
+    ) {
+      return {
+        data: {
+          ...saved.data,
+          owned_by_me: false,
+          shared_existing: true,
+        },
+        error: null,
+        alreadyExists: true,
+        sharedExisting: true,
+      };
+    }
+
     if (saved.data) {
       const createdAtMs = saved.data.created_at
         ? new Date(saved.data.created_at).getTime()
@@ -1048,11 +1091,21 @@ async function createExternalContact({
     }
 
     return {
-      data: null,
-      error: createServiceError(
-        "Контакт записан, но не читается в «Мои контакты». Выполните миграцию 014 в Supabase SQL Editor."
-      ),
-      alreadyExists: false,
+      data: {
+        id: rpcResult.data,
+        owned_by_me: false,
+        shared_existing: true,
+        telegram_username:
+          normalizedTelegram || null,
+        phone: normalizedPhone || null,
+        full_name:
+          normalizedTelegram ||
+          normalizedPhone ||
+          "Контакт",
+      },
+      error: null,
+      alreadyExists: true,
+      sharedExisting: true,
     };
   }
 
@@ -1232,6 +1285,42 @@ async function registerSingleResponse({
   if (!rpcRegister.error && rpcRegister.data) {
     const payload = rpcRegister.data;
 
+    if (
+      payload.shared_existing ||
+      (payload.conflict && payload.id)
+    ) {
+      return {
+        data: {
+          identifier,
+          matched: Boolean(payload.found_in_mailing),
+          foundInMailing: Boolean(
+            payload.found_in_mailing
+          ),
+          createdExternal: false,
+          alreadyResponded: false,
+          conflict: false,
+          sharedExisting: true,
+          contact: {
+            ...(payload.contact || {}),
+            id: payload.contact?.id || payload.id,
+            telegram_username:
+              payload.contact?.telegram_username ||
+              telegramDisplay ||
+              normalizedTelegram ||
+              null,
+            full_name:
+              payload.contact?.full_name ||
+              telegramDisplay ||
+              normalizedTelegram ||
+              normalizedPhone,
+            owned_by_me: false,
+            shared_existing: true,
+          },
+        },
+        error: null,
+      };
+    }
+
     if (payload.conflict) {
       return {
         data: {
@@ -1332,7 +1421,6 @@ async function registerSingleResponse({
     );
 
     if (
-      contact.responded_at &&
       contact.manager_id &&
       contact.manager_id !== managerId
     ) {
@@ -1342,9 +1430,14 @@ async function registerSingleResponse({
           matched: true,
           foundInMailing: true,
           createdExternal: false,
-          alreadyResponded: true,
-          conflict: true,
-          contact,
+          alreadyResponded: false,
+          conflict: false,
+          sharedExisting: true,
+          contact: {
+            ...contact,
+            owned_by_me: false,
+            shared_existing: true,
+          },
         },
         error: null,
       };
@@ -1580,10 +1673,14 @@ async function registerSingleResponse({
           foundInMailing: false,
           external: true,
           createdExternal: false,
-          alreadyResponded: true,
-          conflict: true,
-          contact:
-            existingExternal,
+          alreadyResponded: false,
+          conflict: false,
+          sharedExisting: true,
+          contact: {
+            ...existingExternal,
+            owned_by_me: false,
+            shared_existing: true,
+          },
         },
         error: null,
       };
@@ -1608,6 +1705,7 @@ async function registerSingleResponse({
     data: newContact,
     error: createError,
     alreadyExists,
+    sharedExisting,
   } = await createExternalContact({
     normalizedTelegram:
       telegramDisplay ||
@@ -1621,6 +1719,23 @@ async function registerSingleResponse({
     return {
       data: null,
       error: createError,
+    };
+  }
+
+  if (sharedExisting) {
+    return {
+      data: {
+        identifier,
+        matched: false,
+        foundInMailing: false,
+        external: true,
+        createdExternal: false,
+        alreadyResponded: false,
+        conflict: false,
+        sharedExisting: true,
+        contact: newContact,
+      },
+      error: null,
     };
   }
 
@@ -1878,6 +1993,7 @@ export const incomingResponseService = {
     const found = [];
     const createdExternal = [];
     const alreadyResponded = [];
+    const sharedExisting = [];
     const conflicts = [];
     const failed = [];
 
@@ -1911,6 +2027,17 @@ export const incomingResponseService = {
             error:
               error.message ||
               "Неизвестная ошибка",
+          });
+
+          continue;
+        }
+
+        if (data?.sharedExisting) {
+          sharedExisting.push({
+            identifier:
+              data.identifier,
+            contact: data.contact,
+            sharedExisting: true,
           });
 
           continue;
@@ -2007,6 +2134,9 @@ export const incomingResponseService = {
           alreadyResponded:
             alreadyResponded.length,
 
+          sharedExisting:
+            sharedExisting.length,
+
           conflicts:
             conflicts.length,
 
@@ -2018,7 +2148,8 @@ export const incomingResponseService = {
           successful:
             found.length +
             createdExternal.length +
-            alreadyResponded.length,
+            alreadyResponded.length +
+            sharedExisting.length,
         },
 
         found,
@@ -2026,6 +2157,7 @@ export const incomingResponseService = {
         externalCreated:
           createdExternal,
         alreadyResponded,
+        sharedExisting,
         conflicts,
         failed,
         notFound: [],
