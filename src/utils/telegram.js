@@ -239,3 +239,41 @@ export function contactMatchesTelegram(
     contact
   ).has(wanted);
 }
+
+export function isDifferentTelegramPerson(
+  contact,
+  searchValue
+) {
+  const wanted = telegramKey(searchValue);
+  const own =
+    telegramKey(contact?.telegram_username) ||
+    telegramKey(contact?.telegram);
+
+  if (!wanted || !own) {
+    return false;
+  }
+
+  return own !== wanted;
+}
+
+export function ownsTypedTelegram(contact, searchValue) {
+  const wanted = telegramKey(searchValue);
+
+  if (!wanted || !contact?.id) {
+    return false;
+  }
+
+  const own =
+    telegramKey(contact?.telegram_username) ||
+    telegramKey(contact?.telegram);
+
+  if (own) {
+    return own === wanted;
+  }
+
+  if (telegramKey(contact?.full_name) === wanted) {
+    return true;
+  }
+
+  return contactMatchesTelegram(contact, searchValue);
+}

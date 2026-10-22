@@ -4,6 +4,8 @@ import {
   extractTelegramUsername,
   formatTelegramDisplay,
   getContactTelegram,
+  isDifferentTelegramPerson,
+  ownsTypedTelegram,
   telegramKey,
 } from "../src/utils/telegram.js";
 
@@ -85,6 +87,48 @@ const mailingContact = {
 assert(
   contactMatchesTelegram(mailingContact, "https://t.me/thesmailfr"),
   "Поиск регистронезависимый и совпадает с записью в telegram_username"
+);
+
+assert(
+  contactMatchesTelegram(
+    {
+      telegram_username: "andrey\u200bpopec",
+      full_name: "Клиент",
+    },
+    "@Andreypopec"
+  ),
+  "Невидимый символ внутри ника не мешает поиску"
+);
+
+assert(
+  isDifferentTelegramPerson(
+    { telegram_username: "@other_user" },
+    "@Andreypopec"
+  ) === true,
+  "Чужой ник в поле Telegram не считается этим человеком"
+);
+
+assert(
+  ownsTypedTelegram(
+    {
+      id: "1",
+      telegram_username: "@Andreypopec",
+    },
+    "@andreypopec"
+  ) === true,
+  "Тот же ник считается уже внесённым"
+);
+
+assert(
+  ownsTypedTelegram(
+    {
+      id: "2",
+      telegram_username: "@other_user",
+      comment: "@Andreypopec",
+    },
+    "@Andreypopec"
+  ) === false,
+  "Упоминание в чужой строке не блокирует новый контакт"
 );
 
 console.log("Нормализация и поиск Telegram @thesmailfr прошли");

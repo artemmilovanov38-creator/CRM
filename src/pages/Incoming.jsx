@@ -52,7 +52,7 @@ import {
   getPeriodBounds,
   isoToDateInput,
 } from "../utils/periodRange";
-import { matchesSearch } from "../utils/searchMatch";
+import { contactMatchesQuery } from "../utils/searchMatch";
 import { formatServiceError } from "../utils/serviceError";
 
 import "../styles/Incoming.css";
@@ -357,14 +357,7 @@ export default function Incoming() {
 
     const alreadyVisible = responses.some(
       (response) =>
-        matchesSearch(
-          [
-            response.telegram_username,
-            response.full_name,
-            response.phone,
-          ],
-          query
-        )
+        contactMatchesQuery(response, query)
     );
 
     if (alreadyVisible) {
@@ -395,14 +388,7 @@ export default function Incoming() {
         const matched = (
           result.data || []
         ).filter((response) =>
-          matchesSearch(
-            [
-              response.telegram_username,
-              response.full_name,
-              response.phone,
-            ],
-            query
-          )
+          contactMatchesQuery(response, query)
         );
 
         setSearchHits(matched);
@@ -903,11 +889,10 @@ const managerOptions =
             "external" ||
           !response.mailing_id;
 
-        return matchesSearch(
+        return contactMatchesQuery(
+          response,
+          search,
           [
-            response.telegram_username,
-            response.full_name,
-            response.phone,
             response.status,
             response.source,
             isExternal
@@ -916,8 +901,7 @@ const managerOptions =
             response.mailing?.name,
             response.manager?.full_name,
             response.manager?.email,
-          ],
-          search
+          ]
         );
       }
     );

@@ -3,6 +3,8 @@ import {
   contactMatchesTelegram,
   formatTelegramDisplay,
   getContactTelegram,
+  isDifferentTelegramPerson,
+  ownsTypedTelegram,
   telegramKey,
 } from "../utils/telegram";
 
@@ -1035,6 +1037,7 @@ async function createExternalContact({
   normalizedPhone = "",
   managerId,
   respondedAt = null,
+  skipRpc = false,
 }) {
   if (!managerId) {
     return {
@@ -1048,16 +1051,18 @@ async function createExternalContact({
   const now = new Date().toISOString();
   const incomingAt = respondedAt;
 
-  const rpcResult = await supabase.rpc(
-    "create_incoming_external_contact",
-    {
-      p_telegram: normalizedTelegram || null,
-      p_phone: normalizedPhone || null,
-      p_responded_at: incomingAt,
-    }
-  );
+  const rpcResult = skipRpc
+    ? { data: null, error: { message: "skip" } }
+    : await supabase.rpc(
+        "create_incoming_external_contact",
+        {
+          p_telegram: normalizedTelegram || null,
+          p_phone: normalizedPhone || null,
+          p_responded_at: incomingAt,
+        }
+      );
 
-  if (!rpcResult.error && rpcResult.data) {
+  if (!skipRpc && !rpcResult.error && rpcResult.data) {
     const saved = await fetchContactById(
       rpcResult.data
     );
@@ -1109,7 +1114,11 @@ async function createExternalContact({
     };
   }
 
-  if (rpcResult.error && !isMissingRpc(rpcResult.error)) {
+  if (
+    !skipRpc &&
+    rpcResult.error &&
+    !isMissingRpc(rpcResult.error)
+  ) {
     return {
       data: null,
       error: mapWriteError(rpcResult.error),
@@ -1272,9 +1281,17 @@ async function registerSingleResponse({
     respondedAt,
   });
 
+  const typedTelegram =
+    telegramDisplay || normalizedTelegram;
+  const rpcOwnsTypedTelegram = ownsTypedTelegram(
+    rpcRegister.data?.contact,
+    typedTelegram
+  );
+
   if (
     rpcRegister.error &&
-    !isMissingRpc(rpcRegister.error)
+    !isMissingRpc(rpcRegister.error) &&
+    !typedTelegram
   ) {
     return {
       data: null,
@@ -1282,7 +1299,11 @@ async function registerSingleResponse({
     };
   }
 
-  if (!rpcRegister.error && rpcRegister.data) {
+  if (
+    !rpcRegister.error &&
+    rpcRegister.data &&
+    rpcOwnsTypedTelegram
+  ) {
     const payload = rpcRegister.data;
 
     if (
@@ -1387,6 +1408,52 @@ async function registerSingleResponse({
         error: null,
       };
     }
+  }
+
+  if (typedTelegram && !rpcOwnsTypedTelegram) {
+    const created = await createExternalContact({
+      normalizedTelegram: typedTelegram,
+      normalizedPhone,
+      managerId,
+      respondedAt,
+      skipRpc: true,
+    });
+
+    if (created.error) {
+      return {
+        data: null,
+        error: created.error,
+      };
+    }
+
+    const savedContact = {
+      ...(created.data || {}),
+      telegram_username:
+        created.data?.telegram_username ||
+        typedTelegram,
+      full_name:
+        created.data?.full_name ||
+        typedTelegram,
+      shared_existing: Boolean(created.sharedExisting),
+      owned_by_me: !created.sharedExisting,
+    };
+
+    return {
+      data: {
+        identifier,
+        matched: Boolean(savedContact.mailing_id),
+        foundInMailing: Boolean(savedContact.mailing_id),
+        external: !savedContact.mailing_id,
+        createdExternal:
+          !created.alreadyExists &&
+          !created.sharedExisting,
+        alreadyResponded: Boolean(created.alreadyExists),
+        conflict: false,
+        sharedExisting: Boolean(created.sharedExisting),
+        contact: savedContact,
+      },
+      error: null,
+    };
   }
 
   let mailingSearchResult;
@@ -1713,6 +1780,10 @@ async function registerSingleResponse({
     normalizedPhone,
     managerId,
     respondedAt,
+    skipRpc: isDifferentTelegramPerson(
+      rpcRegister.data?.contact,
+      telegramDisplay || normalizedTelegram
+    ),
   });
 
   if (createError) {

@@ -25,7 +25,7 @@ import { applicationService } from "../services/applicationService";
 import { getOpenedAt } from "../utils/applicationEvents";
 import mailingContactService from "../services/mailingContactService";
 import { productService } from "../services/productService";
-import { matchesSearch } from "../utils/searchMatch";
+import { contactMatchesQuery } from "../utils/searchMatch";
 import { useSearchParams } from "react-router-dom";
 
 import "../styles/MyContacts.css";
@@ -70,6 +70,13 @@ export default function MyContacts() {
 
   const [searchValue, setSearchValue] =
     useState(searchParams.get("q") || "");
+
+  const [pinnedContactId, setPinnedContactId] =
+    useState(searchParams.get("contact") || "");
+  const [pinnedForQuery, setPinnedForQuery] =
+    useState(
+      (searchParams.get("q") || "").trim()
+    );
 
   const [statusFilter, setStatusFilter] =
     useState("all");
@@ -178,16 +185,7 @@ export default function MyContacts() {
       async () => {
         const alreadyVisible =
           contacts.some((contact) =>
-            matchesSearch(
-              [
-                contact.full_name,
-                contact.phone,
-                contact.email,
-                contact.telegram_username,
-                contact.telegram,
-              ],
-              query
-            )
+            contactMatchesQuery(contact, query)
           );
 
         if (alreadyVisible) {
@@ -230,23 +228,32 @@ export default function MyContacts() {
           return;
         }
 
+        setPinnedContactId(shared.data.id);
+        setPinnedForQuery(query);
         setContacts((current) => {
+          const revealed = {
+            ...shared.data,
+            telegram_username:
+              shared.data.telegram_username || query,
+            full_name:
+              shared.data.full_name || query,
+            shared_existing: true,
+          };
+
           if (
             current.some(
               (contact) =>
-                contact.id === shared.data.id
+                contact.id === revealed.id
             )
           ) {
-            return current;
+            return current.map((contact) =>
+              contact.id === revealed.id
+                ? { ...contact, ...revealed }
+                : contact
+            );
           }
 
-          return [
-            {
-              ...shared.data,
-              shared_existing: true,
-            },
-            ...current,
-          ];
+          return [revealed, ...current];
         });
       },
       250
@@ -388,13 +395,13 @@ export default function MyContacts() {
   const filteredContacts = useMemo(() => {
     return preparedContacts.filter(
       (contact) => {
-        const matchesQuery = matchesSearch(
+        const matchesQuery =
+          (contact.id === pinnedContactId &&
+            searchValue.trim() === pinnedForQuery) ||
+          contactMatchesQuery(
+          contact,
+          searchValue,
           [
-            contact.full_name,
-            contact.phone,
-            contact.email,
-            contact.telegram_username,
-            contact.telegram,
             contact.mailing?.name,
             contact.mailing?.title,
             contact.latest_application
@@ -414,8 +421,7 @@ export default function MyContacts() {
                   application.status
                 ],
               ]),
-          ],
-          searchValue
+          ]
         );
 
         const matchesStatus =
@@ -430,6 +436,8 @@ export default function MyContacts() {
     preparedContacts,
     searchValue,
     statusFilter,
+    pinnedContactId,
+    pinnedForQuery,
   ]);
 
   const stats = useMemo(() => {
