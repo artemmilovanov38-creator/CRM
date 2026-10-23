@@ -621,7 +621,11 @@ export default function Incoming() {
       }
 
       setSaving(false);
-      navigate(`/my-contacts?${params.toString()}`);
+      navigate(`/my-contacts?${params.toString()}`, {
+        state: {
+          contact: item.contact || null,
+        },
+      });
       return;
     }
 

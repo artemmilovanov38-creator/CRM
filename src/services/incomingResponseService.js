@@ -1032,6 +1032,47 @@ async function registerIncomingResponseRpc({
   };
 }
 
+async function revealOwnedTelegram(
+  contact,
+  typedTelegram,
+  managerId
+) {
+  if (!contact?.id || !typedTelegram || !managerId) {
+    return contact;
+  }
+
+  const wanted = telegramKey(typedTelegram);
+  const shown = String(
+    contact.telegram_username || ""
+  ).toLowerCase();
+
+  if (wanted && shown.includes(wanted)) {
+    return contact;
+  }
+
+  const { data } = await supabase
+    .from("mailing_contacts")
+    .update({
+      telegram_username: typedTelegram,
+      full_name:
+        contact.full_name || typedTelegram,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", contact.id)
+    .eq("manager_id", managerId)
+    .select(CONTACT_FIELDS_PLAIN)
+    .maybeSingle();
+
+  return (
+    data || {
+      ...contact,
+      telegram_username: typedTelegram,
+      full_name:
+        contact.full_name || typedTelegram,
+    }
+  );
+}
+
 async function createExternalContact({
   normalizedTelegram = "",
   normalizedPhone = "",
@@ -1180,7 +1221,11 @@ async function createExternalContact({
 
     if (existingResult.data) {
       return {
-        data: existingResult.data,
+        data: await revealOwnedTelegram(
+          existingResult.data,
+          normalizedTelegram,
+          managerId
+        ),
         error: null,
         alreadyExists: true,
       };
@@ -1283,9 +1328,21 @@ async function registerSingleResponse({
 
   const typedTelegram =
     telegramDisplay || normalizedTelegram;
+  const matchedContact = rpcRegister.data?.contact || null;
   const rpcOwnsTypedTelegram = ownsTypedTelegram(
-    rpcRegister.data?.contact,
+    matchedContact,
     typedTelegram
+  );
+  const ownedByCurrentManager = Boolean(
+    matchedContact &&
+      !rpcRegister.data?.shared_existing &&
+      !rpcRegister.data?.conflict &&
+      matchedContact.shared_existing !== true &&
+      matchedContact.owned_by_me !== false &&
+      (
+        !matchedContact.manager_id ||
+        matchedContact.manager_id === managerId
+      )
   );
 
   if (
@@ -1302,9 +1359,15 @@ async function registerSingleResponse({
   if (
     !rpcRegister.error &&
     rpcRegister.data &&
-    rpcOwnsTypedTelegram
+    rpcOwnsTypedTelegram &&
+    ownedByCurrentManager
   ) {
     const payload = rpcRegister.data;
+    payload.contact = await revealOwnedTelegram(
+      payload.contact,
+      typedTelegram,
+      managerId
+    );
 
     if (
       payload.shared_existing ||
@@ -1410,7 +1473,7 @@ async function registerSingleResponse({
     }
   }
 
-  if (typedTelegram && !rpcOwnsTypedTelegram) {
+  if (typedTelegram && !ownedByCurrentManager) {
     const created = await createExternalContact({
       normalizedTelegram: typedTelegram,
       normalizedPhone,

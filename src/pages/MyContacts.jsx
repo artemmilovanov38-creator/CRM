@@ -26,7 +26,7 @@ import { getOpenedAt } from "../utils/applicationEvents";
 import mailingContactService from "../services/mailingContactService";
 import { productService } from "../services/productService";
 import { contactMatchesQuery } from "../utils/searchMatch";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 import "../styles/MyContacts.css";
 
@@ -52,7 +52,11 @@ const applicationStatusConfig = {
 
 export default function MyContacts() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const openedFromQueryRef = useRef(false);
+  const routedContact = location.state?.contact || null;
+  const routedContactRef = useRef(routedContact);
+  routedContactRef.current = routedContact;
 
   const [contacts, setContacts] =
     useState([]);
@@ -125,9 +129,35 @@ export default function MyContacts() {
 
         setContacts([]);
       } else {
+        const routedSource = routedContactRef.current;
+        const routed = routedSource?.id
+          ? {
+              ...routedSource,
+              telegram_username:
+                routedSource.telegram_username ||
+                searchParams.get("q") ||
+                "",
+              full_name:
+                routedSource.full_name ||
+                routedSource.telegram_username ||
+                searchParams.get("q") ||
+                "",
+            }
+          : null;
+        const loaded = contactsResult.data || [];
+
         setContacts(
-          contactsResult.data || []
+          routed &&
+            !loaded.some((contact) => contact.id === routed.id)
+            ? [routed, ...loaded]
+            : loaded
         );
+        if (routed?.id) {
+          setPinnedContactId(routed.id);
+          setPinnedForQuery(
+            (searchParams.get("q") || routed.telegram_username || "").trim()
+          );
+        }
       }
 
       if (productsResult.error) {
