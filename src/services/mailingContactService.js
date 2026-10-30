@@ -1302,7 +1302,17 @@ const lookupSharedContact = async (query) => {
   }
 
   return {
-    data: parseSharedContact(data),
+    data: parseSharedContact(
+      typeof data === "string"
+        ? (() => {
+            try {
+              return JSON.parse(data);
+            } catch {
+              return null;
+            }
+          })()
+        : data
+    ),
     error: null,
   };
 };
@@ -1384,6 +1394,36 @@ const searchMyContacts = async (query) => {
     };
   }
 
+  const visibleRpc = await supabase.rpc(
+    "search_contacts_by_telegram",
+    {
+      p_query: needle,
+    }
+  );
+
+  let rpcRows = visibleRpc.data;
+
+  if (typeof rpcRows === "string") {
+    try {
+      rpcRows = JSON.parse(rpcRows);
+    } catch {
+      rpcRows = [];
+    }
+  }
+
+  if (!visibleRpc.error && Array.isArray(rpcRows)) {
+    const parsed = rpcRows
+      .map((item) => parseSharedContact(item))
+      .filter(Boolean);
+
+    if (parsed.length > 0) {
+      return {
+        data: await hydrateContactMailings(parsed),
+        error: null,
+      };
+    }
+  }
+
   const { data, error } = await supabase
     .from("mailing_contacts")
     .select("*")
@@ -1408,10 +1448,18 @@ const searchMyContacts = async (query) => {
     };
   }
 
+  const ownRows = await hydrateContactMailings(data || []);
+  const shared = await lookupSharedContact(query);
+
+  if (shared.data?.id && !ownRows.some((row) => row.id === shared.data.id)) {
+    return {
+      data: [shared.data, ...ownRows],
+      error: null,
+    };
+  }
+
   return {
-    data: await hydrateContactMailings(
-      data || []
-    ),
+    data: ownRows,
     error: null,
   };
 };

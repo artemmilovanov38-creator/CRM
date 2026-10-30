@@ -602,6 +602,7 @@ export default function Incoming() {
       ...(registerResult.data?.found || []),
       ...(registerResult.data?.alreadyResponded || []),
       ...(registerResult.data?.sharedExisting || []),
+      ...(registerResult.data?.conflicts || []),
     ];
 
     if (savedItems.length === 1) {

@@ -954,6 +954,54 @@ function resolvedTelegramUsername(contact, telegramDisplay) {
   );
 }
 
+async function lookupContactByTelegramOrPhone({
+  telegram = "",
+  phone = "",
+} = {}) {
+  const { data, error } = await supabase.rpc(
+    "lookup_shared_contact",
+    {
+      p_telegram: telegram || null,
+      p_phone: phone || null,
+    }
+  );
+
+  if (error) {
+    return {
+      data: null,
+      error,
+    };
+  }
+
+  let payload = data;
+
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (!payload?.id) {
+    return {
+      data: null,
+      error: null,
+    };
+  }
+
+  return {
+    data: {
+      ...payload,
+      owned_by_me: payload.owned_by_me !== false,
+      shared_existing: Boolean(
+        payload.shared_existing || payload.owned_by_me === false
+      ),
+    },
+    error: null,
+  };
+}
+
 async function registerIncomingResponseRpc({
   telegram = "",
   phone = "",
@@ -1228,6 +1276,31 @@ async function createExternalContact({
         ),
         error: null,
         alreadyExists: true,
+      };
+    }
+
+    const shared = await lookupContactByTelegramOrPhone({
+      telegram: normalizedTelegram,
+      phone: normalizedPhone,
+    });
+
+    if (shared.data?.id) {
+      return {
+        data: {
+          ...shared.data,
+          telegram_username:
+            shared.data.telegram_username ||
+            normalizedTelegram,
+          full_name:
+            shared.data.full_name ||
+            normalizedTelegram ||
+            normalizedPhone,
+          owned_by_me: false,
+          shared_existing: true,
+        },
+        error: null,
+        alreadyExists: true,
+        sharedExisting: true,
       };
     }
   }
@@ -2166,23 +2239,12 @@ export const incomingResponseService = {
           continue;
         }
 
-        if (data?.sharedExisting) {
+        if (data?.sharedExisting || data?.conflict) {
           sharedExisting.push({
             identifier:
               data.identifier,
             contact: data.contact,
             sharedExisting: true,
-          });
-
-          continue;
-        }
-
-        if (data?.conflict) {
-          conflicts.push({
-            identifier:
-              data.identifier,
-            contact:
-              data.contact,
           });
 
           continue;

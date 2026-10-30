@@ -227,20 +227,36 @@ export default function MyContacts() {
             query
           );
 
-        if (!cancelled && !result.error && result.data?.length) {
+        const hits = (result.data || []).map((contact) => ({
+          ...contact,
+          telegram_username:
+            contact.telegram_username || query,
+          full_name:
+            contact.full_name ||
+            contact.telegram_username ||
+            query,
+        }));
+
+        if (!cancelled && !result.error && hits.length) {
+          setPinnedContactId(hits[0].id);
+          setPinnedForQuery(query);
           setContacts((current) => {
             const knownIds = new Set(
               current.map((contact) => contact.id)
             );
-            const extra = result.data.filter(
+            const extra = hits.filter(
               (contact) => !knownIds.has(contact.id)
             );
+            const merged = current.map((contact) => {
+              const hit = hits.find((item) => item.id === contact.id);
+              return hit ? { ...contact, ...hit } : contact;
+            });
 
             if (extra.length === 0) {
-              return current;
+              return merged;
             }
 
-            return [...extra, ...current];
+            return [...extra, ...merged];
           });
           return;
         }
@@ -426,8 +442,7 @@ export default function MyContacts() {
     return preparedContacts.filter(
       (contact) => {
         const matchesQuery =
-          (contact.id === pinnedContactId &&
-            searchValue.trim() === pinnedForQuery) ||
+          contact.id === pinnedContactId ||
           contactMatchesQuery(
           contact,
           searchValue,
