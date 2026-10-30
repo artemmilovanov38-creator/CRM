@@ -1796,6 +1796,12 @@ font-size:14px;
   min-width: 180px;
 }
 
+.applications-filter--pp {
+  flex: 1 1 140px;
+  min-width: 140px;
+  max-width: 100%;
+}
+
 .applications-toolbar .period-filter {
   flex: 1 1 100%;
   min-width: 0;
@@ -1828,6 +1834,7 @@ font-size:14px;
   .applications-toolbar__filters,
   .applications-filter,
   .applications-filter--product,
+  .applications-filter--pp,
   .applications-toolbar .period-filter,
   .applications-view-switcher {
     flex-basis: 100%;

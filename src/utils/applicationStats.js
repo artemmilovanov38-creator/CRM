@@ -1,6 +1,7 @@
 import { matchesSearch } from "./searchMatch.js";
 import {
   applicationIsSuccessfulOpeningInPeriod,
+  applicationMatchesPpId,
   applicationMatchesProductId,
   applicationMatchesStatus,
   applicationMatchesStatusAndPeriod,
@@ -120,6 +121,7 @@ export function buildApplicationBoard({
   statusFilter = "all",
   productId = null,
   selectedProduct = null,
+  ppId = "",
   rangeFrom = null,
   rangeTo = null,
 } = {}) {
@@ -130,6 +132,7 @@ export function buildApplicationBoard({
         application.phone,
         application.telegram,
         application.source,
+        application.pp_id,
         productName(application),
       ],
       search
@@ -141,7 +144,8 @@ export function buildApplicationBoard({
         application,
         productId,
         selectedProduct
-      )
+      ) &&
+      applicationMatchesPpId(application, ppId)
     );
   });
 

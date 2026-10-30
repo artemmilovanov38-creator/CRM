@@ -670,3 +670,40 @@ assert(
   isDateOnlyAfterToday("2099-01-01") === true,
   "Будущая дата открытия отклоняется"
 );
+
+const productPpBoard = buildApplicationBoard({
+  applications: [
+    {
+      id: "alfa-111",
+      status: "approved",
+      product_id: "alfa",
+      product: "Альфа",
+      pp_id: "111222",
+      created_at: "2026-09-01T10:00:00.000Z",
+    },
+    {
+      id: "alfa-other",
+      status: "approved",
+      product_id: "alfa",
+      product: "Альфа",
+      pp_id: "333444",
+      created_at: "2026-09-01T10:00:00.000Z",
+    },
+    {
+      id: "sim-111",
+      status: "approved",
+      product_id: "sim",
+      product: "Симка",
+      pp_id: "111222",
+      created_at: "2026-09-01T10:00:00.000Z",
+    },
+  ],
+  productId: "alfa",
+  selectedProduct: { id: "alfa", name: "Альфа" },
+  ppId: "111-222",
+});
+
+assert(
+  productPpBoard.visible.map((item) => item.id).join(",") === "alfa-111",
+  "Фильтры продукта и ID ПП вместе оставляют только нужную заявку"
+);

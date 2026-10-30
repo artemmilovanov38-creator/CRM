@@ -340,6 +340,20 @@ export function sameEntityId(left, right) {
  * Если есть product_id — сравниваем только ID.
  * Текст product используем лишь когда ID нет.
  */
+export function normalizePpId(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+export function applicationMatchesPpId(application, ppId) {
+  const wanted = normalizePpId(ppId);
+
+  if (!wanted) {
+    return true;
+  }
+
+  return normalizePpId(application?.pp_id) === wanted;
+}
+
 export function applicationMatchesProductId(
   application,
   productId,

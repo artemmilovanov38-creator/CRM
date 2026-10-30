@@ -4,6 +4,7 @@ import {
   Clock3,
   Columns3,
   GripVertical,
+  Hash,
   List,
   MessageCircle,
   Package,
@@ -74,6 +75,9 @@ export default function ApplicationsPage() {
 
   const [productFilter, setProductFilter] =
     useState("all");
+
+  const [ppIdFilter, setPpIdFilter] =
+    useState("");
 
   const [products, setProducts] =
     useState([]);
@@ -225,6 +229,7 @@ export default function ApplicationsPage() {
         statusFilter,
         productId: productIdForQuery,
         selectedProduct,
+        ppId: ppIdFilter,
         rangeFrom: periodRange.from,
         rangeTo: periodRange.to,
       }),
@@ -235,6 +240,7 @@ export default function ApplicationsPage() {
       statusFilter,
       productIdForQuery,
       selectedProduct,
+      ppIdFilter,
       periodRange.from,
       periodRange.to,
     ]
@@ -444,6 +450,21 @@ export default function ApplicationsPage() {
     applicationId,
     status
   ) {
+    if (status === "approved") {
+      const application = applications.find(
+        (item) => item.id === applicationId
+      );
+
+      if (application) {
+        openApplicationDrawer(application);
+        setSuccessMessage(
+          "В карточке укажите дату «Когда успешно открыта» и сохраните. В зарплату пойдёт этот день, а не дата справа на карточке."
+        );
+      }
+
+      return;
+    }
+
     setError("");
     setSuccessMessage("");
 
@@ -967,6 +988,9 @@ export default function ApplicationsPage() {
               "выбранный продукт"
             }`
           : ""}
+        {ppIdFilter.trim()
+          ? ` · ID ПП ${ppIdFilter.trim()}`
+          : ""}
       </p>
 
       <p className="applications-period-hint">
@@ -1133,7 +1157,7 @@ export default function ApplicationsPage() {
                   event.target.value
                 )
               }
-              placeholder="Имя, телефон, Telegram или продукт"
+              placeholder="Имя, телефон, Telegram, продукт или ID ПП"
             />
 
             {search && (
@@ -1229,6 +1253,38 @@ export default function ApplicationsPage() {
                 </option>
               ))}
             </select>
+
+            <div className="applications-search applications-filter--pp">
+              <Hash size={16} />
+
+              <input
+                type="search"
+                inputMode="numeric"
+                value={ppIdFilter}
+                onChange={(event) =>
+                  setPpIdFilter(
+                    event.target.value.replace(
+                      /\D/g,
+                      ""
+                    )
+                  )
+                }
+                placeholder="ID ПП"
+                aria-label="Фильтр по ID ПП"
+              />
+
+              {ppIdFilter && (
+                <button
+                  type="button"
+                  aria-label="Очистить ID ПП"
+                  onClick={() =>
+                    setPpIdFilter("")
+                  }
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
           </div>
 
           <PeriodFilter
@@ -1287,6 +1343,10 @@ export default function ApplicationsPage() {
                     selectedProduct?.name ||
                     "продукт"
                   }`
+                : ""
+            }${
+              ppIdFilter.trim()
+                ? ` · ID ПП ${ppIdFilter.trim()}`
                 : ""
             }`}
             rows={managerAnalytics}
@@ -1610,22 +1670,32 @@ function ApplicationMobileCard({
           </strong>
         </div>
 
-        <div className="application-mobile-card__meta">
-          <div>
-            <span>Создана</span>
+        {application.pp_id ? (
+          <div className="application-mobile-card__product">
+            <span>ID ПП</span>
 
             <strong>
-              {formatDateTime(
+              {application.pp_id}
+            </strong>
+          </div>
+        ) : null}
+
+        <div className="application-mobile-card__meta">
+          <div>
+            <span>Когда подал заявку</span>
+
+            <strong>
+              {formatDateOnly(
                 application.created_at
               )}
             </strong>
           </div>
 
           <div>
-            <span>Открыта</span>
+            <span>Когда успешно открыта</span>
 
             <strong>
-              {formatDateTime(
+              {formatDateOnly(
                 getOpenedAt(application)
               )}
             </strong>
@@ -1937,6 +2007,16 @@ function ApplicationsKanban({
                           </strong>
                         </div>
 
+                        {application.pp_id ? (
+                          <div className="applications-kanban-card__product">
+                            <span>ID ПП</span>
+
+                            <strong>
+                              {application.pp_id}
+                            </strong>
+                          </div>
+                        ) : null}
+
                         {canAssignManager && (
                           <div className="applications-kanban-card__manager">
                             <span>Менеджер</span>
@@ -1994,14 +2074,14 @@ function ApplicationsKanban({
                           <span>
                             {application.status ===
                             "approved"
-                              ? `Открыта ${formatDateTime(
+                              ? `ЗП: открыта ${formatDateOnly(
                                   getOpenedAt(
                                     application
                                   )
                                 )}`
-                              : formatDateTime(
+                              : `Заявка заведена ${formatDateOnly(
                                   application.created_at
-                                )}
+                                )}`}
                           </span>
                         </div>
 
@@ -2039,13 +2119,14 @@ function ApplicationsTable({
             <th>Клиент</th>
             <th>Контакты</th>
             <th>Продукт</th>
+            <th>ID ПП</th>
             {canAssignManager && (
               <th>Менеджер</th>
             )}
             <th>Статус</th>
             <th>Сумма</th>
-            <th>Создана</th>
-            <th>Открыта</th>
+            <th>Когда подал заявку</th>
+            <th>Когда успешно открыта</th>
           </tr>
         </thead>
 
@@ -2108,6 +2189,10 @@ function ApplicationsTable({
                       application
                     )}
                   </span>
+                </td>
+
+                <td>
+                  {application.pp_id || "—"}
                 </td>
 
                 {canAssignManager && (
@@ -2198,7 +2283,7 @@ function ApplicationsTable({
 
                 <td>
                   <span className="application-date">
-                    {formatDateTime(
+                    {formatDateOnly(
                       application.created_at
                     )}
                   </span>
@@ -2206,7 +2291,7 @@ function ApplicationsTable({
 
                 <td>
                   <span className="application-date">
-                    {formatDateTime(
+                    {formatDateOnly(
                       getOpenedAt(application)
                     )}
                   </span>
@@ -2351,6 +2436,27 @@ function formatApplicationMoney(
   }
 
   return formatMoney(payout);
+}
+
+function formatDateOnly(dateValue) {
+  if (!dateValue) {
+    return "—";
+  }
+
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat(
+    "ru-RU",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }
+  ).format(date);
 }
 
 function formatDateTime(dateValue) {
