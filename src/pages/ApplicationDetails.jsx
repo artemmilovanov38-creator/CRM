@@ -33,7 +33,14 @@ import { applicationMessageService } from "../services/applicationMessageService
 import { notificationService } from "../services/notificationService";
 import { profileService } from "../services/profileService";
 import ApplicationTimeline from "../components/applications/ApplicationTimeline";
+import ApplicationEventDatesFields from "../components/applications/ApplicationEventDates";
 import { getApplicationDateForm } from "../utils/applicationDates";
+import {
+  formatMonthLabel,
+  formatPayoutDate,
+  formatPayoutMoney,
+  getPaymentLabel,
+} from "../utils/payoutImport";
 import { todayDateInput } from "../utils/periodRange";
 
 const statusOptions = [
@@ -827,7 +834,7 @@ setProducts(productsResult.data || []);
               )}
 
               <label className="application-details-quick-status">
-                <span>Дата открытия</span>
+                <span>Когда успешно открыта</span>
                 <input
                   type="date"
                   name="opened_on"
@@ -911,6 +918,39 @@ setProducts(productsResult.data || []);
             icon={Hash}
             label="ID ПП"
             value={application.pp_id || "Не указан"}
+          />
+
+          <InfoItem
+            icon={CircleDollarSign}
+            label="Оплата ПП"
+            value={
+              application.payment_status
+                ? `${getPaymentLabel(application.payment_status)}${
+                    application.payment_amount === null ||
+                    application.payment_amount === undefined
+                      ? ""
+                      : ` · ${formatPayoutMoney(application.payment_amount)}`
+                  }`
+                : "Нет в выплатах"
+            }
+          />
+
+          <InfoItem
+            icon={CalendarDays}
+            label="Дата ЦД в ПП"
+            value={formatPayoutDate(
+              application.partner_conversion_at
+            )}
+          />
+
+          <InfoItem
+            icon={CalendarDays}
+            label="Месяц выплаты"
+            value={
+              application.payout_month
+                ? formatMonthLabel(application.payout_month)
+                : "—"
+            }
           />
 
           <InfoItem
@@ -1117,54 +1157,33 @@ setProducts(productsResult.data || []);
                 </select>
               </label>
 
-              <label className="application-details-field">
-                <span>Дата входящего</span>
-                <input
-                  type="date"
-                  name="wrote_on"
-                  value={form.wrote_on}
-                  max={todayDateInput()}
-                  onChange={handleChange}
-                  disabled={!application.mailing_contact_id}
+              <div className="application-details-field application-details-field--wide">
+                <ApplicationEventDatesFields
+                  wroteOn={form.wrote_on}
+                  submittedOn={form.submitted_on}
+                  openedOn={form.opened_on}
+                  status={form.status}
+                  wroteDisabled={!application.mailing_contact_id}
+                  onWroteChange={(value) =>
+                    setForm((currentForm) => ({
+                      ...currentForm,
+                      wrote_on: value,
+                    }))
+                  }
+                  onSubmittedChange={(value) =>
+                    setForm((currentForm) => ({
+                      ...currentForm,
+                      submitted_on: value,
+                    }))
+                  }
+                  onOpenedChange={(value) =>
+                    setForm((currentForm) => ({
+                      ...currentForm,
+                      opened_on: value,
+                    }))
+                  }
                 />
-                <small>
-                  Когда человек написал. Если квит открыли
-                  раньше — дату всё равно можно поправить.
-                </small>
-              </label>
-
-              <label className="application-details-field">
-                <span>Дата подачи заявки</span>
-                <input
-                  type="date"
-                  name="submitted_on"
-                  value={form.submitted_on}
-                  max={todayDateInput()}
-                  onChange={handleChange}
-                  required
-                />
-                <small>
-                  Когда человек подал заявку. Не влияет на зарплату.
-                </small>
-              </label>
-
-              {form.status === "approved" && (
-                <label className="application-details-field">
-                  <span>Дата открытия</span>
-                  <input
-                    type="date"
-                    name="opened_on"
-                    value={form.opened_on}
-                    max={todayDateInput()}
-                    onChange={handleChange}
-                    required
-                  />
-                  <small>
-                    Зарплата посчитается за этот день, даже
-                    если кнопку нажали позже.
-                  </small>
-                </label>
-              )}
+              </div>
 
               <label className="application-details-field">
                 <span>Сумма из продукта</span>

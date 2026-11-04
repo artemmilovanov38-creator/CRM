@@ -504,6 +504,49 @@ function normalizeApplicationStatus(status) {
   return status || "new";
 }
 
+const PAYMENT_COLUMNS = `
+  id,
+  payment_status,
+  payment_amount,
+  paid_at,
+  payout_month,
+  partner_name,
+  partner_status,
+  partner_conversion_id,
+  partner_conversion_at,
+  partner_offer_name
+`;
+
+async function fetchPaymentOverlay(ids) {
+  const rows = [];
+  const list = uniqueIds(ids);
+
+  for (
+    let index = 0;
+    index < list.length;
+    index += LOOKUP_CHUNK_SIZE
+  ) {
+    const chunk = list.slice(
+      index,
+      index + LOOKUP_CHUNK_SIZE
+    );
+    const { data, error } = await supabase
+      .from("applications")
+      .select(PAYMENT_COLUMNS)
+      .in("id", chunk);
+
+    if (error) {
+      return new Map();
+    }
+
+    rows.push(...(data || []));
+  }
+
+  return new Map(
+    rows.map((row) => [String(row.id), row])
+  );
+}
+
 async function hydrateApplications(rows) {
   const list = Array.isArray(rows)
     ? rows.filter(Boolean)
@@ -517,6 +560,7 @@ async function hydrateApplications(rows) {
     products,
     managers,
     contacts,
+    payments,
   ] = await Promise.all([
     fetchRowsByIds(
       "products",
@@ -537,6 +581,7 @@ async function hydrateApplications(rows) {
         (row) => row.mailing_contact_id
       )
     ),
+    fetchPaymentOverlay(list.map((row) => row.id)),
   ]);
 
   const productsById = new Map(
@@ -586,8 +631,27 @@ async function hydrateApplications(rows) {
           ) || null
         : null;
 
+    const payment =
+      payments.get(String(row.id)) || null;
+
     return {
       ...row,
+      ...(payment
+        ? {
+            payment_status: payment.payment_status,
+            payment_amount: payment.payment_amount,
+            paid_at: payment.paid_at,
+            payout_month: payment.payout_month,
+            partner_name: payment.partner_name,
+            partner_status: payment.partner_status,
+            partner_conversion_id:
+              payment.partner_conversion_id,
+            partner_conversion_at:
+              payment.partner_conversion_at,
+            partner_offer_name:
+              payment.partner_offer_name,
+          }
+        : {}),
       status: normalizeApplicationStatus(
         row.status
       ),

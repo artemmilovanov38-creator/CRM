@@ -22,6 +22,7 @@ import MailingDetails from "./pages/MailingDetails.jsx";
 import Mailings from "./pages/Mailings.jsx";
 import ManagerDetails from "./pages/ManagerDetails.jsx";
 import Managers from "./pages/Managers";
+import Payouts from "./pages/Payouts.jsx";
 import Reports from "./pages/Reports.jsx";
 import Salaries from "./pages/Salaries.jsx";
 import Settings from "./pages/Settings.jsx";
@@ -93,6 +94,16 @@ export default function App() {
             <Route
               path="/applications"
               element={<ApplicationsPage />}
+            />
+            <Route
+              path="/payouts"
+              element={
+                <ProtectedRoute
+                  allowedRoles={["admin", "head"]}
+                >
+                  <Payouts />
+                </ProtectedRoute>
+              }
             />
             <Route
   path="/applications/:applicationId"

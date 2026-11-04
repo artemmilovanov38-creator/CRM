@@ -1,0 +1,85 @@
+.application-event-dates {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(124, 108, 255, 0.28);
+  border-radius: 12px;
+  background: rgba(124, 108, 255, 0.08);
+}
+
+.application-event-dates__intro {
+  margin: 0;
+  color: #c4c0ff;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.application-event-dates__field {
+  display: grid;
+  gap: 6px;
+}
+
+.application-event-dates__field span {
+  color: #e8e6ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.application-event-dates__field small {
+  color: #9aa3b8;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.application-event-dates__field input[type="date"] {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #303a50;
+  border-radius: 10px;
+  outline: 0;
+  background: #0e1420;
+  color: #edf0f5;
+  font: inherit;
+  color-scheme: dark;
+}
+
+.application-event-dates__field--salary {
+  padding: 10px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 12px;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.application-event-dates__field--salary span,
+.application-event-dates__field--salary small {
+  color: #a7f3d0;
+}
+
+.application-event-dates-view {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #2a3343;
+  border-radius: 12px;
+  background: rgba(14, 20, 32, 0.72);
+}
+
+.application-event-dates-view div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #9aa3b8;
+  font-size: 11px;
+}
+
+.application-event-dates-view strong {
+  color: #e9edf4;
+  font-size: 12px;
+  text-align: right;
+}
+
+.application-event-dates-view--salary strong {
+  color: #86efac;
+}

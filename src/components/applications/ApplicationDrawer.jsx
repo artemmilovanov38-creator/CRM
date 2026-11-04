@@ -21,9 +21,16 @@ import {
 } from "../../services/applicationService";
 import { applicationHistoryService } from "../../services/applicationHistoryService";
 import { getTelegramHref } from "../../utils/telegram";
+import {
+  formatMonthLabel,
+  formatPayoutDate,
+  formatPayoutMoney,
+  getPaymentLabel,
+} from "../../utils/payoutImport";
 import { getApplicationDateForm } from "../../utils/applicationDates";
 import { todayDateInput } from "../../utils/periodRange";
 import ApplicationTimeline from "./ApplicationTimeline";
+import ApplicationEventDatesFields from "./ApplicationEventDates";
 
 const statusOptions = [
   {
@@ -365,7 +372,7 @@ export default function ApplicationDrawer({
               </div>
             )}
             <label className="application-drawer-field">
-              <span>Дата открытия</span>
+                  <span>Когда успешно открыта</span>
               <input
                 type="date"
                 name="opened_on"
@@ -453,57 +460,32 @@ export default function ApplicationDrawer({
                 </select>
               </label>
 
-              <label className="application-drawer-field">
-                <span>Дата входящего</span>
-                <input
-                  type="date"
-                  name="wrote_on"
-                  value={form.wrote_on}
-                  max={todayDateInput()}
-                  onChange={handleChange}
-                  disabled={
-                    actionLoading ||
-                    !application.mailing_contact_id
-                  }
-                />
-                <small>
-                  Когда человек написал.
-                </small>
-              </label>
-
-              <label className="application-drawer-field">
-                <span>Дата подачи заявки</span>
-                <input
-                  type="date"
-                  name="submitted_on"
-                  value={form.submitted_on}
-                  max={todayDateInput()}
-                  onChange={handleChange}
-                  disabled={actionLoading}
-                  required
-                />
-                <small>
-                  Когда человек подал заявку.
-                </small>
-              </label>
-
-              {form.status === "approved" && (
-                <label className="application-drawer-field">
-                  <span>Дата открытия</span>
-                  <input
-                    type="date"
-                    name="opened_on"
-                    value={form.opened_on}
-                    max={todayDateInput()}
-                    onChange={handleChange}
-                    disabled={actionLoading}
-                    required
-                  />
-                  <small>
-                    Зарплата посчитается за этот день.
-                  </small>
-                </label>
-              )}
+              <ApplicationEventDatesFields
+                wroteOn={form.wrote_on}
+                submittedOn={form.submitted_on}
+                openedOn={form.opened_on}
+                status={form.status}
+                disabled={actionLoading}
+                wroteDisabled={!application.mailing_contact_id}
+                onWroteChange={(value) =>
+                  setForm((currentForm) => ({
+                    ...currentForm,
+                    wrote_on: value,
+                  }))
+                }
+                onSubmittedChange={(value) =>
+                  setForm((currentForm) => ({
+                    ...currentForm,
+                    submitted_on: value,
+                  }))
+                }
+                onOpenedChange={(value) =>
+                  setForm((currentForm) => ({
+                    ...currentForm,
+                    opened_on: value,
+                  }))
+                }
+              />
 
               <label className="application-drawer-field">
                 <span>Менеджер</span>
@@ -606,6 +588,38 @@ export default function ApplicationDrawer({
                 placeholder="Введите цифры вручную"
               />
             </label>
+
+            {(application?.payment_status ||
+              application?.partner_conversion_at) && (
+              <div className="application-drawer-product-card">
+                <div>
+                  <span>Оплата ПП</span>
+                  <strong>
+                    {getPaymentLabel(
+                      application.payment_status
+                    )}
+                    {application.payment_amount === null ||
+                    application.payment_amount === undefined
+                      ? ""
+                      : ` · ${formatPayoutMoney(
+                          application.payment_amount
+                        )}`}
+                  </strong>
+                  <small>
+                    ЦД{" "}
+                    {formatPayoutDate(
+                      application.partner_conversion_at
+                    )}
+                    {" · выплата "}
+                    {application.payout_month
+                      ? formatMonthLabel(
+                          application.payout_month
+                        )
+                      : "—"}
+                  </small>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="application-drawer-section">

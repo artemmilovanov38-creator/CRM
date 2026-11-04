@@ -122,6 +122,7 @@ export function buildApplicationBoard({
   productId = null,
   selectedProduct = null,
   ppId = "",
+  paymentFilter = "all",
   rangeFrom = null,
   rangeTo = null,
 } = {}) {
@@ -145,7 +146,11 @@ export function buildApplicationBoard({
         productId,
         selectedProduct
       ) &&
-      applicationMatchesPpId(application, ppId)
+      applicationMatchesPpId(application, ppId) &&
+      applicationMatchesPayment(
+        application,
+        paymentFilter
+      )
     );
   });
 
@@ -412,6 +417,19 @@ export function buildApplicationBoard({
     products,
     managers: managerRows,
   };
+}
+
+function applicationMatchesPayment(
+  application,
+  paymentFilter = "all"
+) {
+  if (!paymentFilter || paymentFilter === "all") {
+    return true;
+  }
+
+  const paid = application?.payment_status === "paid";
+
+  return paymentFilter === "paid" ? paid : !paid;
 }
 
 export function applicationMatchesListPeriod(

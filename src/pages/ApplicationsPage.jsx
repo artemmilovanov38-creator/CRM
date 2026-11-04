@@ -49,6 +49,7 @@ import {
   normalizeApplicationStatus,
 } from "../utils/applicationEvents";
 import { buildApplicationBoard } from "../utils/applicationStats";
+import { getPaymentLabel } from "../utils/payoutImport";
 
 const statusOptions = APPLICATION_STATUS_OPTIONS;
 
@@ -78,6 +79,9 @@ export default function ApplicationsPage() {
 
   const [ppIdFilter, setPpIdFilter] =
     useState("");
+
+  const [paymentFilter, setPaymentFilter] =
+    useState("all");
 
   const [products, setProducts] =
     useState([]);
@@ -230,6 +234,7 @@ export default function ApplicationsPage() {
         productId: productIdForQuery,
         selectedProduct,
         ppId: ppIdFilter,
+        paymentFilter,
         rangeFrom: periodRange.from,
         rangeTo: periodRange.to,
       }),
@@ -241,6 +246,7 @@ export default function ApplicationsPage() {
       productIdForQuery,
       selectedProduct,
       ppIdFilter,
+      paymentFilter,
       periodRange.from,
       periodRange.to,
     ]
@@ -1196,6 +1202,27 @@ export default function ApplicationsPage() {
               )}
             </select>
 
+            <select
+              className="applications-filter"
+              value={paymentFilter}
+              aria-label="Фильтр по оплате"
+              onChange={(event) =>
+                setPaymentFilter(
+                  event.target.value
+                )
+              }
+            >
+              <option value="all">
+                Все оплаты
+              </option>
+              <option value="paid">
+                Оплаченные
+              </option>
+              <option value="unpaid">
+                Неоплаченные
+              </option>
+            </select>
+
             {!isManager && (
               <select
                 className="applications-filter"
@@ -1680,6 +1707,10 @@ function ApplicationMobileCard({
           </div>
         ) : null}
 
+        {application.payment_status ? (
+          <PaymentBadge application={application} />
+        ) : null}
+
         <div className="application-mobile-card__meta">
           <div>
             <span>Когда подал заявку</span>
@@ -2017,6 +2048,12 @@ function ApplicationsKanban({
                           </div>
                         ) : null}
 
+                        {application.payment_status ? (
+                          <PaymentBadge
+                            application={application}
+                          />
+                        ) : null}
+
                         {canAssignManager && (
                           <div className="applications-kanban-card__manager">
                             <span>Менеджер</span>
@@ -2127,6 +2164,7 @@ function ApplicationsTable({
             <th>Сумма</th>
             <th>Когда подал заявку</th>
             <th>Когда успешно открыта</th>
+            <th>Оплата</th>
           </tr>
         </thead>
 
@@ -2296,12 +2334,32 @@ function ApplicationsTable({
                     )}
                   </span>
                 </td>
+
+                <td>
+                  {application.payment_status ? (
+                    <PaymentBadge
+                      application={application}
+                    />
+                  ) : (
+                    "—"
+                  )}
+                </td>
               </tr>
             )
           )}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function PaymentBadge({ application }) {
+  return (
+    <span
+      className={`payment-badge payment-badge--${application.payment_status}`}
+    >
+      {getPaymentLabel(application.payment_status)}
+    </span>
   );
 }
 

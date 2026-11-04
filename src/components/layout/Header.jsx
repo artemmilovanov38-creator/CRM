@@ -18,6 +18,7 @@ import {
   CheckCheck,
   FileText,
   Inbox,
+  Wallet,
   LogOut,
   Menu,
   PackageSearch,
@@ -66,6 +67,12 @@ const navigation = [
     icon: FileText,
     path: "/applications",
     roles: ["admin", "head", "manager"],
+  },
+  {
+    title: "Оплаты",
+    icon: Wallet,
+    path: "/payouts",
+    roles: ["admin", "head"],
   },
   {
   title: "Мои контакты",
