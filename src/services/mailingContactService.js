@@ -6,6 +6,7 @@ import {
 } from "../utils/searchMatch";
 import {
   formatTelegramDisplay,
+  isDifferentTelegramPerson,
   telegramKey,
 } from "../utils/telegram";
 
@@ -1414,7 +1415,11 @@ const searchMyContacts = async (query) => {
   if (!visibleRpc.error && Array.isArray(rpcRows)) {
     const parsed = rpcRows
       .map((item) => parseSharedContact(item))
-      .filter(Boolean);
+      .filter(
+        (item) =>
+          item &&
+          !isDifferentTelegramPerson(item, query)
+      );
 
     if (parsed.length > 0) {
       return {
@@ -1448,10 +1453,18 @@ const searchMyContacts = async (query) => {
     };
   }
 
-  const ownRows = await hydrateContactMailings(data || []);
+  const ownRows = (
+    await hydrateContactMailings(data || [])
+  ).filter(
+    (row) => !isDifferentTelegramPerson(row, query)
+  );
   const shared = await lookupSharedContact(query);
 
-  if (shared.data?.id && !ownRows.some((row) => row.id === shared.data.id)) {
+  if (
+    shared.data?.id &&
+    !isDifferentTelegramPerson(shared.data, query) &&
+    !ownRows.some((row) => row.id === shared.data.id)
+  ) {
     return {
       data: [shared.data, ...ownRows],
       error: null,

@@ -1,3 +1,4 @@
+import { contactMatchesQuery } from "../src/utils/searchMatch.js";
 import {
   collectContactTelegramKeys,
   contactMatchesTelegram,
@@ -129,6 +130,59 @@ assert(
     "@Andreypopec"
   ) === false,
   "Упоминание в чужой строке не блокирует новый контакт"
+);
+
+assert(
+  contactMatchesTelegram(
+    {
+      telegram_username: "@alais_thorne",
+      full_name: "@alais_thorne",
+      comment: "@Sashckaa",
+      raw_data: {
+        note: "@Sashckaa",
+      },
+    },
+    "@Sashckaa"
+  ) === false,
+  "Ник в комментарии не подменяет Telegram контакта"
+);
+
+assert(
+  contactMatchesQuery(
+    {
+      telegram_username: "@alais_thorne",
+      full_name: "@alais_thorne",
+      comment: "искали @Sashckaa",
+      mailing: {
+        name: "Рассылка 17.08-21.08",
+      },
+    },
+    "@Sashckaa",
+    ["Рассылка 17.08-21.08"]
+  ) === false,
+  "Поиск @Sashckaa не показывает @alais_thorne"
+);
+
+assert(
+  contactMatchesQuery(
+    {
+      telegram_username: "@Sashckaa",
+      full_name: "Саша",
+    },
+    "sashckaa"
+  ) === true,
+  "Тот же ник находится и без @"
+);
+
+assert(
+  contactMatchesQuery(
+    {
+      full_name: "Иван",
+      phone: "79001234567",
+    },
+    "79001234567"
+  ) === true,
+  "Поиск по телефону не ломается проверкой ника"
 );
 
 console.log("Нормализация и поиск Telegram @thesmailfr прошли");

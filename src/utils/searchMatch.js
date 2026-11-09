@@ -1,5 +1,6 @@
 import {
   contactMatchesTelegram,
+  isDifferentTelegramPerson,
   telegramKey,
 } from "./telegram.js";
 
@@ -58,6 +59,30 @@ export function matchesSearch(fields, rawQuery) {
   );
 }
 
+function isTelegramHandleQuery(rawQuery) {
+  const query = String(rawQuery || "").trim();
+
+  if (!query || /\s/.test(query)) {
+    return false;
+  }
+
+  if (/^\+?\d[\d\s()-]{4,}$/.test(query)) {
+    return false;
+  }
+
+  const key = telegramKey(query);
+
+  if (!key || /^\d+$/.test(key)) {
+    return false;
+  }
+
+  return (
+    query.startsWith("@") ||
+    /t(?:elegram)?\.me\//i.test(query) ||
+    query.replace(/^@+/i, "").toLowerCase() === key
+  );
+}
+
 export function contactMatchesQuery(
   contact,
   rawQuery,
@@ -69,8 +94,19 @@ export function contactMatchesQuery(
     return true;
   }
 
+  if (
+    isTelegramHandleQuery(query) &&
+    isDifferentTelegramPerson(contact, query)
+  ) {
+    return false;
+  }
+
   if (contactMatchesTelegram(contact, query)) {
     return true;
+  }
+
+  if (isTelegramHandleQuery(query)) {
+    return false;
   }
 
   return matchesSearch(

@@ -235,6 +235,20 @@ export function contactMatchesTelegram(
     return false;
   }
 
+  const own =
+    telegramKey(contact?.telegram_username) ||
+    telegramKey(contact?.telegram);
+
+  if (own) {
+    return own === wanted;
+  }
+
+  const nameKey = telegramKey(contact?.full_name);
+
+  if (nameKey) {
+    return nameKey === wanted;
+  }
+
   return collectContactTelegramKeys(
     contact
   ).has(wanted);

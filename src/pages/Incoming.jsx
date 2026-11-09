@@ -4,8 +4,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
-
 import {
   AlertTriangle,
   CalendarDays,
@@ -58,7 +56,6 @@ import { formatServiceError } from "../utils/serviceError";
 import "../styles/Incoming.css";
 
 export default function Incoming() {
-  const navigate = useNavigate();
   const { profile, user } = useAuth();
 
   const currentProfile =
@@ -597,38 +594,7 @@ export default function Incoming() {
       return;
     }
 
-    const savedItems = [
-      ...(registerResult.data?.createdExternal || []),
-      ...(registerResult.data?.found || []),
-      ...(registerResult.data?.alreadyResponded || []),
-      ...(registerResult.data?.sharedExisting || []),
-      ...(registerResult.data?.conflicts || []),
-    ];
-
-    if (savedItems.length === 1) {
-      const item = savedItems[0] || {};
-      const params = new URLSearchParams();
-
-      if (item.identifier) {
-        params.set("q", item.identifier);
-      }
-
-      if (item.contact?.id) {
-        params.set("contact", item.contact.id);
-      }
-
-      if (item.sharedExisting) {
-        params.set("shared", "1");
-      }
-
-      setSaving(false);
-      navigate(`/my-contacts?${params.toString()}`, {
-        state: {
-          contact: item.contact || null,
-        },
-      });
-      return;
-    }
+    setIdentifiersValue("");
 
     const today = formatDateInput(
       new Date()

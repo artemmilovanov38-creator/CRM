@@ -26,6 +26,10 @@ import { getOpenedAt } from "../utils/applicationEvents";
 import mailingContactService from "../services/mailingContactService";
 import { productService } from "../services/productService";
 import { contactMatchesQuery } from "../utils/searchMatch";
+import {
+  isDifferentTelegramPerson,
+  telegramKey,
+} from "../utils/telegram";
 import { useLocation, useSearchParams } from "react-router-dom";
 
 import "../styles/MyContacts.css";
@@ -227,15 +231,20 @@ export default function MyContacts() {
             query
           );
 
-        const hits = (result.data || []).map((contact) => ({
-          ...contact,
-          telegram_username:
-            contact.telegram_username || query,
-          full_name:
-            contact.full_name ||
-            contact.telegram_username ||
-            query,
-        }));
+        const hits = (result.data || [])
+          .filter(
+            (contact) =>
+              !isDifferentTelegramPerson(contact, query)
+          )
+          .map((contact) => ({
+            ...contact,
+            telegram_username:
+              contact.telegram_username || query,
+            full_name:
+              contact.full_name ||
+              contact.telegram_username ||
+              query,
+          }));
 
         if (!cancelled && !result.error && hits.length) {
           setPinnedContactId(hits[0].id);
@@ -269,7 +278,8 @@ export default function MyContacts() {
         if (
           cancelled ||
           shared.error ||
-          !shared.data?.id
+          !shared.data?.id ||
+          isDifferentTelegramPerson(shared.data, query)
         ) {
           return;
         }
@@ -439,10 +449,34 @@ export default function MyContacts() {
   ]);
 
   const filteredContacts = useMemo(() => {
+    const query = searchValue.trim();
+    const pinnedQuery = pinnedForQuery.trim();
+    const queryKey = telegramKey(query);
+    const pinnedKey = telegramKey(pinnedQuery);
+    const pinQueryStillActive =
+      Boolean(query) &&
+      Boolean(pinnedQuery) &&
+      (
+        query.toLowerCase() ===
+          pinnedQuery.toLowerCase() ||
+        Boolean(
+          queryKey &&
+            pinnedKey &&
+            queryKey === pinnedKey
+        )
+      );
+
     return preparedContacts.filter(
       (contact) => {
         const matchesQuery =
-          contact.id === pinnedContactId ||
+          (
+            contact.id === pinnedContactId &&
+            pinQueryStillActive &&
+            !isDifferentTelegramPerson(
+              contact,
+              query
+            )
+          ) ||
           contactMatchesQuery(
           contact,
           searchValue,
